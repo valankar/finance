@@ -11,8 +11,9 @@ import common
 ETFS_PATH = common.PREFIX + 'etfs_values.csv'
 
 
-def trade(etfs_df, amount, total):
+def trade(etfs_df, amount, original_amount, total, progress):
     """Simulate a trade."""
+    progress.update(amount)
     etfs_df['usd_to_reconcile'] = (
         amount * (etfs_df['wanted_percent'] / 100)) + ((
             (etfs_df['wanted_percent'] / 100) * total) - etfs_df['value'])
@@ -20,6 +21,9 @@ def trade(etfs_df, amount, total):
                                   etfs_df['current_price'])
     etfs_df = etfs_df.round(2)
     etfs_df['shares_to_trade'] = etfs_df['shares_to_trade'].round(0)
+    cost = (etfs_df['shares_to_trade'] * etfs_df['current_price']).sum()
+    if round(cost, 0) > original_amount:
+        return trade(etfs_df, amount - 1, original_amount, total, progress)
     return etfs_df
 
 
@@ -28,7 +32,6 @@ def main():
     amount = 0
     if len(sys.argv) > 1:
         amount = float(sys.argv[1])
-    original_amount = amount
     etfs_df = pd.read_csv(ETFS_PATH, index_col=0)
     data = {
         'wanted_percent':
@@ -43,16 +46,14 @@ def main():
                        left_index=True,
                        right_index=True)
 
-    progress = progressbar.ProgressBar(max_value=progressbar.UnknownLength)
-    for i in range(1000):
-        progress.update(i)
-        etfs_df = trade(etfs_df, amount, total)
-        cost = (etfs_df['shares_to_trade'] * etfs_df['current_price']).sum()
-        if round(cost, 0) > original_amount:
-            amount -= 1
-            continue
-        break
-
+    progress = progressbar.ProgressBar(max_value=progressbar.UnknownLength,
+                                       widgets=[
+                                           'Working: ',
+                                           progressbar.AnimatedMarker(), ' ',
+                                           progressbar.Timer()
+                                       ])
+    etfs_df = trade(etfs_df, amount, amount, total, progress)
+    cost = (etfs_df['shares_to_trade'] * etfs_df['current_price']).sum()
     print(etfs_df)
     print(f'Sum of trades: {round(cost, 2)}')
 
