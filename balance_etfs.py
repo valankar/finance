@@ -24,7 +24,7 @@ def trade(etfs_df, amount, original_amount, total, progress):
     cost = (etfs_df['shares_to_trade'] * etfs_df['current_price']).sum()
     if round(cost, 0) > original_amount:
         return trade(etfs_df, amount - 1, original_amount, total, progress)
-    return etfs_df
+    return (etfs_df, cost)
 
 
 def main():
@@ -52,8 +52,7 @@ def main():
                                            progressbar.AnimatedMarker(), ' ',
                                            progressbar.Timer()
                                        ])
-    etfs_df = trade(etfs_df, amount, amount, total, progress)
-    cost = (etfs_df['shares_to_trade'] * etfs_df['current_price']).sum()
+    etfs_df, cost = trade(etfs_df, amount, amount, total, progress)
     print(etfs_df)
     print(f'Sum of trades: {round(cost, 2)}')
 
