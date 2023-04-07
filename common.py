@@ -35,6 +35,7 @@ def get_ticker(ticker):
 
 
 @functools.cache
+@retry(psycopg2.Error, delay=1, jitter=1, tries=4)
 def get_all_tickers_steampipe_cloud():
     """Get ticker prices via Steampipe Clound."""
     conn = psycopg2.connect(authorization.STEAMPIPE_CLOUD_CONN)
