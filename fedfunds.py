@@ -8,7 +8,7 @@ import authorization
 import common
 
 
-def get_fedfunds():
+def main():
     """Download fedfunds rate data."""
     fred = Fred(api_key=authorization.FREDAPI_KEY)
     fedfunds_df = pd.DataFrame({'percent': fred.get_series('FEDFUNDS')})
@@ -17,4 +17,4 @@ def get_fedfunds():
 
 
 if __name__ == '__main__':
-    get_fedfunds()
+    main()

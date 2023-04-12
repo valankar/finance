@@ -4,6 +4,7 @@
 import math
 from datetime import date, datetime
 from concurrent.futures import ProcessPoolExecutor
+from functools import reduce
 
 import numpy as np
 import pandas as pd
@@ -445,15 +446,16 @@ def make_forex_section(forex_df):
     return fig
 
 
-def make_fedfunds_section(fedfunds_df):
-    """Make section with fedfunds rate graph."""
-    fig = px.line(fedfunds_df,
-                  x=fedfunds_df.index,
-                  y=fedfunds_df.columns,
-                  title='Federal Funds Effective Rate')
-    fig.update_xaxes(title_text='')
+def make_funds_yield_section():
+    """Make section fedfunds and swvxx graph."""
+    yield_df = get_fedfunds_yield_df()
+    fig = px.line(yield_df,
+                  x=yield_df.index,
+                  y=yield_df.columns,
+                  title='Fund Yields',
+                  markers=True)
     fig.update_yaxes(title_text='Percent')
-    fig.update_traces(showlegend=False)
+    fig.update_xaxes(title_text='')
     return fig
 
 
@@ -615,6 +617,34 @@ def get_real_estate_df(accounts_df):
     return real_estate_df
 
 
+def get_fedfunds_yield_df():
+    """Merge fedfunds and SWVXX yield data."""
+    fedfunds_df = pd.read_csv(common.PREFIX + 'fedfunds.csv',
+                              index_col=0,
+                              parse_dates=True,
+                              infer_datetime_format=True)
+    fedfunds_df = fedfunds_df['2019':]
+    swvxx_df = pd.read_csv(common.PREFIX + 'swvxx_yield.csv',
+                           index_col=0,
+                           parse_dates=True,
+                           infer_datetime_format=True)
+    wealthfront_df = pd.read_csv(common.PREFIX + 'wealthfront_cash_yield.csv',
+                                 index_col=0,
+                                 parse_dates=True,
+                                 infer_datetime_format=True)
+    merged = reduce(
+        lambda l, r: pd.merge(
+            l, r, left_index=True, right_index=True, how='outer'),
+        [fedfunds_df, swvxx_df, wealthfront_df])
+    merged = merged.rename(
+        columns={
+            'percent_x': 'Fed Funds',
+            'percent_y': 'Schwab SWVXX',
+            'percent': 'Wealthfront Cash'
+        })
+    return merged
+
+
 def downsample_df(dataframe):
     """Downsample data older than 1 week."""
     weekly = dataframe.resample('W').mean()
@@ -644,11 +674,6 @@ def main():
         index_col=0,
         parse_dates=True,
         infer_datetime_format=True).tz_localize('UTC').tz_convert(TIMEZONE)
-    fedfunds_df = pd.read_csv(common.PREFIX + 'fedfunds.csv',
-                              index_col=0,
-                              parse_dates=True,
-                              infer_datetime_format=True)
-    fedfunds_df = fedfunds_df['2019':]
 
     daily_df = all_df.resample('D').mean().interpolate()
     real_estate_daily_df = get_real_estate_df(accounts_df).resample('D').mean()
@@ -666,7 +691,7 @@ def main():
     total_no_homes_change_section = make_change_section(
         daily_df, 'total_no_homes', 'Total Without Real Estate Change')
     forex_section = make_forex_section(downsample_df(forex_df).interpolate())
-    fedfunds_section = make_fedfunds_section(fedfunds_df)
+    yield_section = make_funds_yield_section()
 
     write_html_and_images(
         (
@@ -677,7 +702,7 @@ def main():
             (net_worth_change_section, .75, 1),
             (total_no_homes_change_section, .75, 1),
             (forex_section, .5, 1),
-            (fedfunds_section, .5, 1),
+            (yield_section, .5, 1),
         ),
         all_df,
         accounts_df,

@@ -7,14 +7,15 @@ This is a project to keep track of finances. It generates graphs like the follow
 ![Real Estate](examples/realestate.jpg)
 ![Allocation](examples/allocation.jpg)
 ![Net Worth](examples/networth.jpg)
+![Forex and Funds](examples/forex_funds.jpg)
 
 ## How it works
 
 Generally you will not be able to use this as is and it will need lots of modifications. This
 is just to get you started.
 
-The `finance_hourly.py` script should be run hourly. This stores all the historical
-data as text or CSV files, and then creates plots.
+The `finance_hourly.py` script should be run hourly. The `finance_daily.py` script should be run daily.
+This stores all the historical data as text or CSV files, and then creates plots.
 
 ## Files
 
@@ -50,6 +51,10 @@ Write ETF/ticker values to a CSV file.
 
 Write fedfunds rate to a CSV file.
 
+### finance_daily.py
+
+Script that should run daily to update everything.
+
 ### finance_hourly.py
 
 Script that should run hourly to update everything.
@@ -70,6 +75,14 @@ When Redfin prices change, this is run to recalculate everything.
 
 Generate plots.
 
+### relayout_example.py
+
+Example script showing how to update X and Y axes based on a range selector.
+
+### swvxx_yield.py
+
+Get Charles Schwab SWVXX 7-day yield and store in a CSV file. Uses Selenium.
+
 ### vanguard_401k.py
 
 Write 401k value to CSV file.
@@ -77,3 +90,7 @@ Write 401k value to CSV file.
 ### vanguard_trust.py
 
 Retrieve Vanguard Target Retirement 2040 Trust price. This is not a ticker and must come directly from Vanguard.
+
+### wealthfront_cash_yield.py
+
+Get Wealthfront Cash APY and store in a CSV file. Uses Selenium.
