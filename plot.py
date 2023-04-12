@@ -126,8 +126,42 @@ def build_ranges(dataframe, columns):
     return ranges
 
 
+def add_range_buttons_single(fig, dataframe, columns):
+    """Add a range selector to a single plot that updates y axis as well as x."""
+    ranges = build_ranges(dataframe, columns)
+    buttons = []
+    for label in ('All', '2y', '1y', 'YTD', '6m', '3m', '1m'):
+        button_dict = dict(
+            label=label,
+            method='relayout',
+        )
+        arg_dict = {}
+        mins = maxes = []
+        for col_dict in ranges.values():
+            mins.append(col_dict[label]['yrange'][0])
+            maxes.append(col_dict[label]['yrange'][1])
+            xrange = col_dict[label]['xrange']
+
+        arg_dict['xaxis.range'] = xrange
+        arg_dict['yaxis.range'] = [min(mins), max(maxes)]
+        button_dict['args'] = [arg_dict]
+        buttons.append(button_dict)
+    fig.update_layout(updatemenus=[
+        dict(
+            type='buttons',
+            direction='right',
+            active=2,  # 1y
+            x=0.5,
+            y=-0.05,
+            buttons=buttons,
+        )
+    ])
+    # Select button 2.
+    fig.plotly_relayout(buttons[2]['args'][0])
+
+
 def add_range_buttons(subplot, dataframe, columns):
-    """Add a range selector that updates y axis as well as x."""
+    """Add a range selector to a 2-col subplot that updates y axis as well as x."""
     ranges = build_ranges(dataframe, columns)
     num_col = len(columns)
     col_split = list(
@@ -456,6 +490,7 @@ def make_funds_yield_section():
                   markers=True)
     fig.update_yaxes(title_text='Percent')
     fig.update_xaxes(title_text='')
+    add_range_buttons_single(fig, yield_df, yield_df.columns)
     return fig
 
 
@@ -635,20 +670,24 @@ def get_fedfunds_yield_df():
     merged = reduce(
         lambda l, r: pd.merge(
             l, r, left_index=True, right_index=True, how='outer'),
-        [fedfunds_df, swvxx_df, wealthfront_df])
+        [fedfunds_df,
+         downsample_df(swvxx_df),
+         downsample_df(wealthfront_df)])
     merged = merged.rename(
         columns={
             'percent_x': 'Fed Funds',
             'percent_y': 'Schwab SWVXX',
             'percent': 'Wealthfront Cash'
         })
-    return merged
+    return merged.interpolate()
 
 
 def downsample_df(dataframe):
     """Downsample data older than 1 week."""
     weekly = dataframe.resample('W').mean()
     daily = dataframe.resample('D').mean()
+    if daily.shape[0] < 7:
+        return daily
     weekly_concat = weekly[:daily.iloc[-7].name]
     daily_concat = daily[-7:]
     if weekly_concat.iloc[-1].name == daily.iloc[-7].name:

@@ -1,5 +1,6 @@
 """Common functions."""
 
+import atexit
 import functools
 import json
 import shutil
@@ -11,6 +12,8 @@ from pathlib import Path
 import psycopg2
 import psycopg2.extras
 from retry import retry
+from selenium import webdriver
+from selenium.webdriver import FirefoxOptions
 
 import authorization
 
@@ -87,5 +90,11 @@ def temporary_file_move(dest_file):
     shutil.move(write_file.name, dest_file)
 
 
-if __name__ == '__main__':
-    print(get_all_tickers_steampipe_local())
+@functools.cache
+def get_browser():
+    """Get a Selenium/Firefox browser. Reuse with cache. Quits on program exit."""
+    opts = FirefoxOptions()
+    opts.add_argument("--headless")
+    browser = webdriver.Firefox(options=opts)
+    atexit.register(browser.quit)
+    return browser
