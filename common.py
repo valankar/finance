@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 from contextlib import contextmanager
+from os import path
 from pathlib import Path
 
 import psycopg2
@@ -14,6 +15,7 @@ import psycopg2.extras
 from retry import retry
 from selenium import webdriver
 from selenium.webdriver import FirefoxOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
 
 import authorization
 
@@ -95,6 +97,7 @@ def get_browser():
     """Get a Selenium/Firefox browser. Reuse with cache. Quits on program exit."""
     opts = FirefoxOptions()
     opts.add_argument("--headless")
-    browser = webdriver.Firefox(options=opts)
+    service = FirefoxService(log_path=path.devnull)
+    browser = webdriver.Firefox(options=opts, service=service)
     atexit.register(browser.quit)
     return browser
