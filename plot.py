@@ -486,8 +486,7 @@ def make_funds_yield_section():
     fig = px.line(yield_df,
                   x=yield_df.index,
                   y=yield_df.columns,
-                  title='Fund Yields',
-                  markers=True)
+                  title='Fund Yields')
     fig.update_yaxes(title_text='Percent')
     fig.update_xaxes(title_text='')
     add_range_buttons_single(fig, yield_df, yield_df.columns)
