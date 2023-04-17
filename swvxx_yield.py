@@ -4,8 +4,6 @@
 from datetime import date
 import pandas as pd
 
-from selenium.webdriver.common.by import By
-
 import common
 
 SWVXX_CSV = common.PREFIX + 'swvxx_yield.csv'
@@ -13,13 +11,10 @@ SWVXX_CSV = common.PREFIX + 'swvxx_yield.csv'
 
 def get_yield():
     """Get 7 day yield with Selenium."""
-    browser = common.get_browser()
-    browser.get('https://www.schwabassetmanagement.com/products/swvxx')
-    apy = float(
-        browser.find_element(
-            By.XPATH, '//*[@id="sfm-table--yields"]/table/tbody/tr[1]/td[2]').
-        get_attribute('innerHTML').strip('%'))
-    return apy
+    return float(
+        common.find_xpath_via_browser(
+            'https://www.schwabassetmanagement.com/products/swvxx',
+            '//*[@id="sfm-table--yields"]/table/tbody/tr[1]/td[2]').strip('%'))
 
 
 def main():

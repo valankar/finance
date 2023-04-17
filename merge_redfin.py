@@ -2,18 +2,15 @@
 """Get estimated home values."""
 
 import shutil
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 
-import backoff
 import numpy as np
 import pandas as pd
-import requests
-from dateutil.relativedelta import relativedelta
-from redfin import Redfin
 
 import common
 
+URL_PREFIX = 'https://www.redfin.com'
 URLS = {
     'property3.txt': '/some/redfin/path/123',
     'property4.txt': '/some/redfin/path/123',
@@ -37,43 +34,30 @@ HOME_COLUMN_MAP = {
 OUTPUT_DIR = f'{Path.home()}/bin/accounts/historical/'
 
 
-@backoff.on_exception(
-    backoff.expo, (TypeError, KeyError, requests.exceptions.RequestException),
-    max_time=300)
 def get_redfin_estimate(url):
     """Get home value from Redfin."""
-    client = Redfin()
-    initial_info = client.initial_info(url)
-    property_id = initial_info['payload']['propertyId']
-    listing_id = initial_info['payload']['listingId']
-    avm_details = client.avm_details(property_id, listing_id)
-    value = float(avm_details['payload']['predictedValue'])
-    return value
+    return int(
+        common.find_xpath_via_browser(
+            url,
+            # pylint: disable-next=line-too-long
+            '//*[@id="content"]/div[12]/div[2]/div[1]/div/div[1]/div/div[1]/div/div/div/div/div/div[1]/div/span'
+        ).translate(str.maketrans('', '', '$,')))
 
 
-def get_redfin():
-    """Get data from Redfin and create CSV files."""
-    client = Redfin()
-    now = datetime.now()
+def create_csv():
+    """Create CSV files of homes with purchase and current price."""
+    today = date.today()
     for filename, url in URLS.items():
-        csv = []
-        initial_info = client.initial_info(url)
-        property_id = initial_info['payload']['propertyId']
-        listing_id = 1
-        if 'listingId' in initial_info['payload']:
-            listing_id = initial_info['payload']['listingId']
-        avm_details = client.avm_historical(property_id, listing_id)
-        for i, value in enumerate(
-                reversed(avm_details['payload']['propertyTimeSeries'])):
-            timestamp = now + relativedelta(months=-i)
-            timestamp_str = timestamp.strftime('%Y-%m-%d')
-            csv.append(f'{timestamp_str},{value}\n')
-        csv.append(
-            f'{PURCHASE_PRICES[filename][0]},{PURCHASE_PRICES[filename][1]}\n')
-        csv.append('date,value\n')
-        with open(f'{OUTPUT_DIR}{filename}.csv', 'w',
-                  encoding='utf-8') as csv_file:
-            csv_file.writelines(reversed(csv))
+        current_price = get_redfin_estimate(URL_PREFIX + url)
+        purchase_date = datetime.strptime(PURCHASE_PRICES[filename][0],
+                                          '%Y-%m-%d').date()
+        purchase_price = PURCHASE_PRICES[filename][1]
+        home_df = pd.DataFrame({
+            'value': [purchase_price, current_price]
+        },
+                               index=[purchase_date,
+                                      today]).rename_axis('date')
+        home_df.to_csv(f'{OUTPUT_DIR}{filename}.csv')
 
 
 def merge_redfin():
@@ -88,9 +72,7 @@ def merge_redfin():
                               index_col=0,
                               parse_dates=True,
                               infer_datetime_format=True)
-        # Only keep first and last values, i.e. purchase price and current estimate.
-        home_df = pd.concat([home_df[:1],
-                             home_df[-1:]]).resample('D').mean().interpolate()
+        home_df = home_df.resample('D').mean().interpolate()
         column = ('USD', 'Real Estate', column, 'nan')
         accounts_df[column] = np.nan
         new_df = pd.merge_asof(accounts_df[[column]].droplevel([1, 2, 3],
@@ -138,7 +120,7 @@ def merge_redfin():
 
 def main():
     """Main."""
-    get_redfin()
+    create_csv()
     merge_redfin()
 
 

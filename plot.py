@@ -685,7 +685,7 @@ def downsample_df(dataframe):
     """Downsample data older than 1 week."""
     weekly = dataframe.resample('W').mean()
     daily = dataframe.resample('D').mean()
-    if daily.shape[0] < 7:
+    if daily.shape[0] < 30:
         return daily
     weekly_concat = weekly[:daily.iloc[-7].name]
     daily_concat = daily[-7:]

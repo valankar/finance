@@ -4,8 +4,6 @@
 from datetime import date, datetime
 import pandas as pd
 
-from selenium.webdriver.common.by import By
-
 import common
 
 WEALTHFRONT_CASH_CSV = common.PREFIX + 'wealthfront_cash_yield.csv'
@@ -15,16 +13,11 @@ APY_BOOST = ('2023-07-09', 0.50)
 
 def get_yield():
     """Get yield from Wealthfront support page with Selenium."""
-    browser = common.get_browser()
-    browser.get(
-        # pylint: disable-next=line-too-long
-        'https://support.wealthfront.com/hc/en-us/articles/360043680212-Interest-rate-for-Cash-Accounts'
-    )
-    apy = float(
-        browser.find_element(
-            By.XPATH, '/html/body/main/div[1]/article/div[1]/p[1]/strong[1]').
-        get_attribute('innerHTML'))
-    return apy
+    return float(
+        common.find_xpath_via_browser(
+            # pylint: disable-next=line-too-long
+            'https://support.wealthfront.com/hc/en-us/articles/360043680212-Interest-rate-for-Cash-Accounts',
+            '/html/body/main/div[1]/article/div[1]/p[1]/strong[1]'))
 
 
 def main():

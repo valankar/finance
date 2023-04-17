@@ -16,6 +16,8 @@ from retry import retry
 from selenium import webdriver
 from selenium.webdriver import FirefoxOptions
 from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
 
 import authorization
 
@@ -40,7 +42,7 @@ def get_ticker(ticker):
 
 
 @functools.cache
-@retry((psycopg2.Error, psycopg2.OperationalError), delay=1, jitter=1, tries=4)
+@retry((psycopg2.Error, psycopg2.OperationalError), delay=30, tries=4)
 def get_all_tickers_steampipe_cloud():
     """Get ticker prices via Steampipe Clound."""
     conn = psycopg2.connect(authorization.STEAMPIPE_CLOUD_CONN)
@@ -50,7 +52,7 @@ def get_all_tickers_steampipe_cloud():
                     cursor_factory=psycopg2.extras.RealDictCursor) as curs:
                 tickers = ','.join([f"'{ticker}'" for ticker in ALL_TICKERS])
                 curs.execute(
-                    # pylint: disable=line-too-long
+                    # pylint: disable-next=line-too-long
                     f"select symbol, regular_market_price from finance_quote where symbol in ({tickers})"
                 )
                 result = curs.fetchall()
@@ -69,7 +71,7 @@ def get_all_tickers_steampipe_local():
     tickers = ','.join([f"'{ticker}'" for ticker in ALL_TICKERS])
     try:
         process = subprocess.run(
-            # pylint: disable=line-too-long
+            # pylint: disable-next=line-too-long
             f'$HOME/bin/steampipe query "select symbol, regular_market_price from finance_quote where symbol in ({tickers})" --output json',
             shell=True,
             check=True,
@@ -90,6 +92,15 @@ def temporary_file_move(dest_file):
     with tempfile.NamedTemporaryFile(mode='w', delete=False) as write_file:
         yield write_file
     shutil.move(write_file.name, dest_file)
+
+
+@functools.cache
+@retry(NoSuchElementException, delay=30, tries=4)
+def find_xpath_via_browser(url, xpath):
+    """Find XPATH via Selenium with retries. Returns cached inner html."""
+    browser = get_browser()
+    browser.get(url)
+    return browser.find_element(By.XPATH, xpath).get_attribute('innerHTML')
 
 
 @functools.cache
