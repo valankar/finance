@@ -12,8 +12,8 @@ HISTORICAL_MERGE_THRESHOLD = 1000
 def main():
     """Main."""
     historical_merge_required = False
-    for filename, url in merge_redfin.URLS.items():
-        value = merge_redfin.get_redfin_estimate(url)
+    for filename, url_path in merge_redfin.URLS.items():
+        value = merge_redfin.get_redfin_estimate(url_path)
         output = common.PREFIX + filename
         if not value:
             continue

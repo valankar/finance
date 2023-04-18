@@ -34,11 +34,11 @@ HOME_COLUMN_MAP = {
 OUTPUT_DIR = f'{Path.home()}/bin/accounts/historical/'
 
 
-def get_redfin_estimate(url):
+def get_redfin_estimate(url_path):
     """Get home value from Redfin."""
     return int(
         common.find_xpath_via_browser(
-            url,
+            URL_PREFIX + url_path,
             # pylint: disable-next=line-too-long
             '//*[@id="content"]/div[12]/div[2]/div[1]/div/div[1]/div/div[1]/div/div/div/div/div/div[1]/div/span'
         ).translate(str.maketrans('', '', '$,')))
@@ -47,8 +47,8 @@ def get_redfin_estimate(url):
 def create_csv():
     """Create CSV files of homes with purchase and current price."""
     today = date.today()
-    for filename, url in URLS.items():
-        current_price = get_redfin_estimate(URL_PREFIX + url)
+    for filename, url_path in URLS.items():
+        current_price = get_redfin_estimate(url_path)
         purchase_date = datetime.strptime(PURCHASE_PRICES[filename][0],
                                           '%Y-%m-%d').date()
         purchase_price = PURCHASE_PRICES[filename][1]
