@@ -171,5 +171,8 @@ dependencies:
       - python-ctapi==0.3.0
       - pyyaml==3.11
       - redfin==0.1.1
+      - requests-futures==1.0.0
       - sexpdata==1.0.0
+      - tqdm==4.65.0
+      - yahooquery==2.3.1
 prefix: /media/sdm1/valankar/software/miniconda3/envs/investing

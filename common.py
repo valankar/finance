@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Common functions."""
 
 import atexit
@@ -18,6 +19,7 @@ from selenium.webdriver import FirefoxOptions
 from selenium.webdriver.firefox.service import Service as FirefoxService
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
+from yahooquery import Ticker
 
 import authorization
 
@@ -39,12 +41,19 @@ def get_tickers(tickers: list) -> dict:
 def get_ticker(ticker):
     """Get ticker prices from cached data."""
     return get_all_tickers_steampipe_cloud()[ticker]
+    # return get_ticker_yahooquery(ticker)
 
 
 @functools.cache
-@retry((psycopg2.Error, psycopg2.OperationalError), delay=30, tries=4)
+def get_ticker_yahooquery(ticker):
+    """Get ticker price via Yahooquery library."""
+    return Ticker(ticker).price[ticker]['regularMarketPrice']
+
+
+@functools.cache
+@retry(psycopg2.Error, delay=30, tries=4)
 def get_all_tickers_steampipe_cloud():
-    """Get ticker prices via Steampipe Clound."""
+    """Get ticker prices via Steampipe Clound. Returns dict."""
     conn = psycopg2.connect(authorization.STEAMPIPE_CLOUD_CONN)
     try:
         with conn:
@@ -112,3 +121,7 @@ def get_browser():
     browser = webdriver.Firefox(options=opts, service=service)
     atexit.register(browser.quit)
     return browser
+
+
+if __name__ == '__main__':
+    print(get_all_tickers_steampipe_cloud())
