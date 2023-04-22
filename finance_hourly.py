@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run hourly finance functions."""
 
+from concurrent.futures import ThreadPoolExecutor
+
 import commodities
 import etfs
 import history
@@ -9,12 +11,19 @@ import vanguard_401k
 import vanguard_trust
 
 
-def main():
-    """Main."""
-    commodities.main()
-    etfs.main()
+def vanguard():
+    """Vanguard functions to run in parallel to others."""
     vanguard_trust.main()
     vanguard_401k.main()
+
+
+def main():
+    """Main."""
+    with ThreadPoolExecutor() as pool:
+        vanguard_future = pool.submit(vanguard)
+        commodities.main()
+        etfs.main()
+        vanguard_future.result()
     history.main()
     plot.main()
 

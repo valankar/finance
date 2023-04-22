@@ -10,6 +10,7 @@ import tempfile
 from contextlib import contextmanager
 from os import path
 from pathlib import Path
+from threading import Lock
 
 import psycopg2
 import psycopg2.extras
@@ -28,6 +29,8 @@ ALL_TICKERS = [
     'SGDUSD=X', 'CHFUSD=X', 'VWIAX', 'ETF7', 'ETF6', 'ETF5', 'ETF4', 'ETF3',
     'ETF2', 'ETF1', 'SI=F', 'GC=F'
 ]
+steampipe_cloud_lock = Lock()
+selenium_lock = Lock()
 
 
 def get_tickers(tickers: list) -> dict:
@@ -40,7 +43,8 @@ def get_tickers(tickers: list) -> dict:
 
 def get_ticker(ticker):
     """Get ticker prices from cached data."""
-    return get_all_tickers_steampipe_cloud()[ticker]
+    with steampipe_cloud_lock:
+        return get_all_tickers_steampipe_cloud()[ticker]
     # return get_ticker_yahooquery(ticker)
 
 
@@ -107,9 +111,16 @@ def temporary_file_move(dest_file):
 @retry(NoSuchElementException, delay=30, tries=4)
 def find_xpath_via_browser(url, xpath):
     """Find XPATH via Selenium with retries. Returns cached inner html."""
-    browser = get_browser()
-    browser.get(url)
-    return browser.find_element(By.XPATH, xpath).get_attribute('innerHTML')
+    with selenium_lock:
+        browser = get_browser()
+        browser.get(url)
+        try:
+            return browser.find_element(By.XPATH,
+                                        xpath).get_attribute('innerHTML')
+        except NoSuchElementException:
+            browser.save_full_page_screenshot(
+                f'{PREFIX}/selenium_screenshot.png')
+            raise
 
 
 @functools.cache
