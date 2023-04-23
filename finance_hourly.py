@@ -23,7 +23,8 @@ def main():
         vanguard_future = pool.submit(vanguard)
         commodities.main()
         etfs.main()
-        vanguard_future.result()
+        if ex := vanguard_future.exception():
+            print(f'{ex} Exception raised but continuing.')
     history.main()
     plot.main()
 
