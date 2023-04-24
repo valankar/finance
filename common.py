@@ -10,7 +10,7 @@ import tempfile
 from contextlib import contextmanager
 from os import path
 from pathlib import Path
-from threading import Lock
+from threading import Lock, RLock
 
 import psycopg2
 import psycopg2.extras
@@ -30,7 +30,7 @@ ALL_TICKERS = [
     'ETF2', 'ETF1', 'SI=F', 'GC=F'
 ]
 steampipe_cloud_lock = Lock()
-selenium_lock = Lock()
+selenium_lock = RLock()
 
 
 def get_tickers(tickers: list) -> dict:
@@ -41,11 +41,43 @@ def get_tickers(tickers: list) -> dict:
     return ticker_dict
 
 
+@functools.cache
 def get_ticker(ticker):
     """Get ticker prices from cached data."""
-    with steampipe_cloud_lock:
-        return get_all_tickers_steampipe_cloud()[ticker]
-    # return get_ticker_yahooquery(ticker)
+    try:
+        with steampipe_cloud_lock:
+            return get_all_tickers_steampipe_cloud()[ticker]
+    except psycopg2.Error as ex:
+        print(f'Exception {ex}, trying yahooquery')
+    try:
+        return get_ticker_yahooquery(ticker)
+    # pylint: disable-next=broad-exception-caught
+    except Exception as ex:
+        print(f'Exception {ex}, trying ticker via Selenium')
+    with selenium_lock:
+        return get_ticker_browser(ticker)
+
+
+@functools.cache
+def get_ticker_browser(ticker):
+    """Get ticker price from Yahoo via Selenium."""
+    browser = get_browser()
+    browser.get(f'https://finance.yahoo.com/quote/{ticker}')
+    # First look for accept cookies dialog.
+    try:
+        browser.find_element(By.ID, 'scroll-down-btn').click()
+        browser.find_element(By.XPATH, '//button[text()="Accept all"]').click()
+    except NoSuchElementException:
+        pass
+    try:
+        return float(
+            browser.find_element(
+                By.XPATH,
+                '//*[@id="quote-header-info"]/div[3]/div[1]/div/fin-streamer[1]'
+            ).text.replace(',', ''))
+    except NoSuchElementException:
+        browser.save_full_page_screenshot(f'{PREFIX}/selenium_screenshot.png')
+        raise
 
 
 @functools.cache
@@ -110,13 +142,12 @@ def temporary_file_move(dest_file):
 @functools.cache
 @retry(NoSuchElementException, delay=30, tries=4)
 def find_xpath_via_browser(url, xpath):
-    """Find XPATH via Selenium with retries. Returns cached inner html."""
+    """Find XPATH via Selenium with retries. Returns text of element."""
     with selenium_lock:
         browser = get_browser()
         browser.get(url)
         try:
-            return browser.find_element(By.XPATH,
-                                        xpath).get_attribute('innerHTML')
+            return browser.find_element(By.XPATH, xpath).text
         except NoSuchElementException:
             browser.save_full_page_screenshot(
                 f'{PREFIX}/selenium_screenshot.png')
@@ -126,13 +157,16 @@ def find_xpath_via_browser(url, xpath):
 @functools.cache
 def get_browser():
     """Get a Selenium/Firefox browser. Reuse with cache. Quits on program exit."""
-    opts = FirefoxOptions()
-    opts.add_argument("--headless")
-    service = FirefoxService(log_path=path.devnull)
-    browser = webdriver.Firefox(options=opts, service=service)
-    atexit.register(browser.quit)
-    return browser
+    with selenium_lock:
+        opts = FirefoxOptions()
+        opts.add_argument("--headless")
+        service = FirefoxService(log_path=path.devnull)
+        browser = webdriver.Firefox(options=opts, service=service)
+        atexit.register(browser.quit)
+        return browser
 
 
 if __name__ == '__main__':
-    print(get_all_tickers_steampipe_cloud())
+    for t in ALL_TICKERS:
+        print(f'Ticker: {t} Value: {get_ticker_browser(t)}')
+    # print(get_all_tickers_steampipe_cloud())
