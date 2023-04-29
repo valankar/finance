@@ -147,7 +147,9 @@ def find_xpath_via_browser(url, xpath):
         browser = get_browser()
         browser.get(url)
         try:
-            return browser.find_element(By.XPATH, xpath).text
+            if (text := browser.find_element(By.XPATH, xpath).text):
+                return text
+            raise NoSuchElementException
         except NoSuchElementException:
             browser.save_full_page_screenshot(
                 f'{PREFIX}/selenium_screenshot.png')
