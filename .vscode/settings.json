@@ -1,7 +1,11 @@
 {
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true
+    },
     "python.linting.pylintEnabled": true,
     "python.linting.enabled": true,
-    "python.formatting.provider": "yapf",
+    "python.formatting.provider": "none",
     "[markdown]": {
         "editor.formatOnSave": true,
         "editor.formatOnPaste": true

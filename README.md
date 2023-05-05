@@ -65,11 +65,7 @@ Writes historical data to CSV files.
 
 ### homes.py
 
-Get real estate prices from Redfin.
-
-### merge_redfin.py
-
-When Redfin prices change, this is run to recalculate everything.
+Get real estate prices from Redfin and Zillow.
 
 ### plot.py
 
