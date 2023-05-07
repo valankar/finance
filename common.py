@@ -29,18 +29,17 @@ ALL_TICKERS = [
     "SGDUSD=X",
     "CHFUSD=X",
     "VWIAX",
-    "ETF7",
-    "ETF6",
-    "ETF5",
-    "ETF4",
-    "ETF3",
-    "ETF2",
-    "ETF1",
+    "SCHZ",
+    "SCHX",
+    "SCHO",
+    "SCHF",
+    "SCHE",
+    "SCHB",
+    "SCHA",
     "SI=F",
     "GC=F",
 ]
 get_ticker_lock = Lock()
-steampipe_cloud_lock = Lock()
 selenium_lock = RLock()
 ticker_retrieval_fails = set()
 
@@ -57,18 +56,22 @@ def get_tickers(tickers: list) -> dict:
 def get_ticker(ticker):
     """Get ticker prices from cached data."""
     with get_ticker_lock:
-        if "STEAMPIPE" not in ticker_retrieval_fails:
+        if "STEAMPIPE_CLOUD" not in ticker_retrieval_fails:
             try:
-                with steampipe_cloud_lock:
-                    return get_all_tickers_steampipe_cloud()[ticker]
+                return get_all_tickers_steampipe_cloud()[ticker]
             except psycopg2.Error:
-                ticker_retrieval_fails.add("STEAMPIPE")
+                ticker_retrieval_fails.add("STEAMPIPE_CLOUD")
         if "YAHOOQUERY" not in ticker_retrieval_fails:
             try:
                 return get_ticker_yahooquery(ticker)
             # pylint: disable-next=broad-exception-caught
             except Exception:
                 ticker_retrieval_fails.add("YAHOOQUERY")
+        if "STEAMPIPE_LOCAL" not in ticker_retrieval_fails:
+            try:
+                return get_all_tickers_steampipe_local()[ticker]
+            except subprocess.CalledProcessError:
+                ticker_retrieval_fails.add("STEAMPIPE_LOCAL")
         with selenium_lock:
             return get_ticker_browser(ticker)
 
@@ -103,7 +106,6 @@ def get_ticker_yahooquery(ticker):
 
 
 @functools.cache
-@retry(psycopg2.Error, delay=30, tries=4)
 def get_all_tickers_steampipe_cloud():
     """Get ticker prices via Steampipe Clound. Returns dict."""
     conn = psycopg2.connect(authorization.STEAMPIPE_CLOUD_CONN)
@@ -125,22 +127,17 @@ def get_all_tickers_steampipe_cloud():
 
 
 @functools.cache
-@retry(subprocess.CalledProcessError, delay=1, jitter=1, tries=4)
 def get_all_tickers_steampipe_local():
     """Get ticker price."""
     tickers = ",".join([f"'{ticker}'" for ticker in ALL_TICKERS])
-    try:
-        process = subprocess.run(
-            # pylint: disable-next=line-too-long
-            f'$HOME/bin/steampipe query "select symbol, regular_market_price from finance_quote where symbol in ({tickers})" --output json',
-            shell=True,
-            check=True,
-            text=True,
-            capture_output=True,
-        )
-    except subprocess.CalledProcessError as ex:
-        print(ex.stderr)
-        raise
+    process = subprocess.run(
+        # pylint: disable-next=line-too-long
+        f'$HOME/bin/steampipe query "select symbol, regular_market_price from finance_quote where symbol in ({tickers})" --output json',
+        shell=True,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
     ticker_prices = {}
     for res in json.loads(process.stdout):
         ticker_prices[res["symbol"]] = res["regular_market_price"]
@@ -184,6 +181,6 @@ def get_browser():
 
 
 if __name__ == "__main__":
-    for t in ALL_TICKERS:
-        print(f"Ticker: {t} Value: {get_ticker_browser(t)}")
-    # print(get_all_tickers_steampipe_cloud())
+    print(get_all_tickers_steampipe_local())
+    # for t in ALL_TICKERS:
+    #     print(f"Ticker: {t} Value: {get_ticker_browser(t)}")
