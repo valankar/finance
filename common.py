@@ -56,22 +56,25 @@ def get_tickers(tickers: list) -> dict:
 def get_ticker(ticker):
     """Get ticker prices from cached data."""
     with get_ticker_lock:
-        if "STEAMPIPE_CLOUD" not in ticker_retrieval_fails:
+        func = get_all_tickers_steampipe_cloud
+        if func not in ticker_retrieval_fails:
             try:
-                return get_all_tickers_steampipe_cloud()[ticker]
+                return func()[ticker]
             except psycopg2.Error:
-                ticker_retrieval_fails.add("STEAMPIPE_CLOUD")
-        if "YAHOOQUERY" not in ticker_retrieval_fails:
+                ticker_retrieval_fails.add(func)
+        func = get_ticker_yahooquery
+        if func not in ticker_retrieval_fails:
             try:
-                return get_ticker_yahooquery(ticker)
+                return func(ticker)
             # pylint: disable-next=broad-exception-caught
             except Exception:
-                ticker_retrieval_fails.add("YAHOOQUERY")
-        if "STEAMPIPE_LOCAL" not in ticker_retrieval_fails:
+                ticker_retrieval_fails.add(func)
+        func = get_all_tickers_steampipe_local
+        if func not in ticker_retrieval_fails:
             try:
-                return get_all_tickers_steampipe_local()[ticker]
+                return func()[ticker]
             except subprocess.CalledProcessError:
-                ticker_retrieval_fails.add("STEAMPIPE_LOCAL")
+                ticker_retrieval_fails.add(func)
         with selenium_lock:
             return get_ticker_browser(ticker)
 
