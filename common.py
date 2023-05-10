@@ -54,29 +54,44 @@ def get_tickers(tickers: list) -> dict:
 
 @functools.cache
 def get_ticker(ticker):
-    """Get ticker prices from cached data."""
+    """Get ticker prices by trying various methods."""
+    ticker_retrieval_sequence = [
+        get_all_tickers_steampipe_cloud,
+        get_ticker_yahooquery,
+        get_all_tickers_steampipe_local,
+        get_ticker_browser,
+    ]
     with get_ticker_lock:
-        func = get_all_tickers_steampipe_cloud
-        if func not in ticker_retrieval_fails:
-            try:
-                return func()[ticker]
-            except psycopg2.Error:
-                ticker_retrieval_fails.add(func)
-        func = get_ticker_yahooquery
-        if func not in ticker_retrieval_fails:
-            try:
-                return func(ticker)
-            # pylint: disable-next=broad-exception-caught
-            except Exception:
-                ticker_retrieval_fails.add(func)
-        func = get_all_tickers_steampipe_local
-        if func not in ticker_retrieval_fails:
-            try:
-                return func()[ticker]
-            except subprocess.CalledProcessError:
-                ticker_retrieval_fails.add(func)
-        with selenium_lock:
-            return get_ticker_browser(ticker)
+        for method in ticker_retrieval_sequence:
+            method_name = method.__name__
+            match method_name:
+                # Skip methods that have failed.
+                case failed if failed in ticker_retrieval_fails:
+                    pass
+                case get_all_tickers_steampipe_cloud.__name__:
+                    try:
+                        return get_all_tickers_steampipe_cloud()[ticker]
+                    except psycopg2.Error:
+                        ticker_retrieval_fails.add(method_name)
+                case get_ticker_yahooquery.__name__:
+                    try:
+                        return get_ticker_yahooquery(ticker)
+                    # pylint: disable-next=broad-exception-caught
+                    except Exception:
+                        ticker_retrieval_fails.add(method_name)
+                case get_all_tickers_steampipe_local.__name__:
+                    try:
+                        return get_all_tickers_steampipe_local()[ticker]
+                    except subprocess.CalledProcessError:
+                        ticker_retrieval_fails.add(method_name)
+                case get_ticker_browser.__name__:
+                    try:
+                        with selenium_lock:
+                            return get_ticker_browser(ticker)
+                    except NoSuchElementException:
+                        ticker_retrieval_fails.add(method_name)
+    print("No more methods to get ticker price")
+    raise ValueError
 
 
 @functools.cache
@@ -184,6 +199,5 @@ def get_browser():
 
 
 if __name__ == "__main__":
-    print(get_all_tickers_steampipe_local())
-    # for t in ALL_TICKERS:
-    #     print(f"Ticker: {t} Value: {get_ticker_browser(t)}")
+    for t in ALL_TICKERS:
+        print(f"Ticker: {t} Value: {get_ticker(t)}")
