@@ -476,13 +476,15 @@ def make_forex_section(forex_df):
     return fig
 
 
-def make_funds_yield_section():
-    """Make section fedfunds and swvxx graph."""
-    yield_df = get_fedfunds_yield_df()
-    fig = px.line(yield_df, x=yield_df.index, y=yield_df.columns, title="Fund Yields")
+def make_interest_rate_section():
+    """Make interest rate section."""
+    interest_df = get_interest_rate_df()
+    fig = px.line(
+        interest_df, x=interest_df.index, y=interest_df.columns, title="Interest Rates"
+    )
     fig.update_yaxes(title_text="Percent")
     fig.update_xaxes(title_text="")
-    add_range_buttons_single(fig, yield_df, yield_df.columns)
+    add_range_buttons_single(fig, interest_df, interest_df.columns)
     return fig
 
 
@@ -647,39 +649,27 @@ def get_real_estate_df(accounts_df):
     return real_estate_df
 
 
-def get_fedfunds_yield_df():
-    """Merge fedfunds and SWVXX yield data."""
-    fedfunds_df = pd.read_csv(
-        common.PREFIX + "fedfunds.csv",
-        index_col=0,
-        parse_dates=True,
-        infer_datetime_format=True,
-    )
-    fedfunds_df = fedfunds_df["2019":]
-    swvxx_df = pd.read_csv(
-        common.PREFIX + "swvxx_yield.csv",
-        index_col=0,
-        parse_dates=True,
-        infer_datetime_format=True,
-    )
-    wealthfront_df = pd.read_csv(
-        common.PREFIX + "wealthfront_cash_yield.csv",
-        index_col=0,
-        parse_dates=True,
-        infer_datetime_format=True,
-    )
+def get_interest_rate_df():
+    """Merge interest rate data."""
+
+    def load_percent_csv(filename, column_name):
+        dataframe = pd.read_csv(
+            f"{common.PREFIX}{filename}",
+            index_col=0,
+            parse_dates=True,
+            infer_datetime_format=True,
+        )
+        return dataframe.rename(columns={"percent": column_name})
+
+    fedfunds_df = load_percent_csv("fedfunds.csv", "Fed Funds")["2019":]
+    sofr_df = load_percent_csv("sofr.csv", "SOFR")["2019":]
+    swvxx_df = load_percent_csv("swvxx_yield.csv", "Schwab SWVXX")
+    wealthfront_df = load_percent_csv("wealthfront_cash_yield.csv", "Wealthfront Cash")
     merged = reduce(
         lambda l, r: pd.merge(l, r, left_index=True, right_index=True, how="outer"),
-        [fedfunds_df, downsample_df(swvxx_df), downsample_df(wealthfront_df)],
+        [fedfunds_df, sofr_df, downsample_df(swvxx_df), downsample_df(wealthfront_df)],
     )
-    merged = merged.rename(
-        columns={
-            "percent_x": "Fed Funds",
-            "percent_y": "Schwab SWVXX",
-            "percent": "Wealthfront Cash",
-        }
-    )
-    return merged.interpolate()
+    return merged.interpolate()[sorted(merged.columns)]
 
 
 def downsample_df(dataframe):
@@ -745,7 +735,7 @@ def main():
         daily_df, "total_no_homes", "Total Without Real Estate Change"
     )
     forex_section = make_forex_section(downsample_df(forex_df).interpolate())
-    yield_section = make_funds_yield_section()
+    yield_section = make_interest_rate_section()
 
     write_html_and_images(
         (
