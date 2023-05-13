@@ -11,29 +11,15 @@ import pandas as pd
 import common
 
 REDFIN_URLS = {
-    "mtvernon.txt": "/CA/Mountain-View/1935-Mount-Vernon-Ct-94040/unit-1/home/1186556",
-    "northlake.txt": "/CA/San-Jose/401-Northlake-Dr-95117/unit-32/home/752126",
-    "villamaria.txt": "/CA/San-Jose/1048-Villa-Maria-Ct-95125/home/844776",
-}
-
-ZILLOW_URLS = {
-    "mtvernon.txt": "/homedetails/1935-Mount-Vernon-Ct-APT-1-Mountain-View-CA-94040/19514058_zpid/",
-    "northlake.txt": "/homedetails/401-Northlake-Dr-APT-32-San-Jose-CA-95117/19608577_zpid/",
-    "villamaria.txt": "/homedetails/1048-Villa-Maria-Ct-San-Jose-CA-95125/19684489_zpid/",
+    "prop1.txt": "/some/redfin_url",
 }
 
 PURCHASE_PRICES = {
-    "mtvernon.txt": ("2012-07-09", 438000),
-    "northlake.txt": ("2014-04-16", 532500),
-    "villamaria.txt": ("2013-04-15", 475000),
+    "prop1.txt": ("2012-07-09", 438000),
 }
 
 HOME_COLUMN_MAP = {
-    "californiast.txt": "California St",
-    "corallake.txt": "Coral Lake",
-    "mtvernon.txt": "Mt Vernon",
-    "northlake.txt": "Northlake",
-    "villamaria.txt": "Villa Maria",
+    "prop1.txt": "Some Property",
 }
 
 # Where to write home csv files.
@@ -45,17 +31,8 @@ HISTORICAL_MERGE_THRESHOLD = 1000
 
 
 def get_home_estimate(filename):
-    """Get Redfin and Zillow average price."""
+    """Get home average price."""
     return get_redfin_estimate(REDFIN_URLS[filename])
-    # Requires captcha.
-    # return round(
-    #     statistics.mean(
-    #         [
-    #             get_redfin_estimate(REDFIN_URLS[filename]),
-    #             get_zillow_estimate(ZILLOW_URLS[filename]),
-    #         ]
-    #     )
-    # )
 
 
 def get_redfin_estimate(url_path):
@@ -65,16 +42,6 @@ def get_redfin_estimate(url_path):
             f"https://www.redfin.com{url_path}",
             # pylint: disable-next=line-too-long
             '//*[@id="content"]/div[12]/div[2]/div[1]/div/div[1]/div/div[1]/div/div/div/div/div/div[1]/div/span',
-        ).translate(str.maketrans("", "", "$,"))
-    )
-
-
-def get_zillow_estimate(url_path):
-    """Get home value from Zillow."""
-    return int(
-        common.find_xpath_via_browser(
-            f"https://www.zillow.com{url_path}",
-            '//*[@id="home-details-home-values"]/div/div[1]/div/div/div[1]/div/p/h3',
         ).translate(str.maketrans("", "", "$,"))
     )
 
@@ -122,8 +89,8 @@ def merge_home_data():
         )
         accounts_df[column] = new_df["value"]
     # Sales
-    accounts_df.loc["2019-10-16":, ("USD", "Real Estate", "Coral Lake", "nan")] = 0
-    accounts_df.loc["2014-03-01":, ("USD", "Real Estate", "California St", "nan")] = 0
+    accounts_df.loc["2019-10-16":, ("USD", "Real Estate", "Prop2", "nan")] = 0
+    accounts_df.loc["2014-03-01":, ("USD", "Real Estate", "Prop3", "nan")] = 0
     accounts_df = accounts_df.sort_index().interpolate()
 
     shutil.copy(
@@ -172,13 +139,11 @@ def main():
         with open(output, encoding="utf-8") as input_file:
             old_value = float(input_file.read())
             if abs(value - old_value) > HISTORICAL_MERGE_THRESHOLD:
-                print(f"{filename} old: {old_value} new: {value}")
                 historical_merge_required = True
         with common.temporary_file_move(output) as output_file:
             output_file.write(str(value))
 
     if historical_merge_required:
-        print("Home price data differs by threshold, doing historical merge.")
         create_csv()
         merge_home_data()
 
