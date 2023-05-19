@@ -8,7 +8,7 @@ import common
 
 WEALTHFRONT_CASH_CSV = common.PREFIX + 'wealthfront_cash_yield.csv'
 # End date, how much to boost.
-APY_BOOST = ('2023-07-09', 0.50)
+APY_BOOST = ('2023-11-17', 0.50)
 
 
 def get_yield():

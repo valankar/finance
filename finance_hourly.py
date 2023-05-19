@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import commodities
 import etfs
 import history
+import i_and_e
 import plot
 import vanguard_401k
 import vanguard_trust
@@ -24,10 +25,11 @@ def main():
         commodities.main()
         etfs.main()
         if ex := vanguard_future.exception():
-            print(f'{ex} Exception raised but continuing.')
+            print(f"{ex} Exception raised but continuing.")
     history.main()
     plot.main()
+    i_and_e.main()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
