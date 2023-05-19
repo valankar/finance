@@ -67,6 +67,10 @@ Writes historical data to CSV files.
 
 Get real estate prices from Redfin and Zillow.
 
+### i_and_e.py
+
+Generate income and expense plots.
+
 ### plot.py
 
 Generate plots.
