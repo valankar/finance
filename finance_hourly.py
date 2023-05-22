@@ -2,6 +2,7 @@
 """Run hourly finance functions."""
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 import commodities
 import etfs
@@ -25,7 +26,9 @@ def main():
         commodities.main()
         etfs.main()
         if ex := vanguard_future.exception():
-            print(f"{ex} Exception raised but continuing.")
+            # Be silent on weekends when this sometimes fails.
+            if datetime.today().strftime("%A") not in ["Saturday", "Sunday"]:
+                print(f"{ex} Exception raised but continuing.")
     history.main()
     plot.main()
     i_and_e.main()

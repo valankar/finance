@@ -3,6 +3,7 @@
 
 import io
 import subprocess
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -11,11 +12,293 @@ from dateutil.relativedelta import relativedelta
 
 import common
 
-HTML_PREFIX = common.PREFIX + "i_and_e/"
+HTML_PREFIX = f"{common.PREFIX}i_and_e/"
+FOREX_HISTORY = f"{common.PREFIX}forex_historical.pickle"
 LEDGER_BIN = f"{Path.home()}/bin/ledger"
 LEDGER_DIR = f"{Path.home()}/code/ledger"
 # pylint: disable-next=line-too-long
 LEDGER_CSV_CMD = f"{LEDGER_BIN} -f {LEDGER_DIR}/ledger.ledger --price-db {LEDGER_DIR}/prices.db -X '$' -c --no-revalued csv ^Expenses ^Income"
+TOSHL_INCOME_EXPORT_PREFIX = f"{Path.home()}/code/accounts/toshl_exports/incomes/"
+TOSHL_EXPENSE_EXPORT_PREFIX = f"{Path.home()}/code/accounts/toshl_exports/expenses/"
+TOSHL_INCOME_FILENAME = f"{TOSHL_INCOME_EXPORT_PREFIX}toshl_export_2023-01-01.csv"
+TOSHL_EXPENSES_FILENAME = f"{TOSHL_EXPENSE_EXPORT_PREFIX}toshl_export_2023-01-01.csv"
+
+
+def get_ledger_csv():
+    """Get income/expense ledger csv as a StringIO."""
+    return io.StringIO(subprocess.check_output(LEDGER_CSV_CMD, shell=True, text=True))
+
+
+def convert_toshl_usd(dataframe):
+    """Change CHF to USD."""
+    dataframe.index.name = "date"
+    dataframe = dataframe.rename(
+        columns={"Category": "category", "In main currency": "amount_chf"}
+    )
+    dataframe = dataframe[:"2022"]
+    forex_df = pd.DataFrame(
+        pd.read_pickle(FOREX_HISTORY).loc[("CHFUSD=X",)]["adjclose"]
+    )
+    forex_df.index = pd.to_datetime(forex_df.index)
+    dataframe = pd.merge_asof(dataframe, forex_df, left_index=True, right_index=True)
+    dataframe["amount"] = dataframe["amount_chf"] * dataframe["adjclose"]
+    dataframe = dataframe.drop(
+        columns=[
+            "Tags",
+            "Currency",
+            "Main currency",
+            "Description",
+            "Expense amount",
+            "Income amount",
+            "amount_chf",
+            "adjclose",
+        ],
+        errors="ignore",
+    )
+    return dataframe
+
+
+def get_toshl_expenses_dataframe():
+    """Get historical data from Toshl export."""
+    dataframe = pd.read_csv(
+        TOSHL_EXPENSES_FILENAME,
+        index_col=0,
+        parse_dates=True,
+        infer_datetime_format=True,
+        thousands=",",
+        usecols=[
+            "Date",
+            "Category",
+            "Tags",
+            "Expense amount",
+            "Currency",
+            "In main currency",
+            "Main currency",
+            "Description",
+        ],
+    )
+    # Remove unnecessary transactions.
+    dataframe = dataframe[~dataframe["Category"].isin(["Reconciliation", "Transfer"])]
+    # Remove things that are not expenses.
+    for category, tag in (("Banking", "equity purchase"), ("Other", "equity purchase")):
+        dataframe = dataframe[
+            ~((dataframe["Category"] == category) & (dataframe["Tags"] == tag))
+        ]
+    for category, tag, new_category in (
+        ("Food & Drinks", "groceries", "Food:Groceries"),
+        ("Food & Drinks", "alcohol", "Food:Alcohol"),
+        ("Food & Drinks", "restaurants", "Food:Restaurants"),
+        ("Food & Drinks", None, "Food:Groceries"),
+        ("Gifts", None, "Gifts"),
+        ("Music", "accessories", "Music:Accessories"),
+        ("Music", "massage", "Entertainment:Massage"),
+        ("Music", ["subscription", "apps"], "Music:Apps"),
+        ("Music", None, "Music:Apps"),
+        ("Health & Personal Care", "massage", "Entertainment:Massage"),
+        ("Health & Personal Care", "insurance", "Health:Insurance"),
+        ("Health & Personal Care", "medicine", "Health:Medicine"),
+        ("Health & Personal Care", "medical services", "Health:Doctor"),
+        ("Health & Personal Care", "gym", "Health:Exercise"),
+        (
+            "Health & Personal Care",
+            ["accessories", "cosmetics", "devices"],
+            "Health:Accessories",
+        ),
+        ("Health & Personal Care", None, "Health:Other"),
+        ("Computer", "apps", "Home:Computer:Apps"),
+        ("Computer", "games", "Entertainment:Games"),
+        ("Computer", ["accessories", "devices", "music"], "Home:Computer:Accessories"),
+        ("Computer", ["subscription", "books", "publications"], "Home:Computer:Apps"),
+        ("Computer", "hosting", "Internet Hosting"),
+        ("Computer", "internet", "Home:Internet"),
+        ("Computer", "mobile phone", "Home:Phone"),
+        ("Loans", None, "Rental Property:Mortgage"),
+        ("Home & Utilities", "cleaning", "Home:Cleaning"),
+        ("Home & Utilities", "hosting", "Internet Hosting"),
+        ("Home & Utilities", "internet", "Home:Internet"),
+        ("Home & Utilities", "rent", "Home:Rent"),
+        ("Home & Utilities", "electricity", "Home:Electricity"),
+        ("Home & Utilities", "groceries", "Food:Groceries"),
+        ("Home & Utilities", "subscription", "Home:Other"),
+        ("Home & Utilities", "furniture", "Home:Furniture"),
+        ("Home & Utilities", "hoa", "Rental Property:HOA"),
+        ("Home & Utilities", ["mobile phone", "landline phone"], "Home:Phone"),
+        ("Home & Utilities", ["water", "heating"], "Home:Water & Heating"),
+        (
+            "Home & Utilities",
+            ["accessories", "Tools", "devices", "movies & TV"],
+            "Home:Accessories",
+        ),
+        ("Home & Utilities", ["legal", "lawyer"], "Home:Legal"),
+        ("Taxes", "income tax", "Taxes:Income"),
+        ("Taxes", "servicing", "Taxes:Preparation"),
+        ("Taxes", "movies & TV", "Home:Television"),
+        ("Taxes", "membership fees", "Home:Television"),
+        ("Taxes", "Immigration", "Taxes:Immigration"),
+        ("Taxes", "property tax", "Rental Property:Taxes"),
+        ("Banking", None, "Banking:Fees"),
+        ("Transport", ["train", "subscription", "bus"], "Transportation:Public"),
+        ("Transport", "taxi", "Transportation:Taxi"),
+        ("Transport", ["car", "fuel", "toll", "parking"], "Transportation:Car"),
+        ("Transport", "airplane", "Transportation:Air"),
+        ("Transport", "bicycle", "Transportation:Bike"),
+        ("Transport", None, "Transportation:Public"),
+        ("Rental Property Management", None, "Rental Property:Management"),
+        ("Charity", None, "Gifts"),
+        ("Leisure", "airplane", "Transportation:Air"),
+        ("Leisure", "travel", "Transportation:Air"),
+        ("Leisure", "accommodation", "Transportation:Hotel"),
+        ("Leisure", "events", "Entertainment:Concerts"),
+        ("Leisure", "massage", "Entertainment:Massage"),
+        ("Leisure", "adult fun", "Entertainment:Massage"),
+        ("Leisure", "sightseeing", "Entertainment:Sightseeing"),
+        ("Leisure", "movies & TV", "Entertainment:Movies"),
+        ("Leisure", "books", "Entertainment:Books"),
+        ("Leisure", "games", "Entertainment:Games"),
+        ("Leisure", None, "Entertainment:Massage"),
+        ("Other", "travel", "Transportation:Air"),
+        ("Education", "tuition", "Education:Language"),
+        ("Education", "apps", "Education:Language"),
+        ("Education", "books", "Entertainment:Books"),
+        ("Clothing & Footwear", None, "Home:Clothing"),
+    ):
+        if isinstance(tag, list):
+            mask = dataframe["Tags"].isin(tag)
+        elif isinstance(tag, str):
+            mask = dataframe["Tags"] == tag
+        else:
+            mask = True
+        dataframe.loc[
+            (dataframe["Category"] == category) & mask,
+            "Category",
+        ] = f"Expenses:{new_category}"
+
+    dataframe.loc[
+        (dataframe["Category"] == "Home & Utilities") & (dataframe["Tags"].isna()),
+        "Category",
+    ] = "Expenses:Home:Accessories"
+    dataframe.loc[
+        (dataframe["Category"] == "Home & Utilities")
+        & (dataframe["Tags"] == "insurance")
+        & (dataframe["Currency"] == "CHF"),
+        "Category",
+    ] = "Expenses:Home:Insurance"
+    dataframe.loc[
+        (dataframe["Category"] == "Home & Utilities")
+        & (dataframe["Tags"] == "insurance")
+        & (dataframe["Currency"] == "USD"),
+        "Category",
+    ] = "Expenses:Rental Property:Insurance"
+    dataframe.loc[
+        (dataframe["Category"] == "Home & Utilities")
+        & (dataframe["Tags"].isin(["home improvement", "building upkeep"]))
+        & (dataframe["Description"].str.contains("coral", case=False)),
+        "Category",
+    ] = "Expenses:Home:Repairs"
+    dataframe.loc[
+        (dataframe["Category"] == "Home & Utilities")
+        & (dataframe["Tags"] == "home improvement"),
+        "Category",
+    ] = "Expenses:Home:Repairs"
+    dataframe.loc[
+        (dataframe["Category"] == "Home & Utilities")
+        & (dataframe["Tags"] == "building upkeep"),
+        "Category",
+    ] = "Expenses:Rental Property:Repairs"
+    dataframe.loc[
+        (dataframe["Category"] == "Taxes")
+        & (dataframe["Tags"].isna())
+        & (dataframe["Description"].str.contains("swiss", case=False)),
+        "Category",
+    ] = "Expenses:Taxes:Preparation"
+    dataframe.loc[
+        (dataframe["Category"] == "Taxes")
+        & (dataframe["Tags"].isna())
+        & (
+            dataframe["Description"].isna()
+            | dataframe["Description"].str.contains("customs", case=False)
+        ),
+        "Category",
+    ] = "Expenses:Taxes:Customs"
+    dataframe.loc[
+        (dataframe["Category"] == "Computer")
+        & (dataframe["Tags"].isna())
+        & (dataframe["Description"].str.contains("riccardo", case=False)),
+        "Category",
+    ] = "Expenses:Sales:Fees"
+    dataframe.loc[
+        (dataframe["Category"] == "Computer") & (dataframe["Tags"].isna()),
+        "Category",
+    ] = "Expenses:Home:Computer:Accessories"
+    dataframe.loc[
+        (dataframe["Category"] == "Other")
+        & (dataframe["Tags"].isna())
+        & (dataframe["Description"].str.contains("sale", case=False)),
+        "Category",
+    ] = "Expenses:Sales:Fees"
+    dataframe.loc[
+        (dataframe["Category"] == "Other")
+        & (dataframe["Tags"].isna())
+        & (dataframe["Description"].str.contains("gold", case=False)),
+        "Category",
+    ] = "Expenses:Precious Metals:Purchase"
+    dataframe.loc[
+        (dataframe["Category"] == "Other") & (dataframe["Tags"].isna()),
+        "Category",
+    ] = "Expenses:Gifts"
+    dataframe = convert_toshl_usd(dataframe)
+    return dataframe
+
+
+def get_toshl_income_dataframe():
+    """Get historical data from Toshl export."""
+    dataframe = pd.read_csv(
+        TOSHL_INCOME_FILENAME,
+        index_col=0,
+        parse_dates=True,
+        infer_datetime_format=True,
+        thousands=",",
+        usecols=[
+            "Date",
+            "Category",
+            "Tags",
+            "Income amount",
+            "Currency",
+            "In main currency",
+            "Main currency",
+            "Description",
+        ],
+    )
+    # Remove unnecessary transactions.
+    dataframe = dataframe[~dataframe["Category"].isin(["Reconciliation", "Transfer"])]
+    # Make dataframe like ledger.
+    dataframe.loc[
+        dataframe["Category"] == "Rental", "Category"
+    ] = "Income:Rental Property:Rent"
+    dataframe.loc[
+        dataframe["Category"] == "Property", "Category"
+    ] = "Income:Sales:Property"
+    dataframe.loc[
+        (dataframe["Category"] == "Other") & (dataframe["Currency"] == "CHF"),
+        "Category",
+    ] = "Income:Sales"
+    dataframe.loc[
+        dataframe["Tags"] == "cryptocurrency", "Category"
+    ] = "Income:Cryptocurrency"
+    for category in (
+        "Dividends",
+        "Interest",
+        "Other",
+        "Salary",
+        "Sales",
+        "Grants",
+        "Reimbursements",
+    ):
+        dataframe.loc[
+            dataframe["Category"] == category, "Category"
+        ] = f"Income:{category}"
+    dataframe = convert_toshl_usd(dataframe)
+    return dataframe
 
 
 def get_dataframe(ledger_df, category_prefix):
@@ -73,32 +356,36 @@ def get_income_expense_df(ledger_df):
     return income_df.join(expense_df, how="outer")
 
 
+def get_historical_average_labels():
+    """Get labels for historical averages."""
+    return (36, 24, 12, 6, 3, 1), (
+        "Last 3 years",
+        "Last 2 years",
+        "Last year",
+        "Last 6 months",
+        "Last 3 months",
+        "Last month",
+    )
+
+
 def get_average_monthly_top_expenses(ledger_df):
     """Get average monthly top expenses."""
     expense_df = get_dataframe(ledger_df, "Expenses")
-    latest_time = expense_df[-1:].index.item()
-    latest_month = latest_time.strftime("%B %Y")
-    latest_month_slice = latest_time.strftime("%Y-%m")
+    months_back, labels = get_historical_average_labels()
     categories = []
     expenses = []
-    for i in (6, 3, 1):
-        i -= 1
-        start_month_slice = (latest_time + relativedelta(months=-i)).strftime("%Y-%m")
+    for i in months_back:
+        start = date.today() + relativedelta(months=-i)
         exp_max_df = (
-            expense_df.loc[start_month_slice:latest_month_slice]
+            expense_df.loc[start:]
             .groupby("category")
             .mean(numeric_only=True)
             .agg(["idxmax", "max"])
         )
         categories.append(exp_max_df.iloc[0].values.item())
         expenses.append(exp_max_df.iloc[1].values.item())
-    xaxis = [
-        "Last 6 months",
-        "Last 3 months",
-        latest_month,
-    ]
     top_expenses_df = pd.DataFrame(
-        {"category": categories, "expense": expenses}, index=xaxis
+        {"category": categories, "expense": expenses}, index=labels
     )
     chart = px.bar(
         top_expenses_df,
@@ -108,27 +395,24 @@ def get_average_monthly_top_expenses(ledger_df):
         text_auto=",.0f",
         title="Average Monthly Top Expenses",
     )
-    chart.update_xaxes(title_text="", categoryarray=xaxis, categoryorder="array")
+    chart.update_xaxes(title_text="", categoryarray=labels, categoryorder="array")
     chart.update_yaxes(title_text="USD")
     return chart
 
 
 def get_average_monthly_income_expenses_chart(ledger_df):
     """Get average income and expenses chart."""
-    joined_df = get_income_expense_df(ledger_df).resample("M").sum()
+    joined_df = get_income_expense_df(ledger_df)
+    months_back, labels = get_historical_average_labels()
     incomes = []
     expenses = []
-    for i in (6, 3, 1):
-        incomes.append(joined_df[-i:].mean()["income"])
-        expenses.append(joined_df[-i:].mean()["expenses"])
-    latest_month = joined_df[-1:].index.item().strftime("%B %Y")
+    for i in months_back:
+        start = date.today() + relativedelta(months=-i)
+        incomes.append(joined_df[start:].sum()["income"] / i)
+        expenses.append(joined_df[start:].sum()["expenses"] / i)
     i_and_e_avg_df = pd.DataFrame(
         {"income": incomes, "expense": expenses},
-        index=[
-            "Last 6 months",
-            "Last 3 months",
-            latest_month,
-        ],
+        index=labels,
     )
     chart = px.bar(
         i_and_e_avg_df,
@@ -161,11 +445,18 @@ def get_income_expense_yearly_chart(ledger_df):
 
 def get_income_expense_monthly_chart(ledger_df):
     """Get monthly income and expense totals chart."""
-    joined_df = get_income_expense_df(ledger_df)
+    dataframe = get_income_expense_df(ledger_df)
+    # Only keep last 12 months.
+    dataframe = dataframe[
+        dataframe.resample("M")
+        .sum(numeric_only=True)
+        .iloc[-12]
+        .name.strftime("%Y-%m") :
+    ]
     chart = px.histogram(
-        joined_df,
-        x=joined_df.index,
-        y=joined_df.columns,
+        dataframe,
+        x=dataframe.index,
+        y=dataframe.columns,
         barmode="group",
         title="Monthly Income and Expenses",
         histfunc="sum",
@@ -194,6 +485,13 @@ def get_yearly_chart(ledger_df, category_prefix, title):
 def get_monthly_chart(ledger_df, category_prefix, title):
     """Get monthly income or expense bar chart."""
     dataframe = get_dataframe(ledger_df, category_prefix)
+    # Only keep last 12 months.
+    dataframe = dataframe[
+        dataframe.resample("M")
+        .sum(numeric_only=True)
+        .iloc[-12]
+        .name.strftime("%Y-%m") :
+    ]
     chart = px.histogram(
         dataframe,
         x=dataframe.index,
@@ -226,11 +524,6 @@ def write_plots(output_file, plots):
         )
 
 
-def get_ledger_csv():
-    """Get income/expense ledger csv as a StringIO."""
-    return io.StringIO(subprocess.check_output(LEDGER_CSV_CMD, shell=True, text=True))
-
-
 def main():
     """Main."""
     ledger_df = pd.read_csv(
@@ -248,15 +541,17 @@ def main():
             "skip2",
             "tag",
         ],
-        usecols=["date", "payee", "category", "amount"],
+        usecols=["date", "category", "amount"],
     )["2023":]
+    ledger_df = pd.concat(
+        [get_toshl_income_dataframe(), get_toshl_expenses_dataframe(), ledger_df]
+    ).sort_index()
     # Make virtual transactions real.
     ledger_df["category"] = ledger_df["category"].replace(r"[()]", "", regex=True)
     ledger_summarized_df = ledger_df.copy()
     ledger_summarized_df["category"] = ledger_summarized_df["category"].replace(
-        r"(.+:.+):.+", r"\1", regex=True
+        r"([^:]+:[^:]+):.+", r"\1", regex=True
     )
-    get_average_monthly_top_expenses(ledger_df)
 
     with common.temporary_file_move(f"{HTML_PREFIX}/index.html") as output_file:
         write_plots(
