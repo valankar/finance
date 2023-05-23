@@ -7,15 +7,22 @@ import pandas as pd
 
 import common
 
-ETFS_PATH = common.PREFIX + "etfs_values.csv"
+ETFS_PATH = f"{common.PREFIX}etfs_values.csv"
+CASH_VALUE_FILE = f"{common.PREFIX}schwab_brokerage_cash.txt"
 DESIRED_PERCENT = (
-    ("SCHA", 15),
+    # Large cap: 45%
     ("SCHB", 15),
+    ("SCHX", 30),
+    # Small cap: 15%
+    ("SCHA", 15),
+    # International: 20%
     ("SCHE", 5),
     ("SCHF", 15),
-    ("SCHO", 10),
-    ("SCHX", 30),
-    ("SCHZ", 10),
+    # Fixed income: 15%
+    ("SCHO", 7),
+    ("SCHZ", 8),
+    # Cash: 5%
+    ("CASH", 5),
 )
 
 
@@ -56,10 +63,13 @@ def main():
             index=[x[0] for x in DESIRED_PERCENT],
         )
     }
+    with open(CASH_VALUE_FILE, encoding="utf-8") as input_file:
+        value = float(input_file.read())
+        etfs_df.loc["CASH"] = [value, 1, value]
     total = etfs_df["value"].sum()
     etfs_df["current_percent"] = (etfs_df["value"] / total) * 100
     # ETFs that don't exist in DESIRED_PERCENT get a default of 0.
-    etfs_df = etfs_df.join(pd.DataFrame(data), how="outer").fillna(0)
+    etfs_df = etfs_df.join(pd.DataFrame(data), how="outer").fillna(0).sort_index()
 
     etfs_df, cost = trade(etfs_df, amount, amount, total)
     print(etfs_df)
