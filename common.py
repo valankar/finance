@@ -36,6 +36,7 @@ ALL_TICKERS = [
     "SCHE",
     "SCHB",
     "SCHA",
+    "SCHR",
     "SI=F",
     "GC=F",
 ]
