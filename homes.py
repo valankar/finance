@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Get estimated home values."""
 
+import functools
 import shutil
-from datetime import datetime, date
+import statistics
+from datetime import date, datetime
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +14,10 @@ import common
 
 REDFIN_URLS = {
     "prop1.txt": "/some/redfin_url",
+}
+
+ZILLOW_URLS = {
+    "prop1.txt": "/some/zillow_url",
 }
 
 PURCHASE_PRICES = {
@@ -30,19 +36,43 @@ OUTPUT_DIR = f"{Path.home()}/bin/accounts/historical/"
 HISTORICAL_MERGE_THRESHOLD = 1000
 
 
+@functools.cache
 def get_home_estimate(filename):
     """Get home average price."""
-    return get_redfin_estimate(REDFIN_URLS[filename])
+    return round(
+        statistics.mean(
+            [
+                get_redfin_estimate(REDFIN_URLS[filename]),
+                get_zillow_estimate(ZILLOW_URLS[filename]),
+            ]
+        )
+    )
+
+
+def get_site_estimate(url, xpath):
+    """Get home value from either Redfin or Zillow."""
+    return int(
+        common.find_xpath_via_browser(
+            url,
+            xpath,
+        ).translate(str.maketrans("", "", "$,"))
+    )
 
 
 def get_redfin_estimate(url_path):
     """Get home value from Redfin."""
-    return int(
-        common.find_xpath_via_browser(
-            f"https://www.redfin.com{url_path}",
-            # pylint: disable-next=line-too-long
-            '//*[@id="content"]/div[12]/div[2]/div[1]/div/div[1]/div/div[1]/div/div/div/div/div/div[1]/div/span',
-        ).translate(str.maketrans("", "", "$,"))
+    return get_site_estimate(
+        f"https://www.redfin.com{url_path}",
+        # pylint: disable-next=line-too-long
+        '//*[@id="content"]/div[12]/div[2]/div[1]/div/div[1]/div/div[1]/div/div/div/div/div/div[1]/div/span',
+    )
+
+
+def get_zillow_estimate(url_path):
+    """Get home value from Zillow."""
+    return get_site_estimate(
+        f"https://www.zillow.com{url_path}",
+        '//*[@id="home-details-home-values"]/div/div[1]/div/div/div[1]/div/p/h3',
     )
 
 

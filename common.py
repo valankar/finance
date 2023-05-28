@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Common functions."""
 
-import atexit
 import functools
 import json
 import shutil
@@ -87,8 +86,7 @@ def get_ticker(ticker):
                         ticker_retrieval_fails.add(method_name)
                 case get_ticker_browser.__name__:
                     try:
-                        with selenium_lock:
-                            return get_ticker_browser(ticker)
+                        return get_ticker_browser(ticker)
                     except NoSuchElementException:
                         ticker_retrieval_fails.add(method_name)
     print("No more methods to get ticker price")
@@ -98,24 +96,27 @@ def get_ticker(ticker):
 @functools.cache
 def get_ticker_browser(ticker):
     """Get ticker price from Yahoo via Selenium."""
-    browser = get_browser()
-    browser.get(f"https://finance.yahoo.com/quote/{ticker}")
-    # First look for accept cookies dialog.
-    try:
-        browser.find_element(By.ID, "scroll-down-btn").click()
-        browser.find_element(By.XPATH, '//button[text()="Accept all"]').click()
-    except NoSuchElementException:
-        pass
-    try:
-        return float(
-            browser.find_element(
-                By.XPATH,
-                '//*[@id="quote-header-info"]/div[3]/div[1]/div/fin-streamer[1]',
-            ).text.replace(",", "")
-        )
-    except NoSuchElementException:
-        browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
-        raise
+    with selenium_lock:
+        browser = get_browser()
+        browser.get(f"https://finance.yahoo.com/quote/{ticker}")
+        # First look for accept cookies dialog.
+        try:
+            browser.find_element(By.ID, "scroll-down-btn").click()
+            browser.find_element(By.XPATH, '//button[text()="Accept all"]').click()
+        except NoSuchElementException:
+            pass
+        try:
+            return float(
+                browser.find_element(
+                    By.XPATH,
+                    '//*[@id="quote-header-info"]/div[3]/div[1]/div/fin-streamer[1]',
+                ).text.replace(",", "")
+            )
+        except NoSuchElementException:
+            browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
+            raise
+        finally:
+            browser.quit()
 
 
 @functools.cache
@@ -185,18 +186,17 @@ def find_xpath_via_browser(url, xpath):
         except NoSuchElementException:
             browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
             raise
+        finally:
+            browser.quit()
 
 
-@functools.cache
 def get_browser():
-    """Get a Selenium/Firefox browser. Reuse with cache. Quits on program exit."""
-    with selenium_lock:
-        opts = FirefoxOptions()
-        opts.add_argument("--headless")
-        service = FirefoxService(log_path=path.devnull)
-        browser = webdriver.Firefox(options=opts, service=service)
-        atexit.register(browser.quit)
-        return browser
+    """Get a Selenium/Firefox browser."""
+    opts = FirefoxOptions()
+    opts.add_argument("--headless")
+    service = FirefoxService(log_path=path.devnull)
+    browser = webdriver.Firefox(options=opts, service=service)
+    return browser
 
 
 if __name__ == "__main__":
