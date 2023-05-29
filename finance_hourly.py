@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Run hourly finance functions."""
 
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+
+from selenium.common.exceptions import NoSuchElementException
 
 import commodities
 import etfs
@@ -13,22 +14,18 @@ import vanguard_401k
 import vanguard_trust
 
 
-def vanguard():
-    """Vanguard functions to run in parallel to others."""
-    vanguard_trust.main()
-    vanguard_401k.main()
-
-
 def main():
     """Main."""
-    with ThreadPoolExecutor() as pool:
-        vanguard_future = pool.submit(vanguard)
-        commodities.main()
-        etfs.main()
-        if ex := vanguard_future.exception():
-            # Be silent on weekends when this sometimes fails.
-            if datetime.today().strftime("%A") not in ["Saturday", "Sunday"]:
-                print(f"{ex} Exception raised but continuing.")
+    try:
+        vanguard_trust.main()
+    except NoSuchElementException as ex:
+        # Be silent on weekends when this sometimes fails.
+        if datetime.today().strftime("%A") not in ["Saturday", "Sunday"]:
+            print(f"{ex} Vanguard Trust exception raised but continuing.")
+
+    vanguard_401k.main()
+    commodities.main()
+    etfs.main()
     history.main()
     plot.main()
     i_and_e.main()
