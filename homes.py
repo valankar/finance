@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Get estimated home values."""
 
-import functools
 import statistics
 from datetime import date
 from pathlib import Path
@@ -30,7 +29,6 @@ HOME_COLUMN_MAP = {
 OUTPUT_DIR = f"{Path.home()}/bin/accounts/historical/"
 
 
-@functools.cache
 def get_home_estimate(filename):
     """Get home average price."""
     return round(
@@ -70,17 +68,37 @@ def get_zillow_estimate(url_path):
     )
 
 
+def get_zillow_rent_estimate(url_path):
+    """Get rent estimate from Zillow."""
+    return get_site_estimate(
+        f"https://www.zillow.com{url_path}",
+        '//*[@id="__next"]/div/div/div[1]/div[2]/div[2]/div[2]/div/div[1]/span/span[4]/span/span',
+    )
+
+
+def write_csv(filename, value):
+    """Write CSV file with date and value."""
+    home_df = pd.DataFrame({"value": value}, index=[date.today()])
+    home_df.to_csv(filename, mode="a", header=False)
+
+
 def main():
     """Main."""
     for filename in REDFIN_URLS:
+        # Home value
         value = get_home_estimate(filename)
         output = common.PREFIX + filename
         if not value:
             continue
         with common.temporary_file_move(output) as output_file:
             output_file.write(str(value))
-        home_df = pd.DataFrame({"value": value}, index=[date.today()])
-        home_df.to_csv(f"{OUTPUT_DIR}{filename}.csv", mode="a", header=False)
+        write_csv(f"{OUTPUT_DIR}{filename}.csv", value)
+
+        # Home rent estimate
+        write_csv(
+            f"{OUTPUT_DIR}{filename}.rent.csv",
+            get_zillow_rent_estimate(ZILLOW_URLS[filename]),
+        )
 
 
 if __name__ == "__main__":

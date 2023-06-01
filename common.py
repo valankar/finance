@@ -56,8 +56,8 @@ def get_tickers(tickers: list) -> dict:
 def get_ticker(ticker):
     """Get ticker prices by trying various methods."""
     ticker_retrieval_sequence = [
-        get_all_tickers_steampipe_cloud,
         get_ticker_yahooquery,
+        get_all_tickers_steampipe_cloud,
         get_all_tickers_steampipe_local,
         get_ticker_browser,
     ]
@@ -178,14 +178,15 @@ def find_xpath_via_browser(url, xpath):
     """Find XPATH via Selenium with retries. Returns text of element."""
     with selenium_lock:
         browser = get_browser()
-        browser.get(url)
         try:
-            if text := browser.find_element(By.XPATH, xpath).text:
-                return text
-            raise NoSuchElementException
-        except NoSuchElementException:
-            browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
-            raise
+            browser.get(url)
+            try:
+                if text := browser.find_element(By.XPATH, xpath).text:
+                    return text
+                raise NoSuchElementException
+            except NoSuchElementException:
+                browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
+                raise
         finally:
             browser.quit()
 

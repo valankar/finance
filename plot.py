@@ -3,7 +3,6 @@
 
 import math
 from datetime import date, datetime
-from concurrent.futures import ProcessPoolExecutor
 from functools import reduce
 
 import numpy as np
@@ -16,6 +15,7 @@ from plotly.subplots import make_subplots
 from prefixed import Float
 
 import common
+import homes
 
 TIMEZONE = "Europe/Zurich"
 TODAY_DATE = date.today()
@@ -96,15 +96,15 @@ def add_hline_current(
 
 def build_ranges(dataframe, columns):
     """Build graph ranges based on min/max values."""
-    today = TODAY_TIME.strftime("%Y-%m-%d")
+    last_time = dataframe.index[-1].strftime("%Y-%m-%d")
     xranges = {
-        "All": [dataframe.index[0].strftime("%Y-%m-%d"), today],
-        "2y": [(TODAY_TIME + relativedelta(years=-2)).strftime("%Y-%m-%d"), today],
-        "1y": [(TODAY_TIME + relativedelta(years=-1)).strftime("%Y-%m-%d"), today],
-        "YTD": [TODAY_TIME.strftime("%Y-01-01"), today],
-        "6m": [(TODAY_TIME + relativedelta(months=-6)).strftime("%Y-%m-%d"), today],
-        "3m": [(TODAY_TIME + relativedelta(months=-3)).strftime("%Y-%m-%d"), today],
-        "1m": [(TODAY_TIME + relativedelta(months=-1)).strftime("%Y-%m-%d"), today],
+        "All": [dataframe.index[0].strftime("%Y-%m-%d"), last_time],
+        "2y": [(TODAY_TIME + relativedelta(years=-2)).strftime("%Y-%m-%d"), last_time],
+        "1y": [(TODAY_TIME + relativedelta(years=-1)).strftime("%Y-%m-%d"), last_time],
+        "YTD": [TODAY_TIME.strftime("%Y-01-01"), last_time],
+        "6m": [(TODAY_TIME + relativedelta(months=-6)).strftime("%Y-%m-%d"), last_time],
+        "3m": [(TODAY_TIME + relativedelta(months=-3)).strftime("%Y-%m-%d"), last_time],
+        "1m": [(TODAY_TIME + relativedelta(months=-1)).strftime("%Y-%m-%d"), last_time],
     }
     ranges = {}
     for column in columns:
@@ -309,29 +309,27 @@ def make_real_estate_section(real_estate_df):
         rows=2,
         cols=2,
         subplot_titles=(
-            "Values",
+            "Price Estimate",
             "Change Since Purchase",
+            "Rent Estimate",
             "Yearly Average Change Since Purchase",
         ),
-        specs=[
-            [{"rowspan": 2}, {}],
-            [None, {}],
-        ],
         column_widths=[0.7, 0.3],
         vertical_spacing=0.07,
         horizontal_spacing=0.05,
     )
-    line = px.line(real_estate_df, x=real_estate_df.index, y=SOLD_HOMES + HOMES)
-
-    for trace in line.data:
+    for trace in px.line(real_estate_df, x=real_estate_df.index, y=HOMES).data:
         section.add_trace(trace, row=1, col=1)
+    rent_df = get_real_estate_rent_df()
+    for trace in px.line(rent_df, x=rent_df.index, y=rent_df.columns).data:
+        section.add_trace(trace, row=2, col=1)
 
     # Profit bars
     section.add_trace(make_real_estate_profit_bar(real_estate_df), row=1, col=2)
     section.add_trace(make_real_estate_profit_bar_yearly(real_estate_df), row=2, col=2)
 
     section.update_yaxes(title_text="USD", col=1)
-    section.update_xaxes(title_text="", col=1)
+    section.update_xaxes(title_text="", matches="x", col=1)
     section.update_traces(showlegend=False)
     section.update_traces(showlegend=True, row=1, col=1)
     section.update_layout(
@@ -628,15 +626,30 @@ def write_static_plots(all_df, accounts_df, section_tuples):
 
 def write_html_and_images(section_tuples, all_df, accounts_df):
     """Generate html and images."""
-    with ProcessPoolExecutor() as pool:
-        pool.submit(write_dynamic_plots, all_df, accounts_df, section_tuples)
-        pool.submit(write_static_plots, all_df, accounts_df, section_tuples)
+    write_dynamic_plots(all_df, accounts_df, section_tuples)
+    write_static_plots(all_df, accounts_df, section_tuples)
 
 
-def get_real_estate_df(accounts_df):
+def get_real_estate_df():
     """Merge historical real estate data with current."""
-    real_estate_df = accounts_df["USD"]["Real Estate"].droplevel(1, 1)
-    real_estate_df = real_estate_df.replace(0, np.nan)
+    filename_map = {
+        "prop1.txt.csv": "Property 1",
+        "prop2.txt.csv": "Property 2",
+        "prop3.txt.csv": "Property 3",
+    }
+    dataframes = []
+    for filename, home in filename_map.items():
+        dataframe = pd.read_csv(
+            f"{homes.OUTPUT_DIR}{filename}",
+            index_col=0,
+            parse_dates=True,
+            infer_datetime_format=True,
+        )
+        dataframes.append(dataframe.rename(columns={"value": home}))
+    real_estate_df = reduce(
+        lambda l, r: pd.merge(l, r, left_index=True, right_index=True, how="outer"),
+        dataframes,
+    )
     for home in HOMES:
         real_estate_df[f"{home} Percent Change"] = (
             (
@@ -646,7 +659,28 @@ def get_real_estate_df(accounts_df):
             / real_estate_df.loc[real_estate_df[home].first_valid_index(), home]
             * 100
         )
-    return real_estate_df
+    return real_estate_df.interpolate()
+
+
+def get_real_estate_rent_df():
+    """Load rental estimate dataframe."""
+    filename_map = {
+        "prop1.txt.rent.csv": "Property 1",
+        "prop2.txt.rent.csv": "Property 2",
+        "prop3.txt.rent.csv": "Property 3",
+    }
+    dataframes = []
+    for filename, home in filename_map.items():
+        dataframe = pd.read_csv(
+            f"{homes.OUTPUT_DIR}{filename}",
+            index_col=0,
+            parse_dates=True,
+            infer_datetime_format=True,
+        )
+        dataframes.append(dataframe.rename(columns={"value": home}))
+    return reduce(
+        lambda l, r: pd.merge(l, r, left_index=True, right_index=True), dataframes
+    )
 
 
 def get_interest_rate_df():
@@ -673,16 +707,8 @@ def get_interest_rate_df():
 
 
 def downsample_df(dataframe):
-    """Downsample data older than 1 week."""
-    weekly = dataframe.resample("W").mean()
-    daily = dataframe.resample("D").mean()
-    if daily.shape[0] < 30:
-        return daily
-    weekly_concat = weekly[: daily.iloc[-7].name]
-    daily_concat = daily[-7:]
-    if weekly_concat.iloc[-1].name == daily.iloc[-7].name:
-        daily_concat = daily[-6:]
-    return pd.concat([weekly_concat, daily_concat])
+    """Downsample data."""
+    return dataframe.resample("W").mean()
 
 
 def main():
@@ -720,13 +746,12 @@ def main():
     )
 
     daily_df = all_df.resample("D").mean().interpolate()
-    real_estate_daily_df = get_real_estate_df(accounts_df).resample("D").mean()
     invret_df = get_investing_retirement_df(daily_df, accounts_df)
     forex_df = forex_df.resample("D").mean()
 
     assets_trend = make_assets_breakdown_section(downsample_df(daily_df))
     invret_section = make_investing_retirement_section(downsample_df(invret_df))
-    real_estate_section = make_real_estate_section(downsample_df(real_estate_daily_df))
+    real_estate_section = make_real_estate_section(get_real_estate_df())
     allocation_section = make_allocation_profit_section(daily_df, invret_df)
     net_worth_change_section = make_change_section(
         daily_df, "total", "Total Net Worth Change"
