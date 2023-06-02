@@ -39,9 +39,9 @@ Write commodity price history to a CSV file.
 
 Some common methods used throughout.
 
-### conda.investing.export
+### conda.env.export
 
-Conda package list showing requirements.
+Conda package list showing requirements. Created with `conda env export > conda.env.export`.
 
 ### etfs.py
 
