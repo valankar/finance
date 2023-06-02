@@ -17,14 +17,6 @@ ZILLOW_URLS = {
     "prop1.txt": "/some/zillow_url",
 }
 
-PURCHASE_PRICES = {
-    "prop1.txt": ("2012-07-09", 438000),
-}
-
-HOME_COLUMN_MAP = {
-    "prop1.txt": "Some Property",
-}
-
 # Where to write home csv files.
 OUTPUT_DIR = f"{Path.home()}/bin/accounts/historical/"
 
