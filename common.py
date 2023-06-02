@@ -98,23 +98,24 @@ def get_ticker_browser(ticker):
     """Get ticker price from Yahoo via Selenium."""
     with selenium_lock:
         browser = get_browser()
-        browser.get(f"https://finance.yahoo.com/quote/{ticker}")
-        # First look for accept cookies dialog.
         try:
-            browser.find_element(By.ID, "scroll-down-btn").click()
-            browser.find_element(By.XPATH, '//button[text()="Accept all"]').click()
-        except NoSuchElementException:
-            pass
-        try:
-            return float(
-                browser.find_element(
-                    By.XPATH,
-                    '//*[@id="quote-header-info"]/div[3]/div[1]/div/fin-streamer[1]',
-                ).text.replace(",", "")
-            )
-        except NoSuchElementException:
-            browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
-            raise
+            browser.get(f"https://finance.yahoo.com/quote/{ticker}")
+            # First look for accept cookies dialog.
+            try:
+                browser.find_element(By.ID, "scroll-down-btn").click()
+                browser.find_element(By.XPATH, '//button[text()="Accept all"]').click()
+            except NoSuchElementException:
+                pass
+            try:
+                return float(
+                    browser.find_element(
+                        By.XPATH,
+                        '//*[@id="quote-header-info"]/div[3]/div[1]/div/fin-streamer[1]',
+                    ).text.replace(",", "")
+                )
+            except NoSuchElementException:
+                browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
+                raise
         finally:
             browser.quit()
 
