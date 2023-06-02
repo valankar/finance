@@ -708,7 +708,9 @@ def get_interest_rate_df():
 
 def downsample_df(dataframe):
     """Downsample data."""
-    return dataframe.resample("W").mean()
+    weekly = dataframe.resample("W").mean().iloc[:-1]
+    daily = dataframe[dataframe.index > weekly.index[-1]].resample("D").mean()
+    return pd.concat([weekly, daily])
 
 
 def main():
