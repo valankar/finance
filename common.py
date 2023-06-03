@@ -53,41 +53,35 @@ def get_tickers(tickers: list) -> dict:
     return ticker_dict
 
 
+def call_get_ticker(func, ticker, returns_dict, exception):
+    """Calls a ticker getting method if it has not failed recently."""
+    with shelve.open(TICKER_FAILURES_SHELF) as ticker_failures:
+        now = datetime.now()
+        last_failure = ticker_failures.get(func.__name__)
+        if last_failure and ((now - last_failure).days < 1):
+            return None
+        try:
+            if returns_dict:
+                return func()[ticker]
+            return func(ticker)
+        except exception:
+            ticker_failures[func.__name__] = now
+    return None
+
+
 @functools.cache
 def get_ticker(ticker):
     """Get ticker prices by trying various methods. Failed methods are not
     retried until 1 day has passed."""
-    with shelve.open(TICKER_FAILURES_SHELF) as ticker_failures:
-        now = datetime.now()
-
-        def failed_recently(func_name):
-            last_failure = ticker_failures.get(func_name)
-            return last_failure and ((now - last_failure).days < 1)
-
-        if not failed_recently(get_all_tickers_steampipe_cloud.__name__):
-            try:
-                return get_all_tickers_steampipe_cloud()[ticker]
-            except psycopg2.Error:
-                ticker_failures[get_all_tickers_steampipe_cloud.__name__] = now
-
-        if not failed_recently(get_ticker_yahooquery.__name__):
-            try:
-                return get_ticker_yahooquery(ticker)
-            # pylint: disable-next=broad-exception-caught
-            except Exception:
-                ticker_failures[get_ticker_yahooquery.__name__] = now
-
-        if not failed_recently(get_all_tickers_steampipe_local.__name__):
-            try:
-                return get_all_tickers_steampipe_local()[ticker]
-            except subprocess.CalledProcessError:
-                ticker_failures[get_all_tickers_steampipe_local.__name__] = now
-
-        if not failed_recently(get_ticker_browser.__name__):
-            try:
-                return get_ticker_browser(ticker)
-            except NoSuchElementException:
-                ticker_failures[get_ticker_browser.__name__] = now
+    get_ticker_methods = (
+        (get_all_tickers_steampipe_cloud, ticker, True, psycopg2.Error),
+        (get_ticker_yahooquery, ticker, False, Exception),
+        (get_all_tickers_steampipe_local, ticker, True, subprocess.CalledProcessError),
+        (get_ticker_browser, ticker, False, NoSuchElementException),
+    )
+    for method in get_ticker_methods:
+        if result := call_get_ticker(*method):
+            return result
 
     raise ValueError("No more methods to get ticker price")
 
