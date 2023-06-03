@@ -3,7 +3,6 @@
 
 import statistics
 from datetime import date
-from pathlib import Path
 
 import pandas as pd
 
@@ -16,9 +15,6 @@ REDFIN_URLS = {
 ZILLOW_URLS = {
     "prop1.txt": "/some/zillow_url",
 }
-
-# Where to write home csv files.
-OUTPUT_DIR = f"{Path.home()}/bin/accounts/historical/"
 
 
 def get_home_estimate(filename):
@@ -84,11 +80,11 @@ def main():
             continue
         with common.temporary_file_move(output) as output_file:
             output_file.write(str(value))
-        write_csv(f"{OUTPUT_DIR}{filename}.csv", value)
+        write_csv(f"{common.PREFIX}{filename}.csv", value)
 
         # Home rent estimate
         write_csv(
-            f"{OUTPUT_DIR}{filename}.rent.csv",
+            f"{common.PREFIX}{filename}.rent.csv",
             get_zillow_rent_estimate(ZILLOW_URLS[filename]),
         )
 

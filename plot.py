@@ -2,7 +2,7 @@
 """Plot finance graphs."""
 
 import math
-from datetime import date, datetime
+from datetime import datetime
 from functools import reduce
 
 import numpy as np
@@ -15,16 +15,11 @@ from plotly.subplots import make_subplots
 from prefixed import Float
 
 import common
-import homes
 
 TIMEZONE = "Europe/Zurich"
-TODAY_DATE = date.today()
 TODAY_TIME = datetime.now().astimezone(pytz.timezone(TIMEZONE))
 # How far to look back for daily changes.
 YESTERDAY = (TODAY_TIME + relativedelta(days=-1)).strftime("%Y-%m-%d %H:%M:%S")
-TWO_MONTHS_AGO_FLOOR = (TODAY_DATE + relativedelta(months=-2)).strftime("%Y-%m")
-# How far to look back for change in last section.
-START_CHANGES_IN_LAST = TWO_MONTHS_AGO_FLOOR
 INDEX_HTML = "index.html"
 STATIC_HTML = "static.html"
 COLOR_GREEN = "#3d9970"
@@ -34,10 +29,6 @@ HOMES = [
     "Property 3",
     "Property 4",
     "Property 5",
-]
-SOLD_HOMES = [
-    "Property 1",
-    "Property 2",
 ]
 
 
@@ -640,7 +631,7 @@ def get_real_estate_df():
     dataframes = []
     for filename, home in filename_map.items():
         dataframe = pd.read_csv(
-            f"{homes.OUTPUT_DIR}{filename}",
+            f"{common.PREFIX}{filename}",
             index_col=0,
             parse_dates=True,
             infer_datetime_format=True,
@@ -672,7 +663,7 @@ def get_real_estate_rent_df():
     dataframes = []
     for filename, home in filename_map.items():
         dataframe = pd.read_csv(
-            f"{homes.OUTPUT_DIR}{filename}",
+            f"{common.PREFIX}{filename}",
             index_col=0,
             parse_dates=True,
             infer_datetime_format=True,
