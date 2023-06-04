@@ -17,6 +17,15 @@ is just to get you started.
 The `finance_hourly.py` script should be run hourly. The `finance_daily.py` script should be run daily.
 This stores all the historical data as text or CSV files, and then creates plots.
 
+Crontab example:
+
+```shell
+@hourly             flock $HOME/code/accounts -c "$HOME/software/miniconda3/condabin/conda run -n investing $HOME/bin/accounts/finance_hourly.py"
+@daily              flock $HOME/code/accounts -c "$HOME/software/miniconda3/condabin/conda run -n investing $HOME/bin/accounts/finance_daily.py"
+```
+
+Locking the directory is to prevent both scripts writing at the same time.
+
 ## Files
 
 ### add_account.py

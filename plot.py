@@ -294,7 +294,7 @@ def make_investing_retirement_section(invret_df):
     return section
 
 
-def make_real_estate_section(real_estate_df):
+def make_real_estate_section(real_estate_df, rent_df):
     """Line graph of real estate with percent change."""
     section = make_subplots(
         rows=2,
@@ -311,7 +311,6 @@ def make_real_estate_section(real_estate_df):
     )
     for trace in px.line(real_estate_df, x=real_estate_df.index, y=HOMES).data:
         section.add_trace(trace, row=1, col=1)
-    rent_df = get_real_estate_rent_df()
     for trace in px.line(rent_df, x=rent_df.index, y=rent_df.columns).data:
         section.add_trace(trace, row=2, col=1)
 
@@ -465,9 +464,8 @@ def make_forex_section(forex_df):
     return fig
 
 
-def make_interest_rate_section():
+def make_interest_rate_section(interest_df):
     """Make interest rate section."""
-    interest_df = get_interest_rate_df()
     fig = px.line(
         interest_df, x=interest_df.index, y=interest_df.columns, title="Interest Rates"
     )
@@ -650,7 +648,7 @@ def get_real_estate_df():
             / real_estate_df.loc[real_estate_df[home].first_valid_index(), home]
             * 100
         )
-    return real_estate_df.interpolate()
+    return real_estate_df
 
 
 def get_real_estate_rent_df():
@@ -692,16 +690,19 @@ def get_interest_rate_df():
     wealthfront_df = load_percent_csv("wealthfront_cash_yield.csv", "Wealthfront Cash")
     merged = reduce(
         lambda l, r: pd.merge(l, r, left_index=True, right_index=True, how="outer"),
-        [fedfunds_df, sofr_df, downsample_df(swvxx_df), downsample_df(wealthfront_df)],
+        [
+            fedfunds_df,
+            sofr_df,
+            swvxx_df,
+            wealthfront_df,
+        ],
     )
-    return merged.interpolate()[sorted(merged.columns)]
+    return merged[sorted(merged.columns)]
 
 
 def downsample_df(dataframe):
     """Downsample data."""
-    weekly = dataframe.resample("W").mean().iloc[:-1]
-    daily = dataframe[dataframe.index > weekly.index[-1]].resample("D").mean()
-    return pd.concat([weekly, daily])
+    return dataframe.resample("W").mean().interpolate()
 
 
 def main():
@@ -744,7 +745,9 @@ def main():
 
     assets_trend = make_assets_breakdown_section(downsample_df(daily_df))
     invret_section = make_investing_retirement_section(downsample_df(invret_df))
-    real_estate_section = make_real_estate_section(get_real_estate_df())
+    real_estate_section = make_real_estate_section(
+        downsample_df(get_real_estate_df()), downsample_df(get_real_estate_rent_df())
+    )
     allocation_section = make_allocation_profit_section(daily_df, invret_df)
     net_worth_change_section = make_change_section(
         daily_df, "total", "Total Net Worth Change"
@@ -752,8 +755,8 @@ def main():
     total_no_homes_change_section = make_change_section(
         daily_df, "total_no_homes", "Total Without Real Estate Change"
     )
-    forex_section = make_forex_section(downsample_df(forex_df).interpolate())
-    yield_section = make_interest_rate_section()
+    forex_section = make_forex_section(downsample_df(forex_df))
+    yield_section = make_interest_rate_section(get_interest_rate_df().interpolate())
 
     write_html_and_images(
         (
