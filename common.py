@@ -15,19 +15,22 @@ from threading import RLock
 
 import psycopg2
 import psycopg2.extras
+import yfinance
+import yahooquery
+import yahoofinancials
 from retry import retry
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver import FirefoxOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.service import Service as FirefoxService
-from yahooquery import Ticker
 
 import authorization
 
 PREFIX = str(Path.home()) + authorization.PUBLIC_HTML
 TICKER_FAILURES_SHELF = f"{PREFIX}ticker_failures.shelf"
-ALL_TICKERS = [
+# When querying Steampipe, make one query to get all tickers needed.
+STEAMPIPE_ALL_TICKERS = [
     "SGDUSD=X",
     "CHFUSD=X",
     "VWIAX",
@@ -53,7 +56,7 @@ def get_tickers(tickers: list) -> dict:
     return ticker_dict
 
 
-def call_get_ticker(func, ticker, returns_dict, exception):
+def call_get_ticker(ticker, func, returns_dict, exception):
     """Calls a ticker getting method if it has not failed recently."""
     with shelve.open(TICKER_FAILURES_SHELF) as ticker_failures:
         now = datetime.now()
@@ -74,13 +77,15 @@ def get_ticker(ticker):
     """Get ticker prices by trying various methods. Failed methods are not
     retried until 1 day has passed."""
     get_ticker_methods = (
-        (get_all_tickers_steampipe_cloud, ticker, True, psycopg2.Error),
-        (get_ticker_yahooquery, ticker, False, Exception),
-        (get_all_tickers_steampipe_local, ticker, True, subprocess.CalledProcessError),
-        (get_ticker_browser, ticker, False, NoSuchElementException),
+        (get_all_tickers_steampipe_cloud, True, psycopg2.Error),
+        (get_ticker_yahooquery, False, Exception),
+        (get_ticker_yahoofinancials, False, Exception),
+        (get_ticker_yfinance, False, Exception),
+        (get_all_tickers_steampipe_local, True, subprocess.CalledProcessError),
+        (get_ticker_browser, False, NoSuchElementException),
     )
     for method in get_ticker_methods:
-        if result := call_get_ticker(*method):
+        if result := call_get_ticker(ticker, *method):
             return result
 
     raise ValueError("No more methods to get ticker price")
@@ -114,9 +119,21 @@ def get_ticker_browser(ticker):
 
 
 @functools.cache
+def get_ticker_yahoofinancials(ticker):
+    """Get ticker price via yahoofinancials library."""
+    return yahoofinancials.YahooFinancials(ticker).get_current_price()
+
+
+@functools.cache
 def get_ticker_yahooquery(ticker):
-    """Get ticker price via Yahooquery library."""
-    return Ticker(ticker).price[ticker]["regularMarketPrice"]
+    """Get ticker price via yahooquery library."""
+    return yahooquery.Ticker(ticker).price[ticker]["regularMarketPrice"]
+
+
+@functools.cache
+def get_ticker_yfinance(ticker):
+    """Get ticker price via yfinance library."""
+    return yfinance.Ticker(ticker).history(period="1d")["Close"][0]
 
 
 @functools.cache
@@ -126,7 +143,7 @@ def get_all_tickers_steampipe_cloud():
     try:
         with conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as curs:
-                tickers = ",".join([f"'{ticker}'" for ticker in ALL_TICKERS])
+                tickers = ",".join([f"'{ticker}'" for ticker in STEAMPIPE_ALL_TICKERS])
                 curs.execute(
                     # pylint: disable-next=line-too-long
                     f"select symbol, regular_market_price from finance_quote where symbol in ({tickers})"
@@ -143,7 +160,7 @@ def get_all_tickers_steampipe_cloud():
 @functools.cache
 def get_all_tickers_steampipe_local():
     """Get ticker price."""
-    tickers = ",".join([f"'{ticker}'" for ticker in ALL_TICKERS])
+    tickers = ",".join([f"'{ticker}'" for ticker in STEAMPIPE_ALL_TICKERS])
     process = subprocess.run(
         # pylint: disable-next=line-too-long
         f'$HOME/bin/steampipe query "select symbol, regular_market_price from finance_quote where symbol in ({tickers})" --output json',
@@ -195,5 +212,5 @@ def get_browser():
 
 
 if __name__ == "__main__":
-    for t in ALL_TICKERS:
+    for t in STEAMPIPE_ALL_TICKERS:
         print(f"Ticker: {t} Value: {get_ticker(t)}")
