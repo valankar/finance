@@ -14,6 +14,8 @@ accounts_df = pd.read_csv(
     header=[0, 1, 2, 3],
 )
 
-accounts_df.insert(0, ("USD", "Bank", "Account", "nan"), np.nan)
+# accounts_df.insert(0, ("USD", "Charles Schwab", "Brokerage", "SCHR"), np.nan)
+accounts_df.insert(0, ("USD", "Apple", "Cash", "nan"), np.nan)
+accounts_df.insert(0, ("USD", "Apple", "Card", "nan"), np.nan)
 accounts_df = accounts_df.sort_index(axis=1)
 accounts_df.to_csv(f"{common.PREFIX}account_history.csv.new", float_format="%.2f")

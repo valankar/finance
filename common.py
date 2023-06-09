@@ -48,6 +48,10 @@ STEAMPIPE_ALL_TICKERS = [
 selenium_lock = RLock()
 
 
+class GetTickerError(Exception):
+    """Error getting ticker."""
+
+
 def get_tickers(tickers: list) -> dict:
     """Get prices for a list of tickers."""
     ticker_dict = {}
@@ -62,14 +66,14 @@ def call_get_ticker(ticker, func, returns_dict, exception):
         now = datetime.now()
         last_failure = ticker_failures.get(func.__name__)
         if last_failure and ((now - last_failure).days < 1):
-            return None
+            raise GetTickerError
         try:
             if returns_dict:
                 return func()[ticker]
             return func(ticker)
         except exception:
             ticker_failures[func.__name__] = now
-    return None
+    raise GetTickerError
 
 
 @functools.cache
@@ -85,10 +89,11 @@ def get_ticker(ticker):
         (get_ticker_browser, False, NoSuchElementException),
     )
     for method in get_ticker_methods:
-        if result := call_get_ticker(ticker, *method):
-            return result
-
-    raise ValueError("No more methods to get ticker price")
+        try:
+            return call_get_ticker(ticker, *method)
+        except GetTickerError:
+            pass
+    raise GetTickerError("No more methods to get ticker price")
 
 
 @functools.cache
