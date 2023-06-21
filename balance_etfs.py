@@ -8,18 +8,15 @@ import pandas as pd
 import common
 
 ETFS_PATH = f"{common.PREFIX}etfs_values.csv"
-CASH_VALUE_FILE = f"{common.PREFIX}schwab_brokerage_cash.txt"
 DESIRED_PERCENT = (
-    # Large cap: 45%
-    ("SCHX", 45),
-    # Small cap: 15%
-    ("SCHA", 15),
-    # International: 20%
-    ("SCHF", 20),
-    # Fixed income: 15%
-    ("SCHR", 15),
-    # Cash: 5%
-    ("CASH", 5),
+    # Large cap
+    ("SCHX", 47),
+    # Small cap
+    ("SCHA", 16),
+    # International
+    ("SCHF", 21),
+    # Fixed income
+    ("SCHR", 16),
 )
 
 
@@ -72,9 +69,6 @@ def main():
             )
         }
     )
-    with open(CASH_VALUE_FILE, encoding="utf-8") as input_file:
-        value = float(input_file.read())
-        etfs_df.loc["CASH"] = [value, 1, value]
     total = etfs_df["value"].sum()
     etfs_df["current_percent"] = (etfs_df["value"] / total) * 100
     # ETFs that don't exist in DESIRED_PERCENT get a default of 0.

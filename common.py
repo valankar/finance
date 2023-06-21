@@ -15,12 +15,13 @@ from threading import RLock
 
 import psycopg2
 import psycopg2.extras
-import yfinance
-import yahooquery
+import stockquotes
 import yahoofinancials
+import yahooquery
+import yfinance
 from retry import retry
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver import FirefoxOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.service import Service as FirefoxService
@@ -60,12 +61,15 @@ def get_tickers(tickers: list) -> dict:
     return ticker_dict
 
 
-def call_get_ticker(ticker, func, returns_dict, exception):
-    """Calls a ticker getting method if it has not failed recently."""
+def call_get_ticker(ticker, func, returns_dict, exception, force=False):
+    """Calls a ticker getting method if it has not failed recently.
+
+    If force is True, ignore previous errors and force a call.
+    """
     with shelve.open(TICKER_FAILURES_SHELF) as ticker_failures:
         now = datetime.now()
         last_failure = ticker_failures.get(func.__name__)
-        if last_failure and ((now - last_failure).days < 1):
+        if not force and last_failure and ((now - last_failure).days < 1):
             raise GetTickerError
         try:
             if returns_dict:
@@ -77,23 +81,36 @@ def call_get_ticker(ticker, func, returns_dict, exception):
 
 
 @functools.cache
-def get_ticker(ticker):
-    """Get ticker prices by trying various methods. Failed methods are not
-    retried until 1 day has passed."""
+def get_ticker(ticker, test_all=False):
+    """Get ticker prices by trying various methods.
+
+    Failed methods are not retried until 1 day has passed.
+
+    If test_all is True, all methods are tried with results printed.
+    """
     get_ticker_methods = (
         (get_all_tickers_steampipe_cloud, True, psycopg2.Error),
         (get_ticker_yahooquery, False, Exception),
         (get_ticker_yahoofinancials, False, Exception),
         (get_ticker_yfinance, False, Exception),
+        (get_ticker_stockquotes, False, Exception),
         (get_all_tickers_steampipe_local, True, subprocess.CalledProcessError),
         (get_ticker_browser, False, NoSuchElementException),
     )
     for method in get_ticker_methods:
+        if test_all:
+            print(f"{method[0].__name__}: ", end="")
+            try:
+                print(call_get_ticker(ticker, *method, True))
+            except GetTickerError:
+                print("FAILED")
+            continue
         try:
             return call_get_ticker(ticker, *method)
         except GetTickerError:
             pass
-    raise GetTickerError("No more methods to get ticker price")
+    if not test_all:
+        raise GetTickerError("No more methods to get ticker price")
 
 
 @functools.cache
@@ -121,6 +138,12 @@ def get_ticker_browser(ticker):
                 raise
         finally:
             browser.quit()
+
+
+@functools.cache
+def get_ticker_stockquotes(ticker):
+    """Get ticker price via stockquotes library."""
+    return stockquotes.Stock(ticker).current_price
 
 
 @functools.cache
@@ -189,7 +212,7 @@ def temporary_file_move(dest_file):
 
 
 @functools.cache
-@retry(NoSuchElementException, delay=30, tries=4)
+@retry((NoSuchElementException, TimeoutException), delay=30, tries=4)
 def find_xpath_via_browser(url, xpath):
     """Find XPATH via Selenium with retries. Returns text of element."""
     with selenium_lock:
@@ -214,8 +237,3 @@ def get_browser():
     service = FirefoxService(log_path=path.devnull)
     browser = webdriver.Firefox(options=opts, service=service)
     return browser
-
-
-if __name__ == "__main__":
-    for t in STEAMPIPE_ALL_TICKERS:
-        print(f"Ticker: {t} Value: {get_ticker(t)}")
