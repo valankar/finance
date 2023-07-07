@@ -97,14 +97,6 @@ Example script showing how to update X and Y axes based on a range selector.
 
 Get Charles Schwab SWVXX 7-day yield and store in a CSV file. Uses Selenium.
 
-### vanguard_401k.py
-
-Write 401k value to CSV file.
-
-### vanguard_trust.py
-
-Retrieve Vanguard Target Retirement 2040 Trust price. This is not a ticker and must come directly from Vanguard.
-
 ### wealthfront_cash_yield.py
 
 Get Wealthfront Cash APY and store in a CSV file. Uses Selenium.

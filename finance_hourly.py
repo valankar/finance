@@ -4,29 +4,19 @@
 from datetime import datetime
 from timeit import default_timer as timer
 
-from selenium.common.exceptions import NoSuchElementException
-
 import commodities
 import common
 import etfs
 import history
 import i_and_e
 import plot
-import vanguard_401k
-import vanguard_trust
+import schwab_ira
 
 
 def main():
     """Main."""
     start_time = timer()
-    try:
-        vanguard_trust.main()
-    except NoSuchElementException as ex:
-        # Be silent on weekends when this sometimes fails.
-        if datetime.today().strftime("%A") not in ["Saturday", "Sunday"]:
-            print(f"{ex} Vanguard Trust exception raised but continuing.")
-
-    vanguard_401k.main()
+    schwab_ira.main()
     commodities.main()
     etfs.main()
     history.main()

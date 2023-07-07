@@ -3,7 +3,6 @@
 
 import homes
 import fedfunds
-import resample
 import swvxx_yield
 import wealthfront_cash_yield
 
@@ -14,7 +13,6 @@ def main():
     fedfunds.main()
     swvxx_yield.main()
     wealthfront_cash_yield.main()
-    resample.main()
 
 
 if __name__ == "__main__":

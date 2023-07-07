@@ -9,11 +9,11 @@ from pathlib import Path
 import pandas as pd
 import plotly.express as px
 from dateutil.relativedelta import relativedelta
+from sqlalchemy import create_engine
 
 import common
 
 HTML_PREFIX = f"{common.PREFIX}i_and_e/"
-FOREX_HISTORY = f"{common.PREFIX}forex_historical.pickle"
 LEDGER_BIN = f"{Path.home()}/bin/ledger"
 LEDGER_DIR = f"{Path.home()}/code/ledger"
 # pylint: disable-next=line-too-long
@@ -36,12 +36,11 @@ def convert_toshl_usd(dataframe):
         columns={"Category": "category", "In main currency": "amount_chf"}
     )
     dataframe = dataframe[:"2022"]
-    forex_df = pd.DataFrame(
-        pd.read_pickle(FOREX_HISTORY).loc[("CHFUSD=X",)]["adjclose"]
-    )
-    forex_df.index = pd.to_datetime(forex_df.index)
+    with create_engine(f"sqlite:///{common.PREFIX}sqlite.db").connect() as conn:
+        forex_df = pd.read_sql_table("forex", conn, index_col="date")["CHFUSD"]
+
     dataframe = pd.merge_asof(dataframe, forex_df, left_index=True, right_index=True)
-    dataframe["amount"] = dataframe["amount_chf"] * dataframe["adjclose"]
+    dataframe["amount"] = dataframe["amount_chf"] * dataframe["CHFUSD"]
     dataframe = dataframe.drop(
         columns=[
             "Tags",
@@ -51,7 +50,7 @@ def convert_toshl_usd(dataframe):
             "Expense amount",
             "Income amount",
             "amount_chf",
-            "adjclose",
+            "CHFUSD",
         ],
         errors="ignore",
     )

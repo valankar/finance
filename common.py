@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Common functions."""
 
+import csv
 import functools
 import json
 import shelve
@@ -29,6 +30,7 @@ from selenium.webdriver.firefox.service import Service as FirefoxService
 import authorization
 
 PREFIX = str(Path.home()) + authorization.PUBLIC_HTML
+SQLITE_URI = f"sqlite:///{PREFIX}sqlite.db"
 TICKER_FAILURES_SHELF = f"{PREFIX}ticker_failures.shelf"
 # When querying Steampipe, make one query to get all tickers needed.
 STEAMPIPE_ALL_TICKERS = [
@@ -89,13 +91,13 @@ def get_ticker(ticker, test_all=False):
     If test_all is True, all methods are tried with results printed.
     """
     get_ticker_methods = (
-        (get_all_tickers_steampipe_cloud, True, psycopg2.Error),
         (get_ticker_yahooquery, False, Exception),
         (get_ticker_yahoofinancials, False, Exception),
         (get_ticker_yfinance, False, Exception),
         (get_ticker_stockquotes, False, Exception),
-        (get_all_tickers_steampipe_local, True, subprocess.CalledProcessError),
         (get_ticker_browser, False, NoSuchElementException),
+        (get_all_tickers_steampipe_cloud, True, psycopg2.Error),
+        (get_all_tickers_steampipe_local, True, subprocess.CalledProcessError),
     )
     for method in get_ticker_methods:
         if test_all:
@@ -201,6 +203,31 @@ def get_all_tickers_steampipe_local():
     for res in json.loads(process.stdout):
         ticker_prices[res["symbol"]] = res["regular_market_price"]
     return ticker_prices
+
+
+def write_ticker_csv(amount_path, output_path):
+    """Write ticker values to csv file."""
+    ticker_amounts = {}
+    with open(amount_path, "r", newline="", encoding="utf-8") as input_file:
+        csv_file = csv.DictReader(input_file)
+        for row in csv_file:
+            ticker_amounts[row["ticker"]] = float(row["shares"])
+
+    ticker_prices = get_tickers(list(ticker_amounts.keys()))
+    with temporary_file_move(output_path) as csvfile:
+        fieldnames = ["ticker", "shares", "current_price", "value"]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for ticker in sorted(ticker_amounts.keys()):
+            current_price = ticker_prices[ticker]
+            writer.writerow(
+                {
+                    "ticker": ticker,
+                    "shares": ticker_amounts[ticker],
+                    "current_price": current_price,
+                    "value": current_price * ticker_amounts[ticker],
+                }
+            )
 
 
 @contextmanager

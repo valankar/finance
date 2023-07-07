@@ -2,9 +2,10 @@
 """Get estimated home values."""
 
 import statistics
-from datetime import date
+from datetime import datetime
 
 import pandas as pd
+from sqlalchemy import create_engine
 
 import common
 
@@ -64,10 +65,12 @@ def get_zillow_rent_estimate(url_path):
     )
 
 
-def write_csv(filename, value):
-    """Write CSV file with date and value."""
-    home_df = pd.DataFrame({"value": value}, index=[date.today()])
-    home_df.to_csv(filename, mode="a", header=False)
+def write_table(table, value):
+    """Write table to sqlite."""
+    home_df = pd.DataFrame({"value": value}, index=pd.DatetimeIndex([datetime.now()]))
+    with create_engine(common.SQLITE_URI).connect() as conn:
+        home_df.to_sql(table, conn, if_exists="append", index_label="date")
+        conn.commit()
 
 
 def main():
@@ -80,11 +83,12 @@ def main():
             continue
         with common.temporary_file_move(output) as output_file:
             output_file.write(str(value))
-        write_csv(f"{common.PREFIX}{filename}.csv", value)
+        table_name = filename.split(".")[0]
+        write_table(table_name, value)
 
         # Home rent estimate
-        write_csv(
-            f"{common.PREFIX}{filename}.rent.csv",
+        write_table(
+            f"{table_name}_rent",
             get_zillow_rent_estimate(ZILLOW_URLS[filename]),
         )
 

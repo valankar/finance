@@ -3,19 +3,14 @@
 
 import pandas as pd
 import numpy as np
+from sqlalchemy import create_engine
 
 import common
 
-accounts_df = pd.read_csv(
-    f"{common.PREFIX}account_history.csv",
-    index_col=0,
-    parse_dates=True,
-    infer_datetime_format=True,
-    header=[0, 1, 2, 3],
-)
-
-# accounts_df.insert(0, ("USD", "Charles Schwab", "Brokerage", "SCHR"), np.nan)
-accounts_df.insert(0, ("USD", "Apple", "Cash", "nan"), np.nan)
-accounts_df.insert(0, ("USD", "Apple", "Card", "nan"), np.nan)
-accounts_df = accounts_df.sort_index(axis=1)
-accounts_df.to_csv(f"{common.PREFIX}account_history.csv.new", float_format="%.2f")
+with create_engine(common.SQLITE_URI).connect() as conn:
+    accounts_df = pd.read_sql_table("account_history", conn, index_col="date")
+    # Update account here.
+    accounts_df.insert(0, "USD_Charles Schwab_IRA_Cash", np.nan)
+    accounts_df = accounts_df.sort_index(axis=1)
+    accounts_df.to_sql("account_history", conn, if_exists="replace", index_label="date")
+    conn.commit()

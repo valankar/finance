@@ -13,6 +13,7 @@ import pytz
 from dateutil.relativedelta import relativedelta
 from plotly.subplots import make_subplots
 from prefixed import Float
+from sqlalchemy import create_engine
 
 import common
 
@@ -26,18 +27,18 @@ COLOR_GREEN = "#3d9970"
 COLOR_RED = "#ff4136"
 
 HOMES = [
-    "Property 3",
-    "Property 4",
-    "Property 5",
+    "Mt Vernon",
+    "Northlake",
+    "Villa Maria",
 ]
 
 
 def add_fl_home_sale(fig, row="all", col="all"):
-    """Add Location Home Sale rectangle."""
+    """Add Florida Home Sale rectangle."""
     fig.add_vrect(
         x0="2019-10-13",
         x1="2019-10-16",
-        annotation_text="XX Home Sale",
+        annotation_text="FL Home Sale",
         fillcolor="green",
         opacity=0.25,
         line_width=0,
@@ -252,16 +253,11 @@ def get_investing_retirement_df(daily_df, accounts_df):
     """Get merged df with other investment accounts."""
     invret_cols = ["pillar2", "401k", "commodities", "etfs"]
     invret_df = daily_df[invret_cols]
-    ibonds_df = (
-        accounts_df["USD"]["Treasury Direct"]
-        .droplevel(1, 1)
-        .rename(columns={"nan": "ibonds"})
-        .fillna(0)
-    )
+    ibonds_df = accounts_df["USD_Treasury Direct"].rename("ibonds").fillna(0)
     merged_df = pd.merge_asof(invret_df, ibonds_df, left_index=True, right_index=True)
     pal_df = (
-        accounts_df["USD"]["Bank 2"]["Liability 1"]
-        .rename(columns={"nan": "liability_1"})
+        accounts_df["USD_Charles Schwab_Pledged Asset Line"]
+        .rename("pledged_asset_line")
         .fillna(0)
     )
     merged_df = pd.merge_asof(merged_df, pal_df, left_index=True, right_index=True)
@@ -461,6 +457,7 @@ def make_forex_section(forex_df):
     fig.update_yaxes(col=1, title_text="USD")
     fig.update_xaxes(title_text="", matches="x", showticklabels=True)
     fig.update_traces(showlegend=False)
+    add_range_buttons(fig, forex_df, forex_df.columns)
     return fig
 
 
@@ -619,22 +616,23 @@ def write_html_and_images(section_tuples, all_df, accounts_df):
     write_static_plots(all_df, accounts_df, section_tuples)
 
 
+def load_sqlite_and_rename_col(table, columns):
+    """Load table from sqlite and rename columns."""
+    with create_engine(f"sqlite:///{common.PREFIX}sqlite.db").connect() as conn:
+        dataframe = pd.read_sql_table(table, conn, index_col="date")
+    return dataframe.rename(columns=columns)
+
+
 def get_real_estate_df():
     """Merge historical real estate data with current."""
-    filename_map = {
-        "prop1.txt.csv": "Property 1",
-        "prop2.txt.csv": "Property 2",
-        "prop3.txt.csv": "Property 3",
+    table_map = {
+        "mtvernon": "Mt Vernon",
+        "northlake": "Northlake",
+        "villamaria": "Villa Maria",
     }
     dataframes = []
-    for filename, home in filename_map.items():
-        dataframe = pd.read_csv(
-            f"{common.PREFIX}{filename}",
-            index_col=0,
-            parse_dates=True,
-            infer_datetime_format=True,
-        )
-        dataframes.append(dataframe.rename(columns={"value": home}))
+    for table, home in table_map.items():
+        dataframes.append(load_sqlite_and_rename_col(table, {"value": home}))
     real_estate_df = reduce(
         lambda l, r: pd.merge(l, r, left_index=True, right_index=True, how="outer"),
         dataframes,
@@ -653,20 +651,14 @@ def get_real_estate_df():
 
 def get_real_estate_rent_df():
     """Load rental estimate dataframe."""
-    filename_map = {
-        "prop1.txt.rent.csv": "Property 1",
-        "prop2.txt.rent.csv": "Property 2",
-        "prop3.txt.rent.csv": "Property 3",
+    table_map = {
+        "mtvernon_rent": "Mt Vernon",
+        "northlake_rent": "Northlake",
+        "villamaria_rent": "Villa Maria",
     }
     dataframes = []
-    for filename, home in filename_map.items():
-        dataframe = pd.read_csv(
-            f"{common.PREFIX}{filename}",
-            index_col=0,
-            parse_dates=True,
-            infer_datetime_format=True,
-        )
-        dataframes.append(dataframe.rename(columns={"value": home}))
+    for table, home in table_map.items():
+        dataframes.append(load_sqlite_and_rename_col(table, {"value": home}))
     return reduce(
         lambda l, r: pd.merge(l, r, left_index=True, right_index=True), dataframes
     )
@@ -674,20 +666,14 @@ def get_real_estate_rent_df():
 
 def get_interest_rate_df():
     """Merge interest rate data."""
-
-    def load_percent_csv(filename, column_name):
-        dataframe = pd.read_csv(
-            f"{common.PREFIX}{filename}",
-            index_col=0,
-            parse_dates=True,
-            infer_datetime_format=True,
-        )
-        return dataframe.rename(columns={"percent": column_name})
-
-    fedfunds_df = load_percent_csv("fedfunds.csv", "Fed Funds")["2019":]
-    sofr_df = load_percent_csv("sofr.csv", "SOFR")["2019":]
-    swvxx_df = load_percent_csv("swvxx_yield.csv", "Schwab SWVXX")
-    wealthfront_df = load_percent_csv("wealthfront_cash_yield.csv", "Wealthfront Cash")
+    fedfunds_df = load_sqlite_and_rename_col("fedfunds", {"percent": "Fed Funds"})[
+        "2019":
+    ]
+    sofr_df = load_sqlite_and_rename_col("sofr", {"percent": "SOFR"})["2019":]
+    swvxx_df = load_sqlite_and_rename_col("swvxx_yield", {"percent": "Schwab SWVXX"})
+    wealthfront_df = load_sqlite_and_rename_col(
+        "wealthfront_cash_yield", {"percent": "Wealthfront Cash"}
+    )
     merged = reduce(
         lambda l, r: pd.merge(l, r, left_index=True, right_index=True, how="outer"),
         [
@@ -705,39 +691,30 @@ def downsample_df(dataframe):
     return dataframe.resample("W").mean().interpolate()
 
 
+def load_dataframes_from_sqlite():
+    """Load dataframes in SQLite."""
+    with create_engine(f"sqlite:///{common.PREFIX}sqlite.db").connect() as conn:
+        all_df = (
+            pd.read_sql_table("history", conn, index_col="date")
+            .tz_localize("UTC")
+            .tz_convert(TIMEZONE)
+        )
+        accounts_df = (
+            pd.read_sql_table("account_history", conn, index_col="date")
+            .tz_localize("UTC")
+            .tz_convert(TIMEZONE)
+        )
+        forex_df = (
+            pd.read_sql_table("forex", conn, index_col="date")
+            .tz_localize("UTC")
+            .tz_convert(TIMEZONE)
+        )
+        return (all_df, accounts_df, forex_df)
+
+
 def main():
     """Main."""
-    all_df = (
-        pd.read_csv(
-            common.PREFIX + "history.csv",
-            index_col=0,
-            parse_dates=True,
-            infer_datetime_format=True,
-        )
-        .tz_localize("UTC")
-        .tz_convert(TIMEZONE)
-    )
-    accounts_df = (
-        pd.read_csv(
-            common.PREFIX + "account_history.csv",
-            index_col=0,
-            parse_dates=True,
-            infer_datetime_format=True,
-            header=[0, 1, 2, 3],
-        )
-        .tz_localize("UTC")
-        .tz_convert(TIMEZONE)
-    )
-    forex_df = (
-        pd.read_csv(
-            common.PREFIX + "forex.csv",
-            index_col=0,
-            parse_dates=True,
-            infer_datetime_format=True,
-        )
-        .tz_localize("UTC")
-        .tz_convert(TIMEZONE)
-    )
+    all_df, accounts_df, forex_df = load_dataframes_from_sqlite()
 
     daily_df = all_df.resample("D").mean().interpolate()
     invret_df = get_investing_retirement_df(daily_df, accounts_df)
