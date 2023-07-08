@@ -206,14 +206,29 @@ def get_all_tickers_steampipe_local():
     return ticker_prices
 
 
-def write_ticker_csv(amounts_table, prices_table, csv_output_path):
-    """Write ticker values to prices table and csv file."""
+def write_ticker_csv(
+    amounts_table,
+    prices_table,
+    csv_output_path,
+    ticker_col_name="ticker",
+    ticker_amt_col="shares",
+    ticker_aliases=None,
+):
+    """Write ticker values to prices table and csv file.
+
+    ticker_aliases is used to map name to actual ticker: GOLD -> GC=F
+    """
     with create_engine(SQLITE_URI).connect() as conn:
         amounts_df = pd.read_sql_table(amounts_table, conn, index_col="date")
+    if ticker_aliases:
+        amounts_df = amounts_df.rename(columns=ticker_aliases)
+
     ticker_prices = get_tickers(amounts_df.columns)
     prices_df = pd.DataFrame(
         ticker_prices, index=[pd.Timestamp.now()], columns=sorted(ticker_prices.keys())
     ).rename_axis("date")
+    if ticker_aliases:
+        prices_df = prices_df.rename(columns={v: k for k, v in ticker_aliases.items()})
     with create_engine(SQLITE_URI).connect() as conn:
         prices_df.to_sql(
             prices_table,
@@ -223,12 +238,17 @@ def write_ticker_csv(amounts_table, prices_table, csv_output_path):
         )
         conn.commit()
 
-    latest_amounts = amounts_df.iloc[-1].rename("shares")
+    if ticker_aliases:
+        # Revert back columns names/tickers.
+        amounts_df = amounts_df.rename(
+            columns={v: k for k, v in ticker_aliases.items()}
+        )
+    latest_amounts = amounts_df.iloc[-1].rename(ticker_amt_col)
     latest_prices = prices_df.iloc[-1].rename("current_price")
     # Multiply latest amounts by prices.
     latest_values = (latest_amounts * latest_prices.values).rename("value")
     new_df = pd.DataFrame([latest_amounts, latest_prices, latest_values]).T.rename_axis(
-        "ticker"
+        ticker_col_name
     )
     new_df.to_csv(csv_output_path)
 
