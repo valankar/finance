@@ -251,7 +251,7 @@ def make_assets_breakdown_section(daily_df):
 
 def get_investing_retirement_df(daily_df, accounts_df):
     """Get merged df with other investment accounts."""
-    invret_cols = ["pillar2", "401k", "commodities", "etfs"]
+    invret_cols = ["pillar2", "ira", "commodities", "etfs"]
     invret_df = daily_df[invret_cols]
     ibonds_df = accounts_df["USD_Treasury Direct"].rename("ibonds").fillna(0)
     merged_df = pd.merge_asof(invret_df, ibonds_df, left_index=True, right_index=True)
@@ -282,7 +282,7 @@ def make_investing_retirement_section(invret_df):
     section.update_yaxes(col=1, title_text="USD")
     section.update_traces(showlegend=False)
     add_hline_current(section, invret_df, "pillar2", 3, 1)
-    add_hline_current(section, invret_df, "401k", 3, 2)
+    add_hline_current(section, invret_df, "ira", 3, 2)
     add_hline_current(section, invret_df, "commodities", 2, 1)
     add_hline_current(section, invret_df, "etfs", 2, 2)
     add_hline_current(section, invret_df, "ibonds", 1, 1)
@@ -377,17 +377,19 @@ def make_real_estate_profit_bar_yearly(real_estate_df):
 def make_profit_bar(invret_df):
     """Profit from cost basis."""
     with open(
-        common.PREFIX + "commodities_cost_basis.txt", encoding="utf-8"
+        f"{common.PREFIX}commodities_cost_basis.txt", encoding="utf-8"
     ) as commodities_file:
         commodities_cost_basis = float(commodities_file.read())
     commodities_market_value = invret_df[["commodities"]].iloc[-1]["commodities"]
     commodities_profit = commodities_market_value - commodities_cost_basis
-    with open(common.PREFIX + "etfs_cost_basis.txt", encoding="utf-8") as etfs_file:
+    with open(
+        f"{common.PREFIX}schwab_etfs_cost_basis.txt", encoding="utf-8"
+    ) as etfs_file:
         etfs_cost_basis = float(etfs_file.read())
     etfs_market_value = invret_df[["etfs"]].iloc[-1]["etfs"]
     etfs_profit = etfs_market_value - etfs_cost_basis
     with open(
-        common.PREFIX + "treasury_direct_cost_basis.txt", encoding="utf-8"
+        f"{common.PREFIX}treasury_direct_cost_basis.txt", encoding="utf-8"
     ) as ibonds_file:
         ibonds_cost_basis = float(ibonds_file.read())
     ibonds_market_value = invret_df[["ibonds"]].iloc[-1]["ibonds"]
@@ -537,6 +539,19 @@ def make_total_bar_yoy(daily_df, column):
 
 def append_day_difference_table(all_df, accounts_df, output_file):
     """Append table of day difference."""
+    columns = [
+        "total",
+        "total_no_homes",
+        "total_liquid",
+        "total_real_estate",
+        "total_retirement",
+        "total_investing",
+        "etfs",
+        "commodities",
+        "ira",
+        "pillar2",
+    ]
+    all_df = all_df[columns]
     accounts_df = (
         accounts_df.iloc[-1]
         - accounts_df.iloc[accounts_df.index.get_indexer([YESTERDAY], method="nearest")]
@@ -618,7 +633,7 @@ def write_html_and_images(section_tuples, all_df, accounts_df):
 
 def load_sqlite_and_rename_col(table, columns):
     """Load table from sqlite and rename columns."""
-    with create_engine(f"sqlite:///{common.PREFIX}sqlite.db").connect() as conn:
+    with create_engine(common.SQLITE_URI).connect() as conn:
         dataframe = pd.read_sql_table(table, conn, index_col="date")
     return dataframe.rename(columns=columns)
 
@@ -693,7 +708,7 @@ def downsample_df(dataframe):
 
 def load_dataframes_from_sqlite():
     """Load dataframes in SQLite."""
-    with create_engine(f"sqlite:///{common.PREFIX}sqlite.db").connect() as conn:
+    with create_engine(common.SQLITE_URI).connect() as conn:
         all_df = (
             pd.read_sql_table("history", conn, index_col="date")
             .tz_localize("UTC")

@@ -1,52 +1,54 @@
 #!/usr/bin/env python3
 """Calculate commodity values."""
 
-import csv
+import pandas as pd
+from sqlalchemy import create_engine
 
 import common
 
-COMMODITIES_PATH = common.PREFIX + 'commodities_amounts.csv'
-OUTPUT_PATH = common.PREFIX + 'commodities_values.csv'
+OUTPUT_PATH = common.PREFIX + "commodities_values.csv"
 
 
-class UnknownCommodity(Exception):
-    """Unknown commodity."""
+def write_ticker_csv(amounts_table, output_path):
+    """Write ticker values to prices table and csv file."""
+    with create_engine(common.SQLITE_URI).connect() as conn:
+        amounts_df = pd.read_sql_table(amounts_table, conn, index_col="date").rename(
+            columns={"GOLD": "GC=F", "SILVER": "SI=F"}
+        )
+    ticker_prices = common.get_tickers(amounts_df.columns)
+    prices_df = (
+        pd.DataFrame(
+            ticker_prices,
+            index=[pd.Timestamp.now()],
+            columns=sorted(ticker_prices.keys()),
+        )
+        .rename_axis("date")
+        .rename(columns={"GC=F": "GOLD", "SI=F": "SILVER"})
+    )
+    with create_engine(common.SQLITE_URI).connect() as conn:
+        prices_df.to_sql(
+            amounts_table.replace("_amounts", "_prices"),
+            conn,
+            if_exists="append",
+            index_label="date",
+        )
+        conn.commit()
 
-
-def write_output_file(csvfile, commodities, commodity_prices):
-    """Write etf values csv file."""
-    fieldnames = ['commodity', 'troy_oz', 'current_price', 'value']
-    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-    writer.writeheader()
-    for commodity in sorted(commodities.keys()):
-        match commodity:
-            case 'GOLD':
-                ticker = 'GC=F'
-            case 'SILVER':
-                ticker = 'SI=F'
-            case _:
-                raise UnknownCommodity
-        current_price = commodity_prices[ticker]
-        writer.writerow(
-            {
-                'commodity': commodity,
-                'troy_oz': commodities[commodity],
-                'current_price': current_price,
-                'value': current_price*commodities[commodity]
-            })
+    # Multiply latest amounts by prices.
+    amounts_df = amounts_df.rename(columns={"GC=F": "GOLD", "SI=F": "SILVER"})
+    latest_amounts = amounts_df.iloc[-1].rename("troy_oz")
+    latest_prices = prices_df.iloc[-1].rename("current_price")
+    latest_values = (latest_amounts * latest_prices.values).rename("value")
+    new_df = pd.DataFrame([latest_amounts, latest_prices, latest_values]).T.rename_axis(
+        "commodity"
+    )
+    new_df.to_csv(output_path)
 
 
 def main():
     """Main."""
-    commodities = {}
-    with open(COMMODITIES_PATH, 'r', newline='', encoding='utf-8') as amounts:
-        csv_amounts = csv.DictReader(amounts)
-        for row in csv_amounts:
-            commodities[row['commodity']] = float(row['troy_oz'])
-    commodity_prices = common.get_tickers(['GC=F', 'SI=F'])
-    with common.temporary_file_move(OUTPUT_PATH) as csvfile:
-        write_output_file(csvfile, commodities, commodity_prices)
+    write_ticker_csv("commodities_amounts", OUTPUT_PATH)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

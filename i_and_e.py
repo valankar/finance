@@ -31,12 +31,11 @@ def get_ledger_csv():
 
 def convert_toshl_usd(dataframe):
     """Change CHF to USD."""
-    dataframe.index.name = "date"
     dataframe = dataframe.rename(
         columns={"Category": "category", "In main currency": "amount_chf"}
-    )
+    ).rename_axis("date")
     dataframe = dataframe[:"2022"]
-    with create_engine(f"sqlite:///{common.PREFIX}sqlite.db").connect() as conn:
+    with create_engine(common.SQLITE_URI).connect() as conn:
         forex_df = pd.read_sql_table("forex", conn, index_col="date")["CHFUSD"]
 
     dataframe = pd.merge_asof(dataframe, forex_df, left_index=True, right_index=True)

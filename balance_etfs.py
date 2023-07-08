@@ -7,7 +7,7 @@ import pandas as pd
 
 import common
 
-ETFS_PATH = f"{common.PREFIX}etfs_values.csv"
+ETFS_PATH = f"{common.PREFIX}schwab_etfs_values.csv"
 DESIRED_PERCENT = (
     # Large cap
     ("SCHX", 47),

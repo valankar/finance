@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Run hourly finance functions."""
 
-from datetime import datetime
 from timeit import default_timer as timer
 
 import commodities
@@ -10,13 +9,13 @@ import etfs
 import history
 import i_and_e
 import plot
-import schwab_ira
 
 
 def main():
     """Main."""
     start_time = timer()
-    schwab_ira.main()
+    # Add once shares are purchased.
+    # schwab_ira.main()
     commodities.main()
     etfs.main()
     history.main()

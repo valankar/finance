@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Common functions."""
 
-import csv
 import functools
 import json
 import shelve
@@ -14,6 +13,7 @@ from os import path
 from pathlib import Path
 from threading import RLock
 
+import pandas as pd
 import psycopg2
 import psycopg2.extras
 import stockquotes
@@ -26,6 +26,7 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver import FirefoxOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.service import Service as FirefoxService
+from sqlalchemy import create_engine
 
 import authorization
 
@@ -205,29 +206,31 @@ def get_all_tickers_steampipe_local():
     return ticker_prices
 
 
-def write_ticker_csv(amount_path, output_path):
-    """Write ticker values to csv file."""
-    ticker_amounts = {}
-    with open(amount_path, "r", newline="", encoding="utf-8") as input_file:
-        csv_file = csv.DictReader(input_file)
-        for row in csv_file:
-            ticker_amounts[row["ticker"]] = float(row["shares"])
+def write_ticker_csv(amounts_table, prices_table, csv_output_path):
+    """Write ticker values to prices table and csv file."""
+    with create_engine(SQLITE_URI).connect() as conn:
+        amounts_df = pd.read_sql_table(amounts_table, conn, index_col="date")
+    ticker_prices = get_tickers(amounts_df.columns)
+    prices_df = pd.DataFrame(
+        ticker_prices, index=[pd.Timestamp.now()], columns=sorted(ticker_prices.keys())
+    ).rename_axis("date")
+    with create_engine(SQLITE_URI).connect() as conn:
+        prices_df.to_sql(
+            prices_table,
+            conn,
+            if_exists="append",
+            index_label="date",
+        )
+        conn.commit()
 
-    ticker_prices = get_tickers(list(ticker_amounts.keys()))
-    with temporary_file_move(output_path) as csvfile:
-        fieldnames = ["ticker", "shares", "current_price", "value"]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for ticker in sorted(ticker_amounts.keys()):
-            current_price = ticker_prices[ticker]
-            writer.writerow(
-                {
-                    "ticker": ticker,
-                    "shares": ticker_amounts[ticker],
-                    "current_price": current_price,
-                    "value": current_price * ticker_amounts[ticker],
-                }
-            )
+    latest_amounts = amounts_df.iloc[-1].rename("shares")
+    latest_prices = prices_df.iloc[-1].rename("current_price")
+    # Multiply latest amounts by prices.
+    latest_values = (latest_amounts * latest_prices.values).rename("value")
+    new_df = pd.DataFrame([latest_amounts, latest_prices, latest_values]).T.rename_axis(
+        "ticker"
+    )
+    new_df.to_csv(csv_output_path)
 
 
 @contextmanager

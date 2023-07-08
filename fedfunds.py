@@ -12,8 +12,9 @@ import common
 
 def get_fred(fred_api, series, output_table):
     """Download series from fred api."""
-    fedfunds_df = pd.DataFrame({"percent": fred_api.get_series(series)})
-    fedfunds_df.index.name = "date"
+    fedfunds_df = pd.DataFrame({"percent": fred_api.get_series(series)}).rename_axis(
+        "date"
+    )
     with create_engine(common.SQLITE_URI).connect() as conn:
         fedfunds_df.to_sql(output_table, conn, if_exists="replace", index_label="date")
         conn.commit()

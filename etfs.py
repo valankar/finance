@@ -3,13 +3,15 @@
 
 import common
 
-ETFS_PATH = common.PREFIX + "etfs_amounts.csv"
-OUTPUT_PATH = common.PREFIX + "etfs_values.csv"
+TABLE_PREFIX = "schwab_etfs"
+CSV_OUTPUT_PATH = f"{common.PREFIX}schwab_etfs_values.csv"
 
 
 def main():
     """Main."""
-    common.write_ticker_csv(ETFS_PATH, OUTPUT_PATH)
+    common.write_ticker_csv(
+        f"{TABLE_PREFIX}_amounts", f"{TABLE_PREFIX}_prices", CSV_OUTPUT_PATH
+    )
 
 
 if __name__ == "__main__":
