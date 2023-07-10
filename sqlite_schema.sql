@@ -98,16 +98,6 @@ CREATE TABLE villamaria_rent (
 	value BIGINT
 );
 CREATE INDEX ix_villamaria_rent_date ON villamaria_rent (date);
-CREATE TABLE fedfunds (
-	date DATETIME, 
-	percent FLOAT
-);
-CREATE INDEX ix_fedfunds_date ON fedfunds (date);
-CREATE TABLE sofr (
-	date DATETIME, 
-	percent FLOAT
-);
-CREATE INDEX ix_sofr_date ON sofr (date);
 CREATE TABLE IF NOT EXISTS "schwab_etfs_amounts" (
 	date DATETIME, 
 	"SCHA" FLOAT, 
@@ -136,3 +126,13 @@ CREATE TABLE commodities_prices (
 CREATE INDEX ix_commodities_prices_date ON commodities_prices (date);
 CREATE INDEX ix_schwab_etfs_amounts_date ON schwab_etfs_amounts (date);
 CREATE INDEX ix_commodities_amounts_date ON commodities_amounts (date);
+CREATE TABLE fedfunds (
+	date DATETIME, 
+	percent FLOAT
+);
+CREATE INDEX ix_fedfunds_date ON fedfunds (date);
+CREATE TABLE sofr (
+	date DATETIME, 
+	percent FLOAT
+);
+CREATE INDEX ix_sofr_date ON sofr (date);
