@@ -71,12 +71,13 @@ def add_hline_current(
     line_color="black",
     annotation_position="top left",
     secondary_y=False,
+    precision=0,
 ):
     """Add hline to represent total."""
     current = data[[df_col]].iloc[-1][df_col]
     fig.add_hline(
         y=current,
-        annotation_text=f"{current:,.0f}",
+        annotation_text=f"{current:,.{precision}f}",
         line_dash="dot",
         line_color=line_color,
         annotation_position=annotation_position,
@@ -290,44 +291,30 @@ def make_investing_retirement_section(invret_df):
     return section
 
 
-def make_real_estate_section(real_estate_df, rent_df):
+def make_real_estate_section(real_estate_df):
     """Line graph of real estate with percent change."""
-    section = make_subplots(
-        rows=2,
-        cols=2,
-        subplot_titles=(
-            "Price Estimate",
-            "Change Since Purchase",
-            "Rent Estimate",
-            "Yearly Average Change Since Purchase",
-        ),
-        column_widths=[0.7, 0.3],
-        vertical_spacing=0.07,
-        horizontal_spacing=0.05,
+    section = px.line(
+        real_estate_df,
+        x=real_estate_df.index,
+        y=real_estate_df.columns,
+        facet_col="variable",
+        facet_col_wrap=2,
+        labels={"value": "USD"},
+        title="Real Estate",
     )
-    for trace in px.line(real_estate_df, x=real_estate_df.index, y=HOMES).data:
-        section.add_trace(trace, row=1, col=1)
-    for trace in px.line(rent_df, x=rent_df.index, y=rent_df.columns).data:
-        section.add_trace(trace, row=2, col=1)
-
-    # Profit bars
-    section.add_trace(make_real_estate_profit_bar(real_estate_df), row=1, col=2)
-    section.add_trace(make_real_estate_profit_bar_yearly(real_estate_df), row=2, col=2)
-
-    section.update_yaxes(title_text="USD", col=1)
-    section.update_xaxes(title_text="", matches="x", col=1)
+    section.update_xaxes(title_text="", matches="x", showticklabels=True)
+    section.update_yaxes(title_text="")
+    section.update_yaxes(matches=None)
+    section.update_yaxes(col=2, showticklabels=True)
+    section.update_yaxes(col=1, title_text="USD")
     section.update_traces(showlegend=False)
-    section.update_traces(showlegend=True, row=1, col=1)
-    section.update_layout(
-        title_text="Real Estate",
-        legend=dict(
-            yanchor="top",
-            y=1,
-            xanchor="left",
-            x=0,
-            tracegroupgap=3,
-        ),
-    )
+    add_hline_current(section, real_estate_df, "Mt Vernon Price", 3, 1)
+    add_hline_current(section, real_estate_df, "Mt Vernon Rent", 3, 2)
+    add_hline_current(section, real_estate_df, "Northlake Price", 2, 1)
+    add_hline_current(section, real_estate_df, "Northlake Rent", 2, 2)
+    add_hline_current(section, real_estate_df, "Villa Maria Price", 1, 1)
+    add_hline_current(section, real_estate_df, "Villa Maria Rent", 1, 2)
+    add_range_buttons(section, real_estate_df, real_estate_df.columns)
     return section
 
 
@@ -335,14 +322,15 @@ def make_real_estate_profit_bar(real_estate_df):
     """Bar chart of real estate profit."""
     values = []
     percent = []
-    for home in HOMES:
+    cols = [f"{home} Price" for home in HOMES]
+    for home in cols:
         values.append(
             real_estate_df.iloc[-1][home]
             - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]
         )
         percent.append(real_estate_df.iloc[-1][f"{home} Percent Change"])
     profit_bar = go.Bar(
-        x=HOMES,
+        x=cols,
         y=values,
         marker_color=[COLOR_GREEN if x > 0 else COLOR_RED for x in values],
         text=[f"{Float(x):.2h}<br>{y:.2f}%" for x, y in zip(values, percent)],
@@ -354,7 +342,8 @@ def make_real_estate_profit_bar_yearly(real_estate_df):
     """Bar chart of real estate profit yearly."""
     values = []
     percent = []
-    for home in HOMES:
+    cols = [f"{home} Price" for home in HOMES]
+    for home in cols:
         time_diff = (
             real_estate_df[home].index[-1] - real_estate_df[home].first_valid_index()
         )
@@ -366,7 +355,7 @@ def make_real_estate_profit_bar_yearly(real_estate_df):
         values.append((value_diff / time_diff.days) * 365)
         percent.append((percent_diff / time_diff.days) * 365)
     profit_bar = go.Bar(
-        x=HOMES,
+        x=cols,
         y=values,
         marker_color=[COLOR_GREEN if x > 0 else COLOR_RED for x in values],
         text=[f"{Float(x):.2h}<br>{y:.2f}%" for x, y in zip(values, percent)],
@@ -411,13 +400,20 @@ def make_profit_bar(invret_df):
     return profit_bar
 
 
-def make_allocation_profit_section(daily_df, invret_df):
+def make_allocation_profit_section(daily_df, invret_df, real_estate_df):
     """Make asset allocation and day changes section."""
     changes_section = make_subplots(
-        rows=1,
+        rows=2,
         cols=2,
-        subplot_titles=("Asset Allocation", "Profit or Loss (cost-based)"),
-        specs=[[{"type": "pie"}, {"type": "xy"}]],
+        subplot_titles=(
+            "Asset Allocation",
+            "Investing Profit or Loss (cost-based)",
+            "Real Estate Change Since Purchase",
+            "Real Estate Yearly Average Change Since Purchase",
+        ),
+        specs=[[{"type": "pie"}, {"type": "xy"}], [{"type": "xy"}, {"type": "xy"}]],
+        vertical_spacing=0.07,
+        horizontal_spacing=0.05,
     )
 
     # Pie chart breakdown of total
@@ -435,7 +431,22 @@ def make_allocation_profit_section(daily_df, invret_df):
 
     for trace in make_profit_bar(invret_df).data:
         changes_section.add_trace(trace, row=1, col=2)
+    cols = [f"{home} Price" for home in HOMES]
+    for home in cols:
+        real_estate_df[f"{home} Percent Change"] = (
+            (
+                real_estate_df[home]
+                - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]
+            )
+            / real_estate_df.loc[real_estate_df[home].first_valid_index(), home]
+            * 100
+        )
+    changes_section.add_trace(make_real_estate_profit_bar(real_estate_df), row=2, col=1)
+    changes_section.add_trace(
+        make_real_estate_profit_bar_yearly(real_estate_df), row=2, col=2
+    )
     changes_section.update_yaxes(row=1, col=2, title_text="USD")
+    changes_section.update_yaxes(row=2, col=1, title_text="USD")
     changes_section.update_traces(showlegend=False)
     changes_section.update_traces(
         row=1, col=1, textinfo="percent+label", textposition="inside"
@@ -443,23 +454,27 @@ def make_allocation_profit_section(daily_df, invret_df):
     return changes_section
 
 
-def make_forex_section(forex_df):
-    """Make section with forex graphs."""
+def make_prices_section(prices_df):
+    """Make section with prices graphs."""
     fig = px.line(
-        forex_df,
-        x=forex_df.index,
-        y=forex_df.columns,
+        prices_df,
+        x=prices_df.index,
+        y=prices_df.columns,
         facet_col="variable",
         facet_col_wrap=2,
         facet_col_spacing=0.04,
-        title="Foreign Exchange",
+        title="Prices",
     )
     fig.update_yaxes(matches=None, title_text="")
     fig.update_yaxes(col=2, showticklabels=True)
     fig.update_yaxes(col=1, title_text="USD")
     fig.update_xaxes(title_text="", matches="x", showticklabels=True)
     fig.update_traces(showlegend=False)
-    add_range_buttons(fig, forex_df, forex_df.columns)
+    add_hline_current(fig, prices_df, "CHFUSD", 0, 1, precision=2)
+    add_hline_current(fig, prices_df, "SGDUSD", 0, 2, precision=2)
+    add_hline_current(fig, prices_df, "GOLD", 1, 1, precision=2)
+    add_hline_current(fig, prices_df, "SILVER", 1, 2, precision=2)
+    add_range_buttons(fig, prices_df, prices_df.columns)
     return fig
 
 
@@ -639,7 +654,7 @@ def load_sqlite_and_rename_col(table, columns):
 
 
 def get_real_estate_df():
-    """Merge historical real estate data with current."""
+    """Get real estate price and rent data from sqlite."""
     table_map = {
         "mtvernon": "Mt Vernon",
         "northlake": "Northlake",
@@ -647,35 +662,13 @@ def get_real_estate_df():
     }
     dataframes = []
     for table, home in table_map.items():
-        dataframes.append(load_sqlite_and_rename_col(table, {"value": home}))
-    real_estate_df = reduce(
-        lambda l, r: pd.merge(l, r, left_index=True, right_index=True, how="outer"),
-        dataframes,
-    )
-    for home in HOMES:
-        real_estate_df[f"{home} Percent Change"] = (
-            (
-                real_estate_df[home]
-                - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]
-            )
-            / real_estate_df.loc[real_estate_df[home].first_valid_index(), home]
-            * 100
+        dataframes.append(load_sqlite_and_rename_col(table, {"value": f"{home} Price"}))
+        dataframes.append(
+            load_sqlite_and_rename_col(f"{table}_rent", {"value": f"{home} Rent"})
         )
-    return real_estate_df
-
-
-def get_real_estate_rent_df():
-    """Load rental estimate dataframe."""
-    table_map = {
-        "mtvernon_rent": "Mt Vernon",
-        "northlake_rent": "Northlake",
-        "villamaria_rent": "Villa Maria",
-    }
-    dataframes = []
-    for table, home in table_map.items():
-        dataframes.append(load_sqlite_and_rename_col(table, {"value": home}))
     return reduce(
-        lambda l, r: pd.merge(l, r, left_index=True, right_index=True), dataframes
+        lambda l, r: pd.merge_asof(l, r, left_index=True, right_index=True),
+        dataframes,
     )
 
 
@@ -701,64 +694,73 @@ def get_interest_rate_df():
     return merged[sorted(merged.columns)]
 
 
-def downsample_df(dataframe):
-    """Downsample data."""
-    return dataframe.resample("W").mean().interpolate()
-
-
 def load_dataframes_from_sqlite():
     """Load dataframes in SQLite."""
+
+    def load_table_timezone(table, conn):
+        return (
+            pd.read_sql_table(table, conn, index_col="date")
+            .tz_localize("UTC")
+            .tz_convert(TIMEZONE)
+        )
+
     with create_engine(common.SQLITE_URI).connect() as conn:
-        all_df = (
-            pd.read_sql_table("history", conn, index_col="date")
-            .tz_localize("UTC")
-            .tz_convert(TIMEZONE)
+        all_df = load_table_timezone("history", conn)
+        accounts_df = load_table_timezone("account_history", conn)
+        forex_df = load_table_timezone("forex", conn)
+        commodities_df = load_table_timezone("commodities_prices", conn)
+        prices_df = pd.merge_asof(
+            forex_df, commodities_df, left_index=True, right_index=True
         )
-        accounts_df = (
-            pd.read_sql_table("account_history", conn, index_col="date")
-            .tz_localize("UTC")
-            .tz_convert(TIMEZONE)
-        )
-        forex_df = (
-            pd.read_sql_table("forex", conn, index_col="date")
-            .tz_localize("UTC")
-            .tz_convert(TIMEZONE)
-        )
-        return (all_df, accounts_df, forex_df)
+        return (all_df, accounts_df, prices_df)
+
+
+def resample_daily(dataframe):
+    """Resample dataframe to daily."""
+    return dataframe.resample("D").mean().interpolate()
+
+
+def resample_weekly(dataframe):
+    """Resample dataframe to weekly."""
+    return dataframe.resample("W").mean().interpolate()
 
 
 def main():
     """Main."""
-    all_df, accounts_df, forex_df = load_dataframes_from_sqlite()
+    all_df, accounts_df, prices_df = load_dataframes_from_sqlite()
 
-    daily_df = all_df.resample("D").mean().interpolate()
-    invret_df = get_investing_retirement_df(daily_df, accounts_df)
-    forex_df = forex_df.resample("D").mean()
+    all_daily_df = resample_daily(all_df)
+    accounts_daily_df = resample_daily(accounts_df)
+    prices_daily_df = resample_daily(prices_df)
+    real_estate_daily_df = resample_daily(get_real_estate_df())
+    invret_daily_df = get_investing_retirement_df(all_daily_df, accounts_daily_df)
 
-    assets_trend = make_assets_breakdown_section(downsample_df(daily_df))
-    invret_section = make_investing_retirement_section(downsample_df(invret_df))
+    assets_section = make_assets_breakdown_section(resample_weekly(all_daily_df))
+    invret_section = make_investing_retirement_section(resample_weekly(invret_daily_df))
     real_estate_section = make_real_estate_section(
-        downsample_df(get_real_estate_df()), downsample_df(get_real_estate_rent_df())
+        resample_weekly(real_estate_daily_df)
     )
-    allocation_section = make_allocation_profit_section(daily_df, invret_df)
+    allocation_section = make_allocation_profit_section(
+        all_daily_df, invret_daily_df, real_estate_daily_df
+    )
     net_worth_change_section = make_change_section(
-        daily_df, "total", "Total Net Worth Change"
+        all_daily_df, "total", "Total Net Worth Change"
     )
     total_no_homes_change_section = make_change_section(
-        daily_df, "total_no_homes", "Total Without Real Estate Change"
+        all_daily_df, "total_no_homes", "Total Without Real Estate Change"
     )
-    forex_section = make_forex_section(downsample_df(forex_df))
+    prices_section = make_prices_section(resample_weekly(prices_daily_df))
     yield_section = make_interest_rate_section(get_interest_rate_df().interpolate())
 
     write_html_and_images(
         (
-            (assets_trend, 1, 1),
+            (assets_section, 1, 1),
             (invret_section, 1, 1),
-            (real_estate_section, 0.75, 1),
-            (allocation_section, 0.5, 1),
+            (real_estate_section, 1, 1),
+            (allocation_section, 0.75, 1),
             (net_worth_change_section, 0.75, 1),
             (total_no_homes_change_section, 0.75, 1),
-            (forex_section, 0.5, 1),
+            (prices_section, 0.75, 1),
             (yield_section, 0.5, 1),
         ),
         all_df,

@@ -27,6 +27,7 @@ from selenium.webdriver import FirefoxOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.service import Service as FirefoxService
 from sqlalchemy import create_engine
+from sqlalchemy import text as sqlalchemy_text
 
 import authorization
 
@@ -219,7 +220,15 @@ def write_ticker_csv(
     ticker_aliases is used to map name to actual ticker: GOLD -> GC=F
     """
     with create_engine(SQLITE_URI).connect() as conn:
-        amounts_df = pd.read_sql_table(amounts_table, conn, index_col="date")
+        # Just get the latest row.
+        amounts_df = pd.read_sql_query(
+            sqlalchemy_text(
+                f"select * from {amounts_table} order by rowid desc limit 1"
+            ),
+            conn,
+            index_col="date",
+            parse_dates=["date"],
+        )
     if ticker_aliases:
         amounts_df = amounts_df.rename(columns=ticker_aliases)
 

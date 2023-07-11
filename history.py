@@ -30,6 +30,7 @@ ACCOUNT_MAP = {
     "SCHR": "USD_Charles Schwab_Brokerage_SCHR",
     "SCHX": "USD_Charles Schwab_Brokerage_SCHX",
     "SCHZ": "USD_Charles Schwab_Brokerage_SCHZ",
+    "SWYGX": "USD_Charles Schwab_IRA_SWYGX",
     "schwab_brokerage_cash": "USD_Charles Schwab_Brokerage_Cash",
     "schwab_ira_cash": "USD_Charles Schwab_IRA_Cash",
     "schwab_checking": "USD_Charles Schwab_Checking",

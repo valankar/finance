@@ -9,13 +9,13 @@ import etfs
 import history
 import i_and_e
 import plot
+import schwab_ira
 
 
 def main():
     """Main."""
     start_time = timer()
-    # Add once shares are purchased.
-    # schwab_ira.main()
+    schwab_ira.main()
     commodities.main()
     etfs.main()
     history.main()
