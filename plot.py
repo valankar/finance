@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import pytz
+import plotly.io as pio
 from dateutil.relativedelta import relativedelta
 from plotly.subplots import make_subplots
 from prefixed import Float
@@ -17,14 +17,19 @@ from sqlalchemy import create_engine
 
 import common
 
-TIMEZONE = "Europe/Zurich"
-TODAY_TIME = datetime.now().astimezone(pytz.timezone(TIMEZONE))
-# How far to look back for daily changes.
-YESTERDAY = (TODAY_TIME + relativedelta(days=-1)).strftime("%Y-%m-%d %H:%M:%S")
+TODAY_TIME = datetime.now()
 INDEX_HTML = "index.html"
 STATIC_HTML = "static.html"
-COLOR_GREEN = "#3d9970"
-COLOR_RED = "#ff4136"
+COLOR_GREEN = "DarkGreen"
+COLOR_RED = "DarkRed"
+HTML_STYLE = """
+<style>
+body {
+  background-color: black;
+  color: white;
+}
+</style>
+"""
 
 HOMES = [
     "Mt Vernon",
@@ -68,7 +73,6 @@ def add_hline_current(
     df_col,
     row,
     col,
-    line_color="black",
     annotation_position="top left",
     secondary_y=False,
     precision=0,
@@ -79,7 +83,7 @@ def add_hline_current(
         y=current,
         annotation_text=f"{current:,.{precision}f}",
         line_dash="dot",
-        line_color=line_color,
+        line_color="gray",
         annotation_position=annotation_position,
         row=row,
         col=col,
@@ -492,13 +496,11 @@ def make_interest_rate_section(interest_df):
 def make_change_section(daily_df, column, title):
     """Make section with change in different timespans."""
     changes_section = make_subplots(
-        rows=2,
+        rows=1,
         cols=2,
         subplot_titles=(
             "Year Over Year",
             "Month Over Month",
-            "Week Over Week",
-            "Day Over Day",
         ),
         vertical_spacing=0.07,
         horizontal_spacing=0.05,
@@ -509,12 +511,6 @@ def make_change_section(daily_df, column, title):
     for trace in make_total_bar_mom(daily_df, column).data:
         trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
         changes_section.add_trace(trace, row=1, col=2)
-    for trace in make_total_bar_wow(daily_df, column).data:
-        trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
-        changes_section.add_trace(trace, row=2, col=1)
-    for trace in make_total_bar_dod(daily_df, column).data:
-        trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
-        changes_section.add_trace(trace, row=2, col=2)
     changes_section.update_yaxes(title_text="USD", col=1)
     changes_section.update_xaxes(title_text="")
     changes_section.update_xaxes(tickformat="%Y", row=1, col=1)
@@ -552,57 +548,11 @@ def make_total_bar_yoy(daily_df, column):
     return yearly_bar
 
 
-def append_day_difference_table(all_df, accounts_df, output_file):
-    """Append table of day difference."""
-    columns = [
-        "total",
-        "total_no_homes",
-        "total_liquid",
-        "total_real_estate",
-        "total_retirement",
-        "total_investing",
-        "etfs",
-        "commodities",
-        "ira",
-        "pillar2",
-    ]
-    all_df = all_df[columns]
-    accounts_df = (
-        accounts_df.iloc[-1]
-        - accounts_df.iloc[accounts_df.index.get_indexer([YESTERDAY], method="nearest")]
-    )
-    accounts_df = accounts_df.loc[:, accounts_df.sum() != 0]
-    daily_df = (
-        all_df.iloc[-1]
-        - all_df.iloc[all_df.index.get_indexer([YESTERDAY], method="nearest")]
-    )
-    daily_df = daily_df.loc[:, daily_df.sum() != 0]
-
-    with pd.option_context(
-        "display.max_rows",
-        None,
-        "display.max_columns",
-        None,
-        "display.width",
-        None,
-        "display.float_format",
-        # pylint: disable-next=consider-using-f-string
-        "{:,.0f}".format,
-    ):
-        print("\n<PRE>", file=output_file)
-        print("Latest values\n", file=output_file)
-        print(all_df.iloc[-1:], file=output_file)
-        print("\nDifference since 1 day ago\n", file=output_file)
-        print(daily_df, file=output_file)
-        print(file=output_file)
-        print(accounts_df, file=output_file)
-        print("</PRE>", file=output_file)
-
-
-def write_dynamic_plots(all_df, accounts_df, section_tuples):
+def write_dynamic_plots(section_tuples):
     """Write out dynamic plots."""
     wrote_plotlyjs = False
     with common.temporary_file_move(f"{common.PREFIX}{INDEX_HTML}") as index_file:
+        index_file.write(HTML_STYLE)
         for section, height, width in section_tuples:
             if wrote_plotlyjs:
                 include_plotlyjs = False
@@ -619,16 +569,16 @@ def write_dynamic_plots(all_df, accounts_df, section_tuples):
                     default_width=width_percent,
                 )
             )
-        append_day_difference_table(all_df, accounts_df, index_file)
 
 
-def write_static_plots(all_df, accounts_df, section_tuples):
+def write_static_plots(section_tuples):
     """Write out static plots."""
     # Static plots
     default_image_width = 1920
     default_image_height = 1080
     image_name = 1
     with common.temporary_file_move(f"{common.PREFIX}{STATIC_HTML}") as index_file:
+        index_file.write(HTML_STYLE)
         for section, height, width in section_tuples:
             section.write_image(
                 common.PREFIX + f"images/{image_name}.png",
@@ -637,20 +587,24 @@ def write_static_plots(all_df, accounts_df, section_tuples):
             )
             print(f'<img src="images/{image_name}.png">', file=index_file)
             image_name += 1
-        append_day_difference_table(all_df, accounts_df, index_file)
 
 
-def write_html_and_images(section_tuples, all_df, accounts_df):
+def write_html_and_images(section_tuples):
     """Generate html and images."""
-    write_dynamic_plots(all_df, accounts_df, section_tuples)
-    write_static_plots(all_df, accounts_df, section_tuples)
+    write_dynamic_plots(section_tuples)
+    write_static_plots(section_tuples)
 
 
 def load_sqlite_and_rename_col(table, columns):
     """Load table from sqlite and rename columns."""
     with create_engine(common.SQLITE_URI).connect() as conn:
-        dataframe = pd.read_sql_table(table, conn, index_col="date")
-    return dataframe.rename(columns=columns)
+        return (
+            pd.read_sql_table(table, conn, index_col="date")
+            .resample("D")
+            .last()
+            .interpolate()
+            .rename(columns=columns)
+        )
 
 
 def get_real_estate_df():
@@ -691,66 +645,52 @@ def get_interest_rate_df():
             wealthfront_df,
         ],
     )
-    return merged[sorted(merged.columns)]
+    return merged[sorted(merged.columns)].interpolate()
 
 
 def load_dataframes_from_sqlite():
     """Load dataframes in SQLite."""
 
-    def load_table_timezone(table, conn):
+    def load_table(table, conn):
         return (
             pd.read_sql_table(table, conn, index_col="date")
-            .tz_localize("UTC")
-            .tz_convert(TIMEZONE)
+            .resample("D")
+            .last()
+            .interpolate()
         )
 
     with create_engine(common.SQLITE_URI).connect() as conn:
-        all_df = load_table_timezone("history", conn)
-        accounts_df = load_table_timezone("account_history", conn)
-        forex_df = load_table_timezone("forex", conn)
-        commodities_df = load_table_timezone("commodities_prices", conn)
+        all_df = load_table("history", conn)
+        accounts_df = load_table("account_history", conn)
+        forex_df = load_table("forex", conn)
+        commodities_df = load_table("commodities_prices", conn)
         prices_df = pd.merge_asof(
             forex_df, commodities_df, left_index=True, right_index=True
         )
         return (all_df, accounts_df, prices_df)
 
 
-def resample_daily(dataframe):
-    """Resample dataframe to daily."""
-    return dataframe.resample("D").mean().interpolate()
-
-
-def resample_weekly(dataframe):
-    """Resample dataframe to weekly."""
-    return dataframe.resample("W").mean().interpolate()
-
-
 def main():
     """Main."""
+    pio.templates.default = "plotly_dark"
     all_df, accounts_df, prices_df = load_dataframes_from_sqlite()
+    real_estate_daily_df = get_real_estate_df()
+    invret_daily_df = get_investing_retirement_df(all_df, accounts_df)
 
-    all_daily_df = resample_daily(all_df)
-    accounts_daily_df = resample_daily(accounts_df)
-    prices_daily_df = resample_daily(prices_df)
-    real_estate_daily_df = resample_daily(get_real_estate_df())
-    invret_daily_df = get_investing_retirement_df(all_daily_df, accounts_daily_df)
-
-    assets_section = make_assets_breakdown_section(resample_weekly(all_daily_df))
-    invret_section = make_investing_retirement_section(resample_weekly(invret_daily_df))
-    real_estate_section = make_real_estate_section(
-        resample_weekly(real_estate_daily_df)
-    )
+    assets_section = make_assets_breakdown_section(all_df)
+    invret_section = make_investing_retirement_section(invret_daily_df)
+    real_estate_section = make_real_estate_section(real_estate_daily_df)
     allocation_section = make_allocation_profit_section(
-        all_daily_df, invret_daily_df, real_estate_daily_df
+        all_df, invret_daily_df, real_estate_daily_df
     )
     net_worth_change_section = make_change_section(
-        all_daily_df, "total", "Total Net Worth Change"
+        all_df, "total", "Total Net Worth Change"
     )
     total_no_homes_change_section = make_change_section(
-        all_daily_df, "total_no_homes", "Total Without Real Estate Change"
+        all_df, "total_no_homes", "Total Without Real Estate Change"
     )
-    prices_section = make_prices_section(resample_weekly(prices_daily_df))
-    yield_section = make_interest_rate_section(get_interest_rate_df().interpolate())
+    prices_section = make_prices_section(prices_df)
+    yield_section = make_interest_rate_section(get_interest_rate_df())
 
     write_html_and_images(
         (
@@ -758,14 +698,14 @@ def main():
             (invret_section, 1, 1),
             (real_estate_section, 1, 1),
             (allocation_section, 0.75, 1),
-            (net_worth_change_section, 0.75, 1),
-            (total_no_homes_change_section, 0.75, 1),
+            (net_worth_change_section, 0.50, 1),
+            (total_no_homes_change_section, 0.50, 1),
             (prices_section, 0.75, 1),
             (yield_section, 0.5, 1),
         ),
-        all_df,
-        accounts_df,
     )
+    # Reset theme to default.
+    pio.templates.default = "plotly"
 
 
 if __name__ == "__main__":

@@ -84,16 +84,6 @@ CREATE TABLE commodities_prices (
 	"SILVER" FLOAT
 );
 CREATE INDEX ix_commodities_prices_date ON commodities_prices (date);
-CREATE TABLE fedfunds (
-	date DATETIME, 
-	percent FLOAT
-);
-CREATE INDEX ix_fedfunds_date ON fedfunds (date);
-CREATE TABLE sofr (
-	date DATETIME, 
-	percent FLOAT
-);
-CREATE INDEX ix_sofr_date ON sofr (date);
 CREATE TABLE schwab_ira_amounts (
 	date DATETIME, 
 	"SWYGX" FLOAT
@@ -147,3 +137,35 @@ CREATE TABLE account_history (
 	"USD_Wise" FLOAT
 );
 CREATE INDEX ix_account_history_date ON account_history (date);
+CREATE TABLE fedfunds (
+	date DATETIME, 
+	percent FLOAT
+);
+CREATE INDEX ix_fedfunds_date ON fedfunds (date);
+CREATE TABLE sofr (
+	date DATETIME, 
+	percent FLOAT
+);
+CREATE INDEX ix_sofr_date ON sofr (date);
+CREATE TABLE IF NOT EXISTS "toshl_income_export_2023-01-01" (
+	"Date" DATETIME, 
+	"Category" TEXT, 
+	"Tags" TEXT, 
+	"Income amount" FLOAT, 
+	"Currency" TEXT, 
+	"In main currency" FLOAT, 
+	"Main currency" TEXT, 
+	"Description" TEXT
+);
+CREATE INDEX "ix_toshl_income_export_2023-01-01_Date" ON "toshl_income_export_2023-01-01" ("Date");
+CREATE TABLE IF NOT EXISTS "toshl_expenses_export_2023-01-01" (
+	"Date" DATETIME, 
+	"Category" TEXT, 
+	"Tags" TEXT, 
+	"Expense amount" FLOAT, 
+	"Currency" TEXT, 
+	"In main currency" FLOAT, 
+	"Main currency" TEXT, 
+	"Description" TEXT
+);
+CREATE INDEX "ix_toshl_expenses_export_2023-01-01_Date" ON "toshl_expenses_export_2023-01-01" ("Date");

@@ -18,10 +18,8 @@ LEDGER_BIN = f"{Path.home()}/bin/ledger"
 LEDGER_DIR = f"{Path.home()}/code/ledger"
 # pylint: disable-next=line-too-long
 LEDGER_CSV_CMD = f"{LEDGER_BIN} -f {LEDGER_DIR}/ledger.ledger --price-db {LEDGER_DIR}/prices.db -X '$' -c --no-revalued csv ^Expenses ^Income"
-TOSHL_INCOME_EXPORT_PREFIX = f"{Path.home()}/code/accounts/toshl_exports/incomes/"
-TOSHL_EXPENSE_EXPORT_PREFIX = f"{Path.home()}/code/accounts/toshl_exports/expenses/"
-TOSHL_INCOME_FILENAME = f"{TOSHL_INCOME_EXPORT_PREFIX}toshl_export_2023-01-01.csv"
-TOSHL_EXPENSES_FILENAME = f"{TOSHL_EXPENSE_EXPORT_PREFIX}toshl_export_2023-01-01.csv"
+TOSHL_INCOME_TABLE = "toshl_income_export_2023-01-01"
+TOSHL_EXPENSES_TABLE = "toshl_expenses_export_2023-01-01"
 
 
 def get_ledger_csv():
@@ -58,23 +56,8 @@ def convert_toshl_usd(dataframe):
 
 def get_toshl_expenses_dataframe():
     """Get historical data from Toshl export."""
-    dataframe = pd.read_csv(
-        TOSHL_EXPENSES_FILENAME,
-        index_col=0,
-        parse_dates=True,
-        infer_datetime_format=True,
-        thousands=",",
-        usecols=[
-            "Date",
-            "Category",
-            "Tags",
-            "Expense amount",
-            "Currency",
-            "In main currency",
-            "Main currency",
-            "Description",
-        ],
-    )
+    with create_engine(common.SQLITE_URI).connect() as conn:
+        dataframe = pd.read_sql_table(TOSHL_EXPENSES_TABLE, conn, index_col="Date")
     # Remove unnecessary transactions.
     dataframe = dataframe[~dataframe["Category"].isin(["Reconciliation", "Transfer"])]
     # Remove things that are not expenses.
@@ -250,23 +233,8 @@ def get_toshl_expenses_dataframe():
 
 def get_toshl_income_dataframe():
     """Get historical data from Toshl export."""
-    dataframe = pd.read_csv(
-        TOSHL_INCOME_FILENAME,
-        index_col=0,
-        parse_dates=True,
-        infer_datetime_format=True,
-        thousands=",",
-        usecols=[
-            "Date",
-            "Category",
-            "Tags",
-            "Income amount",
-            "Currency",
-            "In main currency",
-            "Main currency",
-            "Description",
-        ],
-    )
+    with create_engine(common.SQLITE_URI).connect() as conn:
+        dataframe = pd.read_sql_table(TOSHL_INCOME_TABLE, conn, index_col="Date")
     # Remove unnecessary transactions.
     dataframe = dataframe[~dataframe["Category"].isin(["Reconciliation", "Transfer"])]
     # Make dataframe like ledger.

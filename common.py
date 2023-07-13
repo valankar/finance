@@ -214,6 +214,7 @@ def write_ticker_csv(
     ticker_col_name="ticker",
     ticker_amt_col="shares",
     ticker_aliases=None,
+    ticker_prices=None,
 ):
     """Write ticker values to prices table and csv file.
 
@@ -231,8 +232,8 @@ def write_ticker_csv(
         )
     if ticker_aliases:
         amounts_df = amounts_df.rename(columns=ticker_aliases)
-
-    ticker_prices = get_tickers(amounts_df.columns)
+    if not ticker_prices:
+        ticker_prices = get_tickers(amounts_df.columns)
     prices_df = pd.DataFrame(
         ticker_prices, index=[pd.Timestamp.now()], columns=sorted(ticker_prices.keys())
     ).rename_axis("date")
