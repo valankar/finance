@@ -580,6 +580,8 @@ def write_static_plots(section_tuples):
     with common.temporary_file_move(f"{common.PREFIX}{STATIC_HTML}") as index_file:
         index_file.write(HTML_STYLE)
         for section, height, width in section_tuples:
+            # Remove interaction buttons.
+            section["layout"].pop("updatemenus")
             section.write_image(
                 common.PREFIX + f"images/{image_name}.png",
                 width=default_image_width * width,
