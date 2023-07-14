@@ -259,14 +259,12 @@ def get_investing_retirement_df(daily_df, accounts_df):
     invret_cols = ["pillar2", "ira", "commodities", "etfs"]
     invret_df = daily_df[invret_cols]
     ibonds_df = accounts_df["USD_Treasury Direct"].rename("ibonds").fillna(0)
-    merged_df = pd.merge_asof(invret_df, ibonds_df, left_index=True, right_index=True)
     pal_df = (
         accounts_df["USD_Charles Schwab_Pledged Asset Line"]
         .rename("pledged_asset_line")
         .fillna(0)
     )
-    merged_df = pd.merge_asof(merged_df, pal_df, left_index=True, right_index=True)
-    return merged_df
+    return reduce_merge_asof([invret_df, ibonds_df, pal_df])
 
 
 def make_investing_retirement_section(invret_df):
@@ -369,33 +367,52 @@ def make_real_estate_profit_bar_yearly(real_estate_df):
 
 def make_profit_bar(invret_df):
     """Profit from cost basis."""
-    with open(
-        f"{common.PREFIX}commodities_cost_basis.txt", encoding="utf-8"
-    ) as commodities_file:
-        commodities_cost_basis = float(commodities_file.read())
-    commodities_market_value = invret_df[["commodities"]].iloc[-1]["commodities"]
-    commodities_profit = commodities_market_value - commodities_cost_basis
-    with open(
-        f"{common.PREFIX}schwab_etfs_cost_basis.txt", encoding="utf-8"
-    ) as etfs_file:
-        etfs_cost_basis = float(etfs_file.read())
-    etfs_market_value = invret_df[["etfs"]].iloc[-1]["etfs"]
-    etfs_profit = etfs_market_value - etfs_cost_basis
-    with open(
-        f"{common.PREFIX}treasury_direct_cost_basis.txt", encoding="utf-8"
-    ) as ibonds_file:
-        ibonds_cost_basis = float(ibonds_file.read())
-    ibonds_market_value = invret_df[["ibonds"]].iloc[-1]["ibonds"]
-    ibonds_profit = ibonds_market_value - ibonds_cost_basis
-    values = [commodities_profit, etfs_profit, ibonds_profit]
+    commodities_df = pd.read_csv(
+        f"{common.PREFIX}commodities_values.csv", index_col="commodity"
+    )
+    commodities_gold_cost_basis = common.load_float_from_text_file(
+        f"{common.PREFIX}commodities_gold_cost_basis.txt"
+    )
+    commodities_gold_profit = (
+        commodities_df.loc["GOLD"]["value"] - commodities_gold_cost_basis
+    )
+    commodities_silver_cost_basis = common.load_float_from_text_file(
+        f"{common.PREFIX}commodities_silver_cost_basis.txt"
+    )
+    commodities_silver_profit = (
+        commodities_df.loc["SILVER"]["value"] - commodities_silver_cost_basis
+    )
+    commodities_cost_basis = commodities_gold_cost_basis + commodities_silver_cost_basis
+    commodities_profit = (
+        invret_df[["commodities"]].iloc[-1]["commodities"] - commodities_cost_basis
+    )
+    etfs_cost_basis = common.load_float_from_text_file(
+        f"{common.PREFIX}schwab_etfs_cost_basis.txt"
+    )
+    etfs_profit = invret_df[["etfs"]].iloc[-1]["etfs"] - etfs_cost_basis
+
+    ibonds_cost_basis = common.load_float_from_text_file(
+        f"{common.PREFIX}treasury_direct_cost_basis.txt"
+    )
+    ibonds_profit = invret_df[["ibonds"]].iloc[-1]["ibonds"] - ibonds_cost_basis
+
+    values = [
+        commodities_profit,
+        commodities_gold_profit,
+        commodities_silver_profit,
+        etfs_profit,
+        ibonds_profit,
+    ]
     percent = [
         commodities_profit / commodities_cost_basis * 100,
+        commodities_gold_profit / commodities_gold_cost_basis * 100,
+        commodities_silver_profit / commodities_silver_cost_basis * 100,
         etfs_profit / etfs_cost_basis * 100,
         ibonds_profit / ibonds_cost_basis * 100,
     ]
     profit_bar = go.Figure(
         go.Bar(
-            x=["Commodities", "ETFs", "I Bonds"],
+            x=["Commodities", "Gold", "Silver", "ETFs", "I Bonds"],
             y=values,
             marker_color=[COLOR_GREEN if x >= 0 else COLOR_RED for x in values],
             text=[f"{Float(x):.2h}<br>{y:.2f}%" for x, y in zip(values, percent)],
@@ -597,16 +614,18 @@ def write_html_and_images(section_tuples):
     write_static_plots(section_tuples)
 
 
-def load_sqlite_and_rename_col(table, columns):
+def load_sqlite_and_rename_col(table, columns=None):
     """Load table from sqlite and rename columns."""
     with create_engine(common.SQLITE_URI).connect() as conn:
-        return (
+        dataframe = (
             pd.read_sql_table(table, conn, index_col="date")
             .resample("D")
             .last()
             .interpolate()
-            .rename(columns=columns)
         )
+    if columns:
+        dataframe = dataframe.rename(columns=columns)
+    return dataframe
 
 
 def get_real_estate_df():
@@ -622,10 +641,7 @@ def get_real_estate_df():
         dataframes.append(
             load_sqlite_and_rename_col(f"{table}_rent", {"value": f"{home} Rent"})
         )
-    return reduce(
-        lambda l, r: pd.merge_asof(l, r, left_index=True, right_index=True),
-        dataframes,
-    )
+    return reduce_merge_asof(dataframes)
 
 
 def get_interest_rate_df():
@@ -652,24 +668,20 @@ def get_interest_rate_df():
 
 def load_dataframes_from_sqlite():
     """Load dataframes in SQLite."""
+    all_df = load_sqlite_and_rename_col("history")
+    accounts_df = load_sqlite_and_rename_col("account_history")
+    forex_df = load_sqlite_and_rename_col("forex")
+    commodities_df = load_sqlite_and_rename_col("commodities_prices")
+    prices_df = reduce_merge_asof([forex_df, commodities_df])
+    return (all_df, accounts_df, prices_df)
 
-    def load_table(table, conn):
-        return (
-            pd.read_sql_table(table, conn, index_col="date")
-            .resample("D")
-            .last()
-            .interpolate()
-        )
 
-    with create_engine(common.SQLITE_URI).connect() as conn:
-        all_df = load_table("history", conn)
-        accounts_df = load_table("account_history", conn)
-        forex_df = load_table("forex", conn)
-        commodities_df = load_table("commodities_prices", conn)
-        prices_df = pd.merge_asof(
-            forex_df, commodities_df, left_index=True, right_index=True
-        )
-        return (all_df, accounts_df, prices_df)
+def reduce_merge_asof(dataframes):
+    """Reduce and merge date tables."""
+    return reduce(
+        lambda l, r: pd.merge_asof(l, r, left_index=True, right_index=True),
+        dataframes,
+    )
 
 
 def main():

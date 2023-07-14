@@ -10,20 +10,16 @@ import commodities
 import common
 import etfs
 import history
-import i_and_e
 import plot
-import schwab_ira
 
 
 def main():
     """Main."""
     start_time = timer()
-    schwab_ira.main()
     commodities.main()
     etfs.main()
     history.main()
     plot.main()
-    i_and_e.main()
     end_time = timer()
     for output_file in [plot.INDEX_HTML, plot.STATIC_HTML]:
         elapsed = round(end_time - start_time, 3)

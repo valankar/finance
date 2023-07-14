@@ -207,6 +207,12 @@ def get_all_tickers_steampipe_local():
     return ticker_prices
 
 
+def load_float_from_text_file(filename):
+    """Get float value from a text file."""
+    with open(filename, encoding="utf-8") as input_file:
+        return float(input_file.read())
+
+
 def write_ticker_csv(
     amounts_table,
     prices_table,

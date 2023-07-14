@@ -48,12 +48,6 @@ ACCOUNT_MAP = {
 }
 
 
-def load_float_from_text_file(filename):
-    """Get float value from a text file."""
-    with open(filename, encoding="utf-8") as input_file:
-        return float(input_file.read())
-
-
 def load_csv_sum_and_update(filename, index_col, accounts_df_data):
     """Sum ticker/commodity data from csv file."""
     dataframe = pd.read_csv(filename, index_col=index_col)
@@ -78,18 +72,20 @@ def main():
     etfs = load_csv_sum_and_update(
         f"{common.PREFIX}schwab_etfs_values.csv", "ticker", accounts_df_data
     )
-    treasury_direct = load_float_from_text_file(f"{common.PREFIX}treasury_direct.txt")
+    treasury_direct = common.load_float_from_text_file(
+        f"{common.PREFIX}treasury_direct.txt"
+    )
     accounts_df_data[ACCOUNT_MAP["treasury_direct"]] = treasury_direct
 
     total_investing = commodities + etfs + treasury_direct
 
     total_liquid = 0.0
     for chf_account in ["ubs", "ubs_visa", "cash_chf", "wise_chf"]:
-        value = load_float_from_text_file(f"{common.PREFIX}{chf_account}.txt")
+        value = common.load_float_from_text_file(f"{common.PREFIX}{chf_account}.txt")
         total_liquid += value * chfusd
         accounts_df_data[ACCOUNT_MAP[chf_account]] = value
 
-    value = load_float_from_text_file(f"{common.PREFIX}wise_sgd.txt")
+    value = common.load_float_from_text_file(f"{common.PREFIX}wise_sgd.txt")
     total_liquid += value * sgdusd
     accounts_df_data[ACCOUNT_MAP["wise_sgd"]] = value
 
@@ -106,13 +102,13 @@ def main():
         "schwab_pledged_asset_line",
         "wealthfront_cash",
     ]:
-        value = load_float_from_text_file(f"{common.PREFIX}{usd_account}.txt")
+        value = common.load_float_from_text_file(f"{common.PREFIX}{usd_account}.txt")
         total_liquid += value
         accounts_df_data[ACCOUNT_MAP[usd_account]] = value
 
     total_real_estate = 0.0
     for estate in ["mtvernon", "northlake", "villamaria"]:
-        value = load_float_from_text_file(f"{common.PREFIX}{estate}.txt")
+        value = common.load_float_from_text_file(f"{common.PREFIX}{estate}.txt")
         total_real_estate += value
         accounts_df_data[ACCOUNT_MAP[estate]] = value
     # Sold properties
@@ -123,18 +119,20 @@ def main():
     schwab_ira = load_csv_sum_and_update(
         f"{common.PREFIX}schwab_ira_values.csv", "ticker", accounts_df_data
     )
-    schwab_ira_cash = load_float_from_text_file(f"{common.PREFIX}schwab_ira_cash.txt")
+    schwab_ira_cash = common.load_float_from_text_file(
+        f"{common.PREFIX}schwab_ira_cash.txt"
+    )
     schwab_ira += schwab_ira_cash
     accounts_df_data[ACCOUNT_MAP["schwab_ira_cash"]] = schwab_ira_cash
 
     # HSA closed October 2022
     accounts_df_data[ACCOUNT_MAP["healthequity"]] = 0.0
 
-    value = load_float_from_text_file(f"{common.PREFIX}ubs_pillar2.txt")
+    value = common.load_float_from_text_file(f"{common.PREFIX}ubs_pillar2.txt")
     pillar2 = value * chfusd
     accounts_df_data[ACCOUNT_MAP["ubs_pillar2"]] = value
 
-    value = load_float_from_text_file(f"{common.PREFIX}zurcher.txt")
+    value = common.load_float_from_text_file(f"{common.PREFIX}zurcher.txt")
     zurcher = value * chfusd
     accounts_df_data[ACCOUNT_MAP["zurcher"]] = value
 
