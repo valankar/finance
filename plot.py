@@ -565,6 +565,15 @@ def make_total_bar_yoy(daily_df, column):
     return yearly_bar
 
 
+def make_performance_section():
+    """Create performance metrics graph."""
+    perf_df = load_sqlite_and_rename_col("performance_hourly", resample=False)
+    section = px.area(perf_df, x=perf_df.index, y=perf_df.columns, title="Performance")
+    section.update_yaxes(title_text="seconds")
+    section.update_xaxes(title_text="")
+    return section
+
+
 def write_dynamic_plots(section_tuples):
     """Write out dynamic plots."""
     wrote_plotlyjs = False
@@ -614,15 +623,12 @@ def write_html_and_images(section_tuples):
     write_static_plots(section_tuples)
 
 
-def load_sqlite_and_rename_col(table, columns=None):
+def load_sqlite_and_rename_col(table, columns=None, resample=True):
     """Load table from sqlite and rename columns."""
     with create_engine(common.SQLITE_URI).connect() as conn:
-        dataframe = (
-            pd.read_sql_table(table, conn, index_col="date")
-            .resample("D")
-            .last()
-            .interpolate()
-        )
+        dataframe = pd.read_sql_table(table, conn, index_col="date")
+    if resample:
+        dataframe = dataframe.resample("D").last().interpolate()
     if columns:
         dataframe = dataframe.rename(columns=columns)
     return dataframe
@@ -705,6 +711,7 @@ def main():
     )
     prices_section = make_prices_section(prices_df)
     yield_section = make_interest_rate_section(get_interest_rate_df())
+    performance_section = make_performance_section()
 
     write_html_and_images(
         (
@@ -716,6 +723,7 @@ def main():
             (total_no_homes_change_section, 0.50, 1),
             (prices_section, 0.75, 1),
             (yield_section, 0.5, 1),
+            (performance_section, 0.5, 1),
         ),
     )
     # Reset theme to default.

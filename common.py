@@ -10,6 +10,7 @@ from datetime import datetime
 from os import path
 from pathlib import Path
 from threading import RLock
+from timeit import default_timer as timer
 
 import pandas as pd
 import stockquotes
@@ -144,7 +145,7 @@ def get_ticker_yahooquery(ticker):
 @functools.cache
 def get_ticker_yfinance(ticker):
     """Get ticker price via yfinance library."""
-    return yfinance.Ticker(ticker).history(period="1d")["Close"][0]
+    return yfinance.Ticker(ticker).history(period="5d")["Close"][-1]
 
 
 def load_float_from_text_file(filename):
@@ -243,3 +244,25 @@ def get_browser():
     service = FirefoxService(log_path=path.devnull)
     browser = webdriver.Firefox(options=opts, service=service)
     return browser
+
+
+def run_and_save_performance(funcs, table_name):
+    """Run functions and save performance metrics."""
+    perf_df_data = {}
+    for func in funcs:
+        column = f"{func.__module__}.{func.__name__}"
+        start_time = timer()
+        func()
+        end_time = timer()
+        perf_df_data[column] = end_time - start_time
+    perf_df = pd.DataFrame(
+        perf_df_data, index=[pd.Timestamp.now()], columns=sorted(perf_df_data.keys())
+    )
+    with create_engine(SQLITE_URI).connect() as conn:
+        perf_df.to_sql(
+            table_name,
+            conn,
+            if_exists="append",
+            index_label="date",
+        )
+        conn.commit()

@@ -15,21 +15,14 @@ ACCOUNT_MAP = {
     "bofa_travel_rewards_visa": "USD_Bank of America_Travel Rewards Visa",
     "bofa": "USD_Bank of America_Checking",
     "cash_chf": "CHF_Cash",
-    "healthequity": "USD_Healthequity HSA",
     "treasury_direct": "USD_Treasury Direct",
-    "californiast": "USD_Real Estate_California St",
-    "corallake": "USD_Real Estate_Coral Lake",
     "mtvernon": "USD_Real Estate_Mt Vernon",
     "northlake": "USD_Real Estate_Northlake",
     "villamaria": "USD_Real Estate_Villa Maria",
     "SCHA": "USD_Charles Schwab_Brokerage_SCHA",
-    "SCHB": "USD_Charles Schwab_Brokerage_SCHB",
-    "SCHE": "USD_Charles Schwab_Brokerage_SCHE",
     "SCHF": "USD_Charles Schwab_Brokerage_SCHF",
-    "SCHO": "USD_Charles Schwab_Brokerage_SCHO",
     "SCHR": "USD_Charles Schwab_Brokerage_SCHR",
     "SCHX": "USD_Charles Schwab_Brokerage_SCHX",
-    "SCHZ": "USD_Charles Schwab_Brokerage_SCHZ",
     "SWYGX": "USD_Charles Schwab_IRA_SWYGX",
     "schwab_brokerage_cash": "USD_Charles Schwab_Brokerage_Cash",
     "schwab_ira_cash": "USD_Charles Schwab_IRA_Cash",
@@ -111,9 +104,6 @@ def main():
         value = common.load_float_from_text_file(f"{common.PREFIX}{estate}.txt")
         total_real_estate += value
         accounts_df_data[ACCOUNT_MAP[estate]] = value
-    # Sold properties
-    for estate in ["californiast", "corallake"]:
-        accounts_df_data[ACCOUNT_MAP[estate]] = 0.0
 
     # Retirement
     schwab_ira = load_csv_sum_and_update(
@@ -124,9 +114,6 @@ def main():
     )
     schwab_ira += schwab_ira_cash
     accounts_df_data[ACCOUNT_MAP["schwab_ira_cash"]] = schwab_ira_cash
-
-    # HSA closed October 2022
-    accounts_df_data[ACCOUNT_MAP["healthequity"]] = 0.0
 
     value = common.load_float_from_text_file(f"{common.PREFIX}ubs_pillar2.txt")
     pillar2 = value * chfusd

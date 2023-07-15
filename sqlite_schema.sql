@@ -137,16 +137,6 @@ CREATE TABLE account_history (
 	"USD_Wise" FLOAT
 );
 CREATE INDEX ix_account_history_date ON account_history (date);
-CREATE TABLE fedfunds (
-	date DATETIME, 
-	percent FLOAT
-);
-CREATE INDEX ix_fedfunds_date ON fedfunds (date);
-CREATE TABLE sofr (
-	date DATETIME, 
-	percent FLOAT
-);
-CREATE INDEX ix_sofr_date ON sofr (date);
 CREATE TABLE IF NOT EXISTS "toshl_income_export_2023-01-01" (
 	"Date" DATETIME, 
 	"Category" TEXT, 
@@ -169,3 +159,21 @@ CREATE TABLE IF NOT EXISTS "toshl_expenses_export_2023-01-01" (
 	"Description" TEXT
 );
 CREATE INDEX "ix_toshl_expenses_export_2023-01-01_Date" ON "toshl_expenses_export_2023-01-01" ("Date");
+CREATE TABLE fedfunds (
+	date DATETIME, 
+	percent FLOAT
+);
+CREATE INDEX ix_fedfunds_date ON fedfunds (date);
+CREATE TABLE sofr (
+	date DATETIME, 
+	percent FLOAT
+);
+CREATE INDEX ix_sofr_date ON sofr (date);
+CREATE TABLE performance_hourly (
+	date DATETIME, 
+	"commodities.main" FLOAT, 
+	"etfs.main" FLOAT, 
+	"history.main" FLOAT, 
+	"plot.main" FLOAT
+);
+CREATE INDEX ix_performance_hourly_date ON performance_hourly (date);
