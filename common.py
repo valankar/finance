@@ -2,10 +2,8 @@
 """Common functions."""
 
 import functools
-import json
 import shelve
 import shutil
-import subprocess
 import tempfile
 from contextlib import contextmanager
 from datetime import datetime
@@ -14,8 +12,6 @@ from pathlib import Path
 from threading import RLock
 
 import pandas as pd
-import psycopg2
-import psycopg2.extras
 import stockquotes
 import yahoofinancials
 import yahooquery
@@ -34,22 +30,7 @@ import authorization
 PREFIX = str(Path.home()) + authorization.PUBLIC_HTML
 SQLITE_URI = f"sqlite:///{PREFIX}sqlite.db"
 TICKER_FAILURES_SHELF = f"{PREFIX}ticker_failures.shelf"
-# When querying Steampipe, make one query to get all tickers needed.
-STEAMPIPE_ALL_TICKERS = [
-    "SGDUSD=X",
-    "CHFUSD=X",
-    "VWIAX",
-    "SCHZ",
-    "SCHX",
-    "SCHO",
-    "SCHF",
-    "SCHE",
-    "SCHB",
-    "SCHA",
-    "SCHR",
-    "SI=F",
-    "GC=F",
-]
+
 selenium_lock = RLock()
 
 
@@ -98,8 +79,6 @@ def get_ticker(ticker, test_all=False):
         (get_ticker_yfinance, False, Exception),
         (get_ticker_stockquotes, False, Exception),
         (get_ticker_browser, False, NoSuchElementException),
-        (get_all_tickers_steampipe_cloud, True, psycopg2.Error),
-        (get_all_tickers_steampipe_local, True, subprocess.CalledProcessError),
     )
     for method in get_ticker_methods:
         if test_all:
@@ -166,45 +145,6 @@ def get_ticker_yahooquery(ticker):
 def get_ticker_yfinance(ticker):
     """Get ticker price via yfinance library."""
     return yfinance.Ticker(ticker).history(period="1d")["Close"][0]
-
-
-@functools.cache
-def get_all_tickers_steampipe_cloud():
-    """Get ticker prices via Steampipe Clound. Returns dict."""
-    conn = psycopg2.connect(authorization.STEAMPIPE_CLOUD_CONN)
-    try:
-        with conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as curs:
-                tickers = ",".join([f"'{ticker}'" for ticker in STEAMPIPE_ALL_TICKERS])
-                curs.execute(
-                    # pylint: disable-next=line-too-long
-                    f"select symbol, regular_market_price from finance_quote where symbol in ({tickers})"
-                )
-                result = curs.fetchall()
-                ticker_prices = {}
-                for res in result:
-                    ticker_prices[res["symbol"]] = res["regular_market_price"]
-                return ticker_prices
-    finally:
-        conn.close()
-
-
-@functools.cache
-def get_all_tickers_steampipe_local():
-    """Get ticker price."""
-    tickers = ",".join([f"'{ticker}'" for ticker in STEAMPIPE_ALL_TICKERS])
-    process = subprocess.run(
-        # pylint: disable-next=line-too-long
-        f'$HOME/bin/steampipe query "select symbol, regular_market_price from finance_quote where symbol in ({tickers})" --output json',
-        shell=True,
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-    ticker_prices = {}
-    for res in json.loads(process.stdout):
-        ticker_prices[res["symbol"]] = res["regular_market_price"]
-    return ticker_prices
 
 
 def load_float_from_text_file(filename):
