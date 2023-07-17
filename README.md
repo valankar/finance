@@ -22,7 +22,6 @@ Crontab example:
 ```shell
 @hourly             flock $HOME/code/accounts -c "$HOME/software/miniconda3/condabin/conda run -n investing $HOME/bin/accounts/finance_hourly.py"
 @daily              flock $HOME/code/accounts -c "$HOME/software/miniconda3/condabin/conda run -n investing $HOME/bin/accounts/finance_daily.py"
-@weekly             flock $HOME/code/accounts -c "$HOME/software/miniconda3/condabin/conda run -n investing $HOME/bin/accounts/finance_weekly.py"
 ```
 
 Locking the directory is to prevent both scripts writing at the same time.
@@ -68,10 +67,6 @@ Script that should run daily.
 ### finance_hourly.py
 
 Script that should run hourly.
-
-### finance_weekly.py
-
-Script that should run weekly.
 
 ### history.py
 
