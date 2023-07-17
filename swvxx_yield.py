@@ -2,7 +2,6 @@
 """Store Schwab SWVXX 7-day yield history."""
 
 import pandas as pd
-from sqlalchemy import create_engine
 
 import common
 
@@ -20,9 +19,7 @@ def get_yield():
 def main():
     """Writes 7 day yield history to CSV file."""
     new_df = pd.DataFrame({"percent": get_yield()}, index=[pd.Timestamp.now()])
-    with create_engine(common.SQLITE_URI).connect() as conn:
-        new_df.to_sql("swvxx_yield", conn, if_exists="append", index_label="date")
-        conn.commit()
+    common.to_sql(new_df, "swvxx_yield")
 
 
 if __name__ == "__main__":

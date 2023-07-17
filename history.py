@@ -2,7 +2,6 @@
 """Write finance history."""
 
 import pandas as pd
-from sqlalchemy import create_engine
 
 import common
 
@@ -150,13 +149,9 @@ def main():
         columns=accounts_df_data.keys(),
     )
     forex_df = pd.DataFrame(forex_df_data, index=[now], columns=forex_df_data.keys())
-    with create_engine(common.SQLITE_URI).connect() as conn:
-        forex_df.to_sql("forex", conn, if_exists="append", index_label="date")
-        history_df.to_sql("history", conn, if_exists="append", index_label="date")
-        accounts_df.to_sql(
-            "account_history", conn, if_exists="append", index_label="date"
-        )
-        conn.commit()
+    common.to_sql(forex_df, "forex")
+    common.to_sql(history_df, "history")
+    common.to_sql(accounts_df, "account_history")
 
 
 if __name__ == "__main__":

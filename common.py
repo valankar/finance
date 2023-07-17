@@ -2,11 +2,10 @@
 """Common functions."""
 
 import functools
-import shelve
 import shutil
+import sqlite3
 import tempfile
 from contextlib import contextmanager
-from datetime import datetime
 from os import path
 from pathlib import Path
 from threading import RLock
@@ -30,7 +29,8 @@ import authorization
 
 PREFIX = str(Path.home()) + authorization.PUBLIC_HTML
 SQLITE_URI = f"sqlite:///{PREFIX}sqlite.db"
-TICKER_FAILURES_SHELF = f"{PREFIX}ticker_failures.shelf"
+SQLITE_URI_RO = f"sqlite:///file:{PREFIX}sqlite.db?mode=ro&uri=true"
+SQLITE3_URI_RO = f"file:{PREFIX}sqlite.db?mode=ro"
 
 selenium_lock = RLock()
 
@@ -47,54 +47,54 @@ def get_tickers(tickers: list) -> dict:
     return ticker_dict
 
 
-def call_get_ticker(ticker, func, returns_dict, exception, force=False):
-    """Calls a ticker getting method if it has not failed recently.
-
-    If force is True, ignore previous errors and force a call.
-    """
-    with shelve.open(TICKER_FAILURES_SHELF) as ticker_failures:
-        now = datetime.now()
-        last_failure = ticker_failures.get(func.__name__)
-        if not force and last_failure and ((now - last_failure).days < 1):
-            raise GetTickerError
-        try:
-            if returns_dict:
-                return func()[ticker]
-            return func(ticker)
-        except exception:
-            ticker_failures[func.__name__] = now
-    raise GetTickerError
+# Only call this method once per script run.
+@functools.cache
+def log_function_result(name, success):
+    """Log the success or failure of a function."""
+    to_sql(
+        pd.DataFrame({"name": name, "success": success}, index=[pd.Timestamp.now()]),
+        "function_result",
+    )
 
 
 @functools.cache
-def get_ticker(ticker, test_all=False):
+def function_failed_last_day(name):
+    """Determine whether function has failed in the last day."""
+    con = sqlite3.connect(SQLITE3_URI_RO, uri=True)
+    res = con.execute(
+        # pylint: disable-next=line-too-long
+        f"select count(*) from function_result where success=False and date > datetime('now', '-1 day') and name='{name}'"
+    )
+    result = res.fetchone()[0] != 0
+    con.close()
+    return result
+
+
+@functools.cache
+def get_ticker(ticker):
     """Get ticker prices by trying various methods.
 
     Failed methods are not retried until 1 day has passed.
-
-    If test_all is True, all methods are tried with results printed.
     """
     get_ticker_methods = (
-        (get_ticker_yahooquery, False, Exception),
-        (get_ticker_yahoofinancials, False, Exception),
-        (get_ticker_yfinance, False, Exception),
-        (get_ticker_stockquotes, False, Exception),
-        (get_ticker_browser, False, NoSuchElementException),
+        (get_ticker_yahooquery, Exception),
+        (get_ticker_yahoofinancials, Exception),
+        (get_ticker_yfinance, Exception),
+        (get_ticker_stockquotes, Exception),
+        (get_ticker_browser, NoSuchElementException),
     )
-    for method in get_ticker_methods:
-        if test_all:
-            print(f"{method[0].__name__}: ", end="")
-            try:
-                print(call_get_ticker(ticker, *method, True))
-            except GetTickerError:
-                print("FAILED")
+    for method, exc in get_ticker_methods:
+        name = method.__name__
+        if function_failed_last_day(name):
             continue
         try:
-            return call_get_ticker(ticker, *method)
-        except GetTickerError:
-            pass
-    if not test_all:
-        raise GetTickerError("No more methods to get ticker price")
+            result = method(ticker)
+            log_function_result(name, True)
+            return result
+        # pylint: disable-next=broad-exception-caught
+        except exc:
+            log_function_result(name, False)
+    raise GetTickerError("No more methods to get ticker price")
 
 
 @functools.cache
@@ -154,6 +154,19 @@ def load_float_from_text_file(filename):
         return float(input_file.read())
 
 
+def read_sql_table(table, index_col="date"):
+    """Load table from sqlite."""
+    with create_engine(SQLITE_URI_RO).connect() as conn:
+        return pd.read_sql_table(table, conn, index_col=index_col)
+
+
+def to_sql(dataframe, table, if_exists="append", index_label="date"):
+    """Write dataframe to sqlite table."""
+    with create_engine(SQLITE_URI).connect() as conn:
+        dataframe.to_sql(table, conn, if_exists=if_exists, index_label=index_label)
+        conn.commit()
+
+
 def write_ticker_csv(
     amounts_table,
     prices_table,
@@ -167,7 +180,7 @@ def write_ticker_csv(
 
     ticker_aliases is used to map name to actual ticker: GOLD -> GC=F
     """
-    with create_engine(SQLITE_URI).connect() as conn:
+    with create_engine(SQLITE_URI_RO).connect() as conn:
         # Just get the latest row.
         amounts_df = pd.read_sql_query(
             sqlalchemy_text(
@@ -186,14 +199,7 @@ def write_ticker_csv(
     ).rename_axis("date")
     if ticker_aliases:
         prices_df = prices_df.rename(columns={v: k for k, v in ticker_aliases.items()})
-    with create_engine(SQLITE_URI).connect() as conn:
-        prices_df.to_sql(
-            prices_table,
-            conn,
-            if_exists="append",
-            index_label="date",
-        )
-        conn.commit()
+    to_sql(prices_df, prices_table)
 
     if ticker_aliases:
         # Revert back columns names/tickers.
@@ -258,11 +264,4 @@ def run_and_save_performance(funcs, table_name):
     perf_df = pd.DataFrame(
         perf_df_data, index=[pd.Timestamp.now()], columns=sorted(perf_df_data.keys())
     )
-    with create_engine(SQLITE_URI).connect() as conn:
-        perf_df.to_sql(
-            table_name,
-            conn,
-            if_exists="append",
-            index_label="date",
-        )
-        conn.commit()
+    to_sql(perf_df, table_name)

@@ -4,7 +4,6 @@
 import statistics
 
 import pandas as pd
-from sqlalchemy import create_engine
 
 import common
 
@@ -67,9 +66,7 @@ def get_zillow_rent_estimate(url_path):
 def write_table(table, value):
     """Write table to sqlite."""
     home_df = pd.DataFrame({"value": value}, index=[pd.Timestamp.now()])
-    with create_engine(common.SQLITE_URI).connect() as conn:
-        home_df.to_sql(table, conn, if_exists="append", index_label="date")
-        conn.commit()
+    common.to_sql(home_df, table)
 
 
 def main():

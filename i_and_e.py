@@ -9,7 +9,6 @@ from pathlib import Path
 import pandas as pd
 import plotly.express as px
 from dateutil.relativedelta import relativedelta
-from sqlalchemy import create_engine
 
 import common
 
@@ -33,8 +32,7 @@ def convert_toshl_usd(dataframe):
         columns={"Category": "category", "In main currency": "amount_chf"}
     ).rename_axis("date")
     dataframe = dataframe[:"2022"]
-    with create_engine(common.SQLITE_URI).connect() as conn:
-        forex_df = pd.read_sql_table("forex", conn, index_col="date")["CHFUSD"]
+    forex_df = common.read_sql_table("forex")["CHFUSD"]
 
     dataframe = pd.merge_asof(dataframe, forex_df, left_index=True, right_index=True)
     dataframe["amount"] = dataframe["amount_chf"] * dataframe["CHFUSD"]
@@ -56,8 +54,7 @@ def convert_toshl_usd(dataframe):
 
 def get_toshl_expenses_dataframe():
     """Get historical data from Toshl export."""
-    with create_engine(common.SQLITE_URI).connect() as conn:
-        dataframe = pd.read_sql_table(TOSHL_EXPENSES_TABLE, conn, index_col="Date")
+    dataframe = common.read_sql_table(TOSHL_EXPENSES_TABLE, index_col="Date")
     # Remove unnecessary transactions.
     dataframe = dataframe[~dataframe["Category"].isin(["Reconciliation", "Transfer"])]
     # Remove things that are not expenses.
@@ -233,8 +230,7 @@ def get_toshl_expenses_dataframe():
 
 def get_toshl_income_dataframe():
     """Get historical data from Toshl export."""
-    with create_engine(common.SQLITE_URI).connect() as conn:
-        dataframe = pd.read_sql_table(TOSHL_INCOME_TABLE, conn, index_col="Date")
+    dataframe = common.read_sql_table(TOSHL_INCOME_TABLE, index_col="Date")
     # Remove unnecessary transactions.
     dataframe = dataframe[~dataframe["Category"].isin(["Reconciliation", "Transfer"])]
     # Make dataframe like ledger.

@@ -10,14 +10,15 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
+import pytz
 from dateutil.relativedelta import relativedelta
 from plotly.subplots import make_subplots
 from prefixed import Float
-from sqlalchemy import create_engine
 
 import common
 
 TODAY_TIME = datetime.now()
+TIMEZONE = "Europe/Zurich"
 INDEX_HTML = "index.html"
 STATIC_HTML = "static.html"
 COLOR_GREEN = "DarkGreen"
@@ -567,10 +568,55 @@ def make_total_bar_yoy(daily_df, column):
 
 def make_performance_section():
     """Create performance metrics graph."""
-    perf_df = load_sqlite_and_rename_col("performance_hourly", resample=False)
-    section = px.area(perf_df, x=perf_df.index, y=perf_df.columns, title="Performance")
-    section.update_yaxes(title_text="seconds")
+
+    def add_graph(section, dataframe, col, group):
+        for column in dataframe.columns:
+            section.add_trace(
+                go.Scatter(
+                    x=dataframe.index,
+                    y=dataframe[column],
+                    name=column.split(".")[0],
+                    mode="lines",
+                    stackgroup=group,
+                    legendgroup=group,
+                ),
+                row=1,
+                col=col,
+            )
+        graph_latest = dataframe.iloc[-1].sum()
+        section.add_hline(
+            y=graph_latest,
+            annotation_text=f"{graph_latest:.2f}",
+            line_dash="dot",
+            line_color="gray",
+            annotation_position="top right",
+            row=1,
+            col=col,
+        )
+
+    hourly_df = (
+        load_sqlite_and_rename_col("performance_hourly", resample=False)
+        .tz_localize("UTC")
+        .tz_convert(TIMEZONE)
+    )
+    daily_df = load_sqlite_and_rename_col("performance_daily", resample=False)
+    section = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=(
+            "Hourly",
+            "Daily",
+        ),
+        vertical_spacing=0.07,
+        horizontal_spacing=0.05,
+    )
+    add_graph(section, hourly_df, 1, "one")
+    add_graph(section, daily_df, 2, "two")
+
+    section.update_yaxes(title_text="seconds", col=1)
     section.update_xaxes(title_text="")
+    now = datetime.now().astimezone(pytz.timezone(TIMEZONE)).strftime("%c")
+    section.update_layout(title=f"Script Performance ({now})")
     return section
 
 
@@ -625,8 +671,7 @@ def write_html_and_images(section_tuples):
 
 def load_sqlite_and_rename_col(table, columns=None, resample=True):
     """Load table from sqlite and rename columns."""
-    with create_engine(common.SQLITE_URI).connect() as conn:
-        dataframe = pd.read_sql_table(table, conn, index_col="date")
+    dataframe = common.read_sql_table(table)
     if resample:
         dataframe = dataframe.resample("D").last().interpolate()
     if columns:

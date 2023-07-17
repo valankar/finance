@@ -4,7 +4,6 @@
 from datetime import date, datetime
 
 import pandas as pd
-from sqlalchemy import create_engine
 
 import common
 
@@ -30,11 +29,7 @@ def main():
     if today <= datetime.strptime(APY_BOOST[0], "%Y-%m-%d").date():
         boost = APY_BOOST[1]
     new_df = pd.DataFrame({"percent": get_yield() + boost}, index=[pd.Timestamp.now()])
-    with create_engine(common.SQLITE_URI).connect() as conn:
-        new_df.to_sql(
-            "wealthfront_cash_yield", conn, if_exists="append", index_label="date"
-        )
-        conn.commit()
+    common.to_sql(new_df, "wealthfront_cash_yield")
 
 
 if __name__ == "__main__":

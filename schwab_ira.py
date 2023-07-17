@@ -7,23 +7,23 @@ TABLE_PREFIX = "schwab_ira"
 CSV_OUTPUT_PATH = f"{common.PREFIX}schwab_ira_values.csv"
 
 
+def get_ticker():
+    """Get SWYGX ticker price."""
+    return float(
+        common.find_xpath_via_browser(
+            "https://www.schwabassetmanagement.com/products/stir?product=swygx",
+            '//*[@id="sfm-table--fundprofile"]/table/tbody/tr[5]/td[2]',
+        ).strip("$")
+    )
+
+
 def main():
     """Main."""
-    # '//*[@id="sfm-table--fundprofile"]/table/tbody/tr[5]/td[2]'
-    ticker_prices = {
-        "SWYGX": float(
-            common.find_xpath_via_browser(
-                "https://www.schwabassetmanagement.com/products/stir?product=swygx",
-                # pylint: disable-next=line-too-long
-                '//*[@id="sfm-table--fundprofile"]/table/tbody/tr[5]/td[2]',
-            ).strip("$")
-        )
-    }
     common.write_ticker_csv(
         f"{TABLE_PREFIX}_amounts",
         f"{TABLE_PREFIX}_prices",
         CSV_OUTPUT_PATH,
-        ticker_prices=ticker_prices,
+        ticker_prices={"SWYGX": get_ticker()},
     )
 
 

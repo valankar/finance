@@ -159,6 +159,24 @@ CREATE TABLE IF NOT EXISTS "toshl_expenses_export_2023-01-01" (
 	"Description" TEXT
 );
 CREATE INDEX "ix_toshl_expenses_export_2023-01-01_Date" ON "toshl_expenses_export_2023-01-01" ("Date");
+CREATE TABLE performance_hourly (
+	date DATETIME, 
+	"commodities.main" FLOAT, 
+	"etfs.main" FLOAT, 
+	"history.main" FLOAT, 
+	"plot.main" FLOAT
+);
+CREATE INDEX ix_performance_hourly_date ON performance_hourly (date);
+CREATE TABLE performance_daily (
+	date DATETIME, 
+	"fedfunds.main" FLOAT, 
+	"homes.main" FLOAT, 
+	"i_and_e.main" FLOAT, 
+	"schwab_ira.main" FLOAT, 
+	"swvxx_yield.main" FLOAT, 
+	"wealthfront_cash_yield.main" FLOAT
+);
+CREATE INDEX ix_performance_daily_date ON performance_daily (date);
 CREATE TABLE fedfunds (
 	date DATETIME, 
 	percent FLOAT
@@ -169,11 +187,9 @@ CREATE TABLE sofr (
 	percent FLOAT
 );
 CREATE INDEX ix_sofr_date ON sofr (date);
-CREATE TABLE performance_hourly (
+CREATE TABLE function_result (
 	date DATETIME, 
-	"commodities.main" FLOAT, 
-	"etfs.main" FLOAT, 
-	"history.main" FLOAT, 
-	"plot.main" FLOAT
+	name TEXT, 
+	success BOOLEAN
 );
-CREATE INDEX ix_performance_hourly_date ON performance_hourly (date);
+CREATE INDEX ix_function_result_date ON function_result (date);
