@@ -568,55 +568,23 @@ def make_total_bar_yoy(daily_df, column):
 
 def make_performance_section():
     """Create performance metrics graph."""
-
-    def add_graph(section, dataframe, col, group):
-        for column in dataframe.columns:
-            section.add_trace(
-                go.Scatter(
-                    x=dataframe.index,
-                    y=dataframe[column],
-                    name=column.split(".")[0],
-                    mode="lines",
-                    stackgroup=group,
-                    legendgroup=group,
-                ),
-                row=1,
-                col=col,
-            )
-        graph_latest = dataframe.iloc[-1].sum()
-        section.add_hline(
-            y=graph_latest,
-            annotation_text=f"{graph_latest:.2f}",
-            line_dash="dot",
-            line_color="gray",
-            annotation_position="top right",
-            row=1,
-            col=col,
-        )
-
-    hourly_df = (
-        load_sqlite_and_rename_col("performance_hourly", resample=False)
-        .tz_localize("UTC")
-        .tz_convert(TIMEZONE)
+    hourly_df = common.read_sql_table("performance_hourly").resample("D").mean()
+    daily_df = common.read_sql_table("performance_daily").resample("D").mean()
+    hourly_df["total_hourly"] = hourly_df.sum(axis=1)
+    daily_df["total_daily"] = daily_df.sum(axis=1)
+    dataframe = reduce_merge_asof([hourly_df, daily_df]).sort_index(axis=1)
+    dataframe.columns = dataframe.columns.str.removesuffix(".main")
+    now = datetime.now().astimezone(pytz.timezone(TIMEZONE)).strftime("%c")
+    section = px.line(
+        dataframe,
+        x=dataframe.index,
+        y=dataframe.columns,
+        title=f"Script Performance ({now})",
     )
-    daily_df = load_sqlite_and_rename_col("performance_daily", resample=False)
-    section = make_subplots(
-        rows=1,
-        cols=2,
-        subplot_titles=(
-            "Hourly",
-            "Daily",
-        ),
-        vertical_spacing=0.07,
-        horizontal_spacing=0.05,
-    )
-    add_graph(section, hourly_df, 1, "one")
-    add_graph(section, daily_df, 2, "two")
 
+    section.update_yaxes(title_text="")
     section.update_yaxes(title_text="seconds", col=1)
     section.update_xaxes(title_text="")
-    now = datetime.now().astimezone(pytz.timezone(TIMEZONE)).strftime("%c")
-    section.update_layout(title=f"Script Performance ({now})")
     return section
 
 
@@ -669,11 +637,9 @@ def write_html_and_images(section_tuples):
     write_static_plots(section_tuples)
 
 
-def load_sqlite_and_rename_col(table, columns=None, resample=True):
+def load_sqlite_and_rename_col(table, columns=None):
     """Load table from sqlite and rename columns."""
-    dataframe = common.read_sql_table(table)
-    if resample:
-        dataframe = dataframe.resample("D").last().interpolate()
+    dataframe = common.read_sql_table(table).resample("D").last().interpolate()
     if columns:
         dataframe = dataframe.rename(columns=columns)
     return dataframe
@@ -717,16 +683,6 @@ def get_interest_rate_df():
     return merged[sorted(merged.columns)].interpolate()
 
 
-def load_dataframes_from_sqlite():
-    """Load dataframes in SQLite."""
-    all_df = load_sqlite_and_rename_col("history")
-    accounts_df = load_sqlite_and_rename_col("account_history")
-    forex_df = load_sqlite_and_rename_col("forex")
-    commodities_df = load_sqlite_and_rename_col("commodities_prices")
-    prices_df = reduce_merge_asof([forex_df, commodities_df])
-    return (all_df, accounts_df, prices_df)
-
-
 def reduce_merge_asof(dataframes):
     """Reduce and merge date tables."""
     return reduce(
@@ -738,23 +694,30 @@ def reduce_merge_asof(dataframes):
 def main():
     """Main."""
     pio.templates.default = "plotly_dark"
-    all_df, accounts_df, prices_df = load_dataframes_from_sqlite()
+    all_daily_df = load_sqlite_and_rename_col("history")
+    accounts_daily_df = load_sqlite_and_rename_col("account_history")
+    prices_daily_df = reduce_merge_asof(
+        [
+            load_sqlite_and_rename_col("forex"),
+            load_sqlite_and_rename_col("commodities_prices"),
+        ]
+    )
     real_estate_daily_df = get_real_estate_df()
-    invret_daily_df = get_investing_retirement_df(all_df, accounts_df)
+    invret_daily_df = get_investing_retirement_df(all_daily_df, accounts_daily_df)
 
-    assets_section = make_assets_breakdown_section(all_df)
+    assets_section = make_assets_breakdown_section(all_daily_df)
     invret_section = make_investing_retirement_section(invret_daily_df)
     real_estate_section = make_real_estate_section(real_estate_daily_df)
     allocation_section = make_allocation_profit_section(
-        all_df, invret_daily_df, real_estate_daily_df
+        all_daily_df, invret_daily_df, real_estate_daily_df
     )
     net_worth_change_section = make_change_section(
-        all_df, "total", "Total Net Worth Change"
+        all_daily_df, "total", "Total Net Worth Change"
     )
     total_no_homes_change_section = make_change_section(
-        all_df, "total_no_homes", "Total Without Real Estate Change"
+        all_daily_df, "total_no_homes", "Total Without Real Estate Change"
     )
-    prices_section = make_prices_section(prices_df)
+    prices_section = make_prices_section(prices_daily_df)
     yield_section = make_interest_rate_section(get_interest_rate_df())
     performance_section = make_performance_section()
 

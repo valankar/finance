@@ -49,10 +49,13 @@ def get_tickers(tickers: list) -> dict:
 
 # Only call this method once per script run.
 @functools.cache
-def log_function_result(name, success):
+def log_function_result(name, success, error_string=None):
     """Log the success or failure of a function."""
     to_sql(
-        pd.DataFrame({"name": name, "success": success}, index=[pd.Timestamp.now()]),
+        pd.DataFrame(
+            {"name": name, "success": success, "error": error_string},
+            index=[pd.Timestamp.now()],
+        ),
         "function_result",
     )
 
@@ -92,8 +95,8 @@ def get_ticker(ticker):
             log_function_result(name, True)
             return result
         # pylint: disable-next=broad-exception-caught
-        except exc:
-            log_function_result(name, False)
+        except exc as ex:
+            log_function_result(name, False, str(ex))
     raise GetTickerError("No more methods to get ticker price")
 
 

@@ -14,14 +14,16 @@ SQL_PREFIX="select datetime(date, 'localtime') as date, \
     format('%,.0f', total_liquid) as total_liquid \
     from history"
 
+# get_ticker failures
+$SQLITE_CMD -header -column \
+    "select datetime(date, 'localtime') as date, name, success from (\
+    select * from function_result where success=False and date > datetime('now', '-1 day') order by date desc limit 5 \
+    ) order by date asc;"
+echo
 
+# Latest values
 $SQLITE_CMD -header -column \
     "$SQL_PREFIX where date < datetime('now', '-1 day') order by date desc limit 1;"
 $SQLITE_CMD -column \
     "$SQL_PREFIX order by date desc limit 1;"
 
-# get_ticker failures
-$SQLITE_CMD -header -column \
-    "select * from (\
-    select * from function_result where success=False and date > datetime('now', '-1 day') order by date desc limit 5 \
-    ) order by date asc;"

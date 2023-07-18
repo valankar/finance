@@ -190,6 +190,7 @@ CREATE INDEX ix_sofr_date ON sofr (date);
 CREATE TABLE function_result (
 	date DATETIME, 
 	name TEXT, 
-	success BOOLEAN
+	success BOOLEAN, 
+	error TEXT
 );
 CREATE INDEX ix_function_result_date ON function_result (date);
