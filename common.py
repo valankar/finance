@@ -60,6 +60,18 @@ def log_function_result(name, success, error_string=None):
     )
 
 
+def run_and_save_performance(func):
+    """Run function and save elapsed time."""
+    name = f"{func.__module__}.{func.__name__}"
+    start_time = timer()
+    func()
+    end_time = timer()
+    perf_df = pd.DataFrame(
+        {"name": name, "elapsed": end_time - start_time}, index=[pd.Timestamp.now()]
+    )
+    to_sql(perf_df, "performance")
+
+
 @functools.cache
 def function_failed_last_day(name):
     """Determine whether function has failed in the last day."""
@@ -253,18 +265,3 @@ def get_browser():
     service = FirefoxService(log_path=path.devnull)
     browser = webdriver.Firefox(options=opts, service=service)
     return browser
-
-
-def run_and_save_performance(funcs, table_name):
-    """Run functions and save performance metrics."""
-    perf_df_data = {}
-    for func in funcs:
-        column = f"{func.__module__}.{func.__name__}"
-        start_time = timer()
-        func()
-        end_time = timer()
-        perf_df_data[column] = end_time - start_time
-    perf_df = pd.DataFrame(
-        perf_df_data, index=[pd.Timestamp.now()], columns=sorted(perf_df_data.keys())
-    )
-    to_sql(perf_df, table_name)

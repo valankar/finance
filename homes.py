@@ -43,7 +43,7 @@ def get_redfin_estimate(url_path):
     return get_site_estimate(
         f"https://www.redfin.com{url_path}",
         # pylint: disable-next=line-too-long
-        '//*[@id="content"]/div[12]/div[2]/div[1]/div/div[1]/div/div[1]/div/div/div/div/div/div[1]/div/span',
+        '//*[@id="content"]/div[11]/div[2]/div[1]/div/div/div/div[1]/div[2]/div/div/div/div/div[1]/div/span',
     )
 
 

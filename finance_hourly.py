@@ -6,17 +6,19 @@ import common
 import etfs
 import history
 import plot
+import schwab_ira
 
 
 def main():
     """Main."""
-    funcs = [
+    for func in [
         commodities.main,
         etfs.main,
+        schwab_ira.main,
         history.main,
         plot.main,
-    ]
-    common.run_and_save_performance(funcs, "performance_hourly")
+    ]:
+        common.run_and_save_performance(func)
 
 
 if __name__ == "__main__":

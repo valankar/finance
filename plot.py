@@ -568,20 +568,18 @@ def make_total_bar_yoy(daily_df, column):
 
 def make_performance_section():
     """Create performance metrics graph."""
-    hourly_df = common.read_sql_table("performance_hourly").resample("D").mean()
-    daily_df = common.read_sql_table("performance_daily").resample("D").mean()
-    hourly_df["total_hourly"] = hourly_df.sum(axis=1)
-    daily_df["total_daily"] = daily_df.sum(axis=1)
-    dataframe = reduce_merge_asof([hourly_df, daily_df]).sort_index(axis=1)
-    dataframe.columns = dataframe.columns.str.removesuffix(".main")
+    perf_df = common.read_sql_table("performance")
+    perf_df = (
+        perf_df.groupby("name").resample("H").mean(numeric_only=True).unstack("name")
+    )
+    perf_df.columns = perf_df.columns.get_level_values(1).str.removesuffix(".main")
     now = datetime.now().astimezone(pytz.timezone(TIMEZONE)).strftime("%c")
     section = px.line(
-        dataframe,
-        x=dataframe.index,
-        y=dataframe.columns,
+        perf_df,
+        x=perf_df.index,
+        y=perf_df.columns,
         title=f"Script Performance ({now})",
     )
-
     section.update_yaxes(title_text="")
     section.update_yaxes(title_text="seconds", col=1)
     section.update_xaxes(title_text="")
