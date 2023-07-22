@@ -260,12 +260,7 @@ def get_investing_retirement_df(daily_df, accounts_df):
     invret_cols = ["pillar2", "ira", "commodities", "etfs"]
     invret_df = daily_df[invret_cols]
     ibonds_df = accounts_df["USD_Treasury Direct"].rename("ibonds").fillna(0)
-    pal_df = (
-        accounts_df["USD_Charles Schwab_Pledged Asset Line"]
-        .rename("pledged_asset_line")
-        .fillna(0)
-    )
-    return reduce_merge_asof([invret_df, ibonds_df, pal_df])
+    return reduce_merge_asof([invret_df, ibonds_df])
 
 
 def make_investing_retirement_section(invret_df):
@@ -568,7 +563,9 @@ def make_total_bar_yoy(daily_df, column):
 
 def make_performance_section():
     """Create performance metrics graph."""
-    perf_df = common.read_sql_table("performance")
+    perf_df = (
+        common.read_sql_table("performance").tz_localize("UTC").tz_convert(TIMEZONE)
+    )
     perf_df = (
         perf_df.groupby("name").resample("H").mean(numeric_only=True).unstack("name")
     )
@@ -579,6 +576,7 @@ def make_performance_section():
         x=perf_df.index,
         y=perf_df.columns,
         title=f"Script Performance ({now})",
+        markers=True,
     )
     section.update_yaxes(title_text="")
     section.update_yaxes(title_text="seconds", col=1)
