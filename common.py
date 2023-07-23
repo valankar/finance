@@ -189,7 +189,7 @@ def read_sql_table_daily_resampled(
 ):
     """Load table from sqlite resampling daily before loading.
 
-    extra_cols is a list of columns auto-generated in sqllite to include.
+    extra_cols is a list of columns auto-generated in sqlite to include.
     """
     append_sql = []
     with closing(sqlite3.connect(SQLITE3_URI_RO, uri=True)) as con:

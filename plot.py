@@ -564,8 +564,8 @@ def make_total_bar_yoy(daily_df, column):
 def make_performance_section():
     """Create performance metrics graph."""
     perf_df = common.read_sql_query(
-        "select date(date) as date, name, avg(elapsed) as elapsed from performance "
-        "group by date(date), name order by date asc"
+        "select strftime('%Y-%m-%d %H:00:00', date) as date, name, avg(elapsed) "
+        "as elapsed from performance group by 1, 2 order by 1 asc"
     )
     perf_df = perf_df.groupby(["date", "name"]).mean().unstack("name")
     perf_df.columns = perf_df.columns.get_level_values(1).str.removesuffix(".main")
@@ -575,6 +575,7 @@ def make_performance_section():
         x=perf_df.index,
         y=perf_df.columns,
         title=f"Script Performance ({now})",
+        markers=True,
     )
     section.update_yaxes(title_text="")
     section.update_yaxes(title_text="seconds", col=1)
