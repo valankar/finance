@@ -32,8 +32,7 @@ def convert_toshl_usd(dataframe):
         columns={"Category": "category", "In main currency": "amount_chf"}
     ).rename_axis("date")
     dataframe = dataframe[:"2022"]
-    forex_df = common.read_sql_table("forex")["CHFUSD"]
-
+    forex_df = common.read_sql_table_daily_resampled("forex")["CHFUSD"]
     dataframe = pd.merge_asof(dataframe, forex_df, left_index=True, right_index=True)
     dataframe["amount"] = dataframe["amount_chf"] * dataframe["CHFUSD"]
     dataframe = dataframe.drop(

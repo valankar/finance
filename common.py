@@ -5,7 +5,7 @@ import functools
 import shutil
 import sqlite3
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from os import path
 from pathlib import Path
 from threading import RLock
@@ -75,14 +75,12 @@ def run_and_save_performance(func):
 @functools.cache
 def function_failed_last_day(name):
     """Determine whether function has failed in the last day."""
-    con = sqlite3.connect(SQLITE3_URI_RO, uri=True)
-    res = con.execute(
-        # pylint: disable-next=line-too-long
-        f"select count(*) from function_result where success=False and date > datetime('now', '-1 day') and name='{name}'"
-    )
-    result = res.fetchone()[0] != 0
-    con.close()
-    return result
+    with closing(sqlite3.connect(SQLITE3_URI_RO, uri=True)) as con:
+        res = con.execute(
+            "select count(*) from function_result where success=False and "
+            f"date > datetime('now', '-1 day') and name='{name}'"
+        )
+        return res.fetchone()[0] != 0
 
 
 @functools.cache
@@ -175,6 +173,44 @@ def read_sql_table(table, index_col="date"):
         return pd.read_sql_table(table, conn, index_col=index_col)
 
 
+def read_sql_query(query):
+    """Load table from sqlite query."""
+    with create_engine(SQLITE_URI_RO).connect() as conn:
+        return pd.read_sql_query(
+            sqlalchemy_text(query),
+            conn,
+            index_col="date",
+            parse_dates=["date"],
+        )
+
+
+def read_sql_table_daily_resampled(
+    table, resample_sql_func="last_value", extra_cols=None
+):
+    """Load table from sqlite resampling daily before loading.
+
+    extra_cols is a list of columns auto-generated in sqllite to include.
+    """
+    append_sql = []
+    with closing(sqlite3.connect(SQLITE3_URI_RO, uri=True)) as con:
+        cols = [
+            fields[1]
+            for fields in con.execute(f"PRAGMA table_info({table})").fetchall()
+        ]
+        if extra_cols:
+            cols.extend(extra_cols)
+        for col in cols:
+            if col == "date":
+                continue
+            append_sql.append(f'{resample_sql_func}("{col}") OVER win AS "{col}"')
+    sql = (
+        f"SELECT DISTINCT DATE(date) AS date, {', '.join(append_sql)} FROM "
+        + f"{table} WINDOW win AS (PARTITION BY DATE(date) ORDER BY date ASC RANGE "
+        + "BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) ORDER BY date ASC"
+    )
+    return read_sql_query(sql)
+
+
 def to_sql(dataframe, table, if_exists="append", index_label="date"):
     """Write dataframe to sqlite table."""
     with create_engine(SQLITE_URI).connect() as conn:
@@ -195,16 +231,10 @@ def write_ticker_csv(
 
     ticker_aliases is used to map name to actual ticker: GOLD -> GC=F
     """
-    with create_engine(SQLITE_URI_RO).connect() as conn:
-        # Just get the latest row.
-        amounts_df = pd.read_sql_query(
-            sqlalchemy_text(
-                f"select * from {amounts_table} order by rowid desc limit 1"
-            ),
-            conn,
-            index_col="date",
-            parse_dates=["date"],
-        )
+    # Just get the latest row.
+    amounts_df = read_sql_query(
+        f"select * from {amounts_table} order by date desc limit 1"
+    )
     if ticker_aliases:
         amounts_df = amounts_df.rename(columns=ticker_aliases)
     if not ticker_prices:

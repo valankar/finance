@@ -563,12 +563,11 @@ def make_total_bar_yoy(daily_df, column):
 
 def make_performance_section():
     """Create performance metrics graph."""
-    perf_df = (
-        common.read_sql_table("performance").tz_localize("UTC").tz_convert(TIMEZONE)
+    perf_df = common.read_sql_query(
+        "select date(date) as date, name, avg(elapsed) as elapsed from performance "
+        "group by date(date), name order by date asc"
     )
-    perf_df = (
-        perf_df.groupby("name").resample("H").mean(numeric_only=True).unstack("name")
-    )
+    perf_df = perf_df.groupby(["date", "name"]).mean().unstack("name")
     perf_df.columns = perf_df.columns.get_level_values(1).str.removesuffix(".main")
     now = datetime.now().astimezone(pytz.timezone(TIMEZONE)).strftime("%c")
     section = px.line(
@@ -576,7 +575,6 @@ def make_performance_section():
         x=perf_df.index,
         y=perf_df.columns,
         title=f"Script Performance ({now})",
-        markers=True,
     )
     section.update_yaxes(title_text="")
     section.update_yaxes(title_text="seconds", col=1)
@@ -633,11 +631,11 @@ def write_html_and_images(section_tuples):
     write_static_plots(section_tuples)
 
 
-def load_sqlite_and_rename_col(table, columns=None):
-    """Load table from sqlite and rename columns."""
-    dataframe = common.read_sql_table(table).resample("D").last().interpolate()
-    if columns:
-        dataframe = dataframe.rename(columns=columns)
+def load_sqlite_and_rename_col(table, rename_cols=None, extra_cols=None):
+    """Load resampled table from sqlite and rename columns."""
+    dataframe = common.read_sql_table_daily_resampled(table, extra_cols=extra_cols)
+    if rename_cols:
+        dataframe = dataframe.rename(columns=rename_cols)
     return dataframe
 
 
@@ -690,7 +688,9 @@ def reduce_merge_asof(dataframes):
 def main():
     """Main."""
     pio.templates.default = "plotly_dark"
-    all_daily_df = load_sqlite_and_rename_col("history")
+    all_daily_df = load_sqlite_and_rename_col(
+        "history", extra_cols=["total", "total_no_homes"]
+    )
     accounts_daily_df = load_sqlite_and_rename_col("account_history")
     prices_daily_df = reduce_merge_asof(
         [
