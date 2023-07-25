@@ -184,14 +184,14 @@ def read_sql_query(query):
         )
 
 
-def read_sql_table_daily_resampled(
-    table, resample_sql_func="last_value", extra_cols=None
-):
+def read_sql_table_daily_resampled_last(table, extra_cols=None, other_group=None):
     """Load table from sqlite resampling daily before loading.
 
     extra_cols is a list of columns auto-generated in sqlite to include.
+    other_group is another group to partition by other than date.
     """
     append_sql = []
+    partition_by = ["DATE(date)"]
     with closing(sqlite3.connect(SQLITE3_URI_RO, uri=True)) as con:
         cols = [
             fields[1]
@@ -202,18 +202,25 @@ def read_sql_table_daily_resampled(
         for col in cols:
             if col == "date":
                 continue
-            append_sql.append(f'{resample_sql_func}("{col}") OVER win AS "{col}"')
+            if other_group and col == other_group:
+                append_sql.append(other_group)
+                partition_by.append(other_group)
+                continue
+            append_sql.append(f'last_value("{col}") OVER win AS "{col}"')
     sql = (
         f"SELECT DISTINCT DATE(date) AS date, {', '.join(append_sql)} FROM "
-        + f"{table} WINDOW win AS (PARTITION BY DATE(date) ORDER BY date ASC RANGE "
-        + "BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) ORDER BY date ASC"
+        + f"{table} WINDOW win AS (PARTITION BY {', '.join(partition_by)} ORDER "
+        + "BY date ASC RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) "
+        + "ORDER BY date ASC"
     )
     return read_sql_query(sql)
 
 
-def to_sql(dataframe, table, if_exists="append", index_label="date"):
+def to_sql(dataframe, table, if_exists="append", index_label="date", foreign_key=False):
     """Write dataframe to sqlite table."""
     with create_engine(SQLITE_URI).connect() as conn:
+        if foreign_key:
+            conn.execute(sqlalchemy_text("PRAGMA foreign_keys=ON"))
         dataframe.to_sql(table, conn, if_exists=if_exists, index_label=index_label)
         conn.commit()
 

@@ -9,53 +9,19 @@ CREATE TABLE history (
 	"ira" FLOAT, 
 	pillar2 FLOAT
 , total_no_homes float generated always as (total_liquid+total_retirement+total_investing), total float generated always as (total_no_homes+total_real_estate));
-CREATE INDEX ix_history_date ON history (date);
 CREATE TABLE forex (
 	date DATETIME, 
 	"CHFUSD" FLOAT, 
 	"SGDUSD" FLOAT
 );
-CREATE INDEX ix_forex_date ON forex (date);
 CREATE TABLE wealthfront_cash_yield (
 	date DATETIME, 
 	percent FLOAT
 );
-CREATE INDEX ix_wealthfront_cash_yield_date ON wealthfront_cash_yield (date);
 CREATE TABLE swvxx_yield (
 	date DATETIME, 
 	percent FLOAT
 );
-CREATE INDEX ix_swvxx_yield_date ON swvxx_yield (date);
-CREATE TABLE mtvernon (
-	date DATETIME, 
-	value BIGINT
-);
-CREATE INDEX ix_mtvernon_date ON mtvernon (date);
-CREATE TABLE northlake (
-	date DATETIME, 
-	value BIGINT
-);
-CREATE INDEX ix_northlake_date ON northlake (date);
-CREATE TABLE villamaria (
-	date DATETIME, 
-	value BIGINT
-);
-CREATE INDEX ix_villamaria_date ON villamaria (date);
-CREATE TABLE mtvernon_rent (
-	date DATETIME, 
-	value BIGINT
-);
-CREATE INDEX ix_mtvernon_rent_date ON mtvernon_rent (date);
-CREATE TABLE northlake_rent (
-	date DATETIME, 
-	value BIGINT
-);
-CREATE INDEX ix_northlake_rent_date ON northlake_rent (date);
-CREATE TABLE villamaria_rent (
-	date DATETIME, 
-	value BIGINT
-);
-CREATE INDEX ix_villamaria_rent_date ON villamaria_rent (date);
 CREATE TABLE IF NOT EXISTS "schwab_etfs_amounts" (
 	date DATETIME, 
 	"SCHA" FLOAT, 
@@ -75,25 +41,19 @@ CREATE TABLE schwab_etfs_prices (
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
 );
-CREATE INDEX ix_schwab_etfs_prices_date ON schwab_etfs_prices (date);
-CREATE INDEX ix_schwab_etfs_amounts_date ON schwab_etfs_amounts (date);
-CREATE INDEX ix_commodities_amounts_date ON commodities_amounts (date);
 CREATE TABLE commodities_prices (
 	date TIMESTAMP, 
 	"GOLD" FLOAT, 
 	"SILVER" FLOAT
 );
-CREATE INDEX ix_commodities_prices_date ON commodities_prices (date);
 CREATE TABLE schwab_ira_amounts (
 	date DATETIME, 
 	"SWYGX" FLOAT
 );
-CREATE INDEX ix_schwab_ira_amounts_date ON schwab_ira_amounts (date);
 CREATE TABLE schwab_ira_prices (
 	date DATETIME, 
 	"SWYGX" FLOAT
 );
-CREATE INDEX ix_schwab_ira_prices_date ON schwab_ira_prices (date);
 CREATE TABLE account_history (
 	date DATETIME, 
 	"CHF_Cash" FLOAT, 
@@ -136,7 +96,6 @@ CREATE TABLE account_history (
 	"USD_Wealthfront_Cash" FLOAT, 
 	"USD_Wise" FLOAT
 );
-CREATE INDEX ix_account_history_date ON account_history (date);
 CREATE TABLE IF NOT EXISTS "toshl_income_export_2023-01-01" (
 	"Date" DATETIME, 
 	"Category" TEXT, 
@@ -147,7 +106,6 @@ CREATE TABLE IF NOT EXISTS "toshl_income_export_2023-01-01" (
 	"Main currency" TEXT, 
 	"Description" TEXT
 );
-CREATE INDEX "ix_toshl_income_export_2023-01-01_Date" ON "toshl_income_export_2023-01-01" ("Date");
 CREATE TABLE IF NOT EXISTS "toshl_expenses_export_2023-01-01" (
 	"Date" DATETIME, 
 	"Category" TEXT, 
@@ -158,27 +116,44 @@ CREATE TABLE IF NOT EXISTS "toshl_expenses_export_2023-01-01" (
 	"Main currency" TEXT, 
 	"Description" TEXT
 );
-CREATE INDEX "ix_toshl_expenses_export_2023-01-01_Date" ON "toshl_expenses_export_2023-01-01" ("Date");
 CREATE TABLE function_result (
 	date DATETIME, 
 	name TEXT, 
 	success BOOLEAN, 
 	error TEXT
 );
-CREATE INDEX ix_function_result_date ON function_result (date);
-CREATE TABLE fedfunds (
-	date DATETIME, 
-	percent FLOAT
-);
-CREATE INDEX ix_fedfunds_date ON fedfunds (date);
-CREATE TABLE sofr (
-	date DATETIME, 
-	percent FLOAT
-);
-CREATE INDEX ix_sofr_date ON sofr (date);
 CREATE TABLE performance (
 	date DATETIME, 
 	name TEXT, 
 	elapsed FLOAT
 );
+CREATE TABLE fedfunds (
+	date DATETIME, 
+	percent FLOAT
+);
+CREATE TABLE sofr (
+	date DATETIME, 
+	percent FLOAT
+);
+CREATE TABLE real_estate(name TEXT PRIMARY KEY NOT NULL);
+CREATE TABLE real_estate_prices(date DATETIME, name TEXT NOT NULL REFERENCES real_estate(name), redfin_value BIGINT, zillow_value BIGINT, value BIGINT generated always as ((redfin_value+zillow_value)/2));
+CREATE TABLE real_estate_rents(date DATETIME, name TEXT NOT NULL REFERENCES real_estate(name), value BIGINT);
+CREATE INDEX ix_history_date ON history (date);
+CREATE INDEX ix_forex_date ON forex (date);
+CREATE INDEX ix_wealthfront_cash_yield_date ON wealthfront_cash_yield (date);
+CREATE INDEX ix_swvxx_yield_date ON swvxx_yield (date);
+CREATE INDEX ix_schwab_etfs_prices_date ON schwab_etfs_prices (date);
+CREATE INDEX ix_schwab_etfs_amounts_date ON schwab_etfs_amounts (date);
+CREATE INDEX ix_commodities_amounts_date ON commodities_amounts (date);
+CREATE INDEX ix_commodities_prices_date ON commodities_prices (date);
+CREATE INDEX ix_schwab_ira_amounts_date ON schwab_ira_amounts (date);
+CREATE INDEX ix_schwab_ira_prices_date ON schwab_ira_prices (date);
+CREATE INDEX ix_account_history_date ON account_history (date);
+CREATE INDEX "ix_toshl_income_export_2023-01-01_Date" ON "toshl_income_export_2023-01-01" ("Date");
+CREATE INDEX "ix_toshl_expenses_export_2023-01-01_Date" ON "toshl_expenses_export_2023-01-01" ("Date");
+CREATE INDEX ix_function_result_date ON function_result (date);
 CREATE INDEX ix_performance_date ON performance (date);
+CREATE INDEX ix_fedfunds_date ON fedfunds (date);
+CREATE INDEX ix_sofr_date ON sofr (date);
+CREATE INDEX ix_real_estate_prices_date ON real_estate_prices (date);
+CREATE INDEX ix_real_estate_rents_date ON real_estate_rents (date);

@@ -632,9 +632,13 @@ def write_html_and_images(section_tuples):
     write_static_plots(section_tuples)
 
 
-def load_sqlite_and_rename_col(table, rename_cols=None, extra_cols=None):
+def load_sqlite_and_rename_col(
+    table, rename_cols=None, extra_cols=None, other_group=None
+):
     """Load resampled table from sqlite and rename columns."""
-    dataframe = common.read_sql_table_daily_resampled(table, extra_cols=extra_cols)
+    dataframe = common.read_sql_table_daily_resampled_last(
+        table, extra_cols=extra_cols, other_group=other_group
+    )
     if rename_cols:
         dataframe = dataframe.rename(columns=rename_cols)
     return dataframe
@@ -642,18 +646,25 @@ def load_sqlite_and_rename_col(table, rename_cols=None, extra_cols=None):
 
 def get_real_estate_df():
     """Get real estate price and rent data from sqlite."""
-    table_map = {
-        "mtvernon": "Mt Vernon",
-        "northlake": "Northlake",
-        "villamaria": "Villa Maria",
-    }
-    dataframes = []
-    for table, home in table_map.items():
-        dataframes.append(load_sqlite_and_rename_col(table, {"value": f"{home} Price"}))
-        dataframes.append(
-            load_sqlite_and_rename_col(f"{table}_rent", {"value": f"{home} Rent"})
-        )
-    return reduce_merge_asof(dataframes)
+    price_df = (
+        load_sqlite_and_rename_col(
+            "real_estate_prices", extra_cols=["value"], other_group="name"
+        )[["name", "value"]]
+        .groupby(["date", "name"])
+        .mean()
+        .unstack("name")
+    )
+    price_df.columns = price_df.columns.get_level_values(1) + " Price"
+    price_df.columns.name = "variable"
+    rent_df = (
+        load_sqlite_and_rename_col("real_estate_rents", other_group="name")
+        .groupby(["date", "name"])
+        .mean()
+        .unstack("name")
+    )
+    rent_df.columns = rent_df.columns.get_level_values(1) + " Rent"
+    rent_df.columns.name = "variable"
+    return reduce_merge_asof([price_df, rent_df]).sort_index(axis=1).interpolate()
 
 
 def get_interest_rate_df():

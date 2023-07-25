@@ -15,17 +15,9 @@ ZILLOW_URLS = {
     "prop1.txt": "/some/zillow_url",
 }
 
-
-def get_home_estimate(filename):
-    """Get home average price."""
-    return round(
-        statistics.mean(
-            [
-                get_redfin_estimate(REDFIN_URLS[filename]),
-                get_zillow_estimate(ZILLOW_URLS[filename]),
-            ]
-        )
-    )
+FILE_TO_NAME = {
+    "prop1.txt": "Property Name",
+}
 
 
 def get_site_estimate(url, xpath):
@@ -63,28 +55,37 @@ def get_zillow_rent_estimate(url_path):
     )
 
 
-def write_table(table, value):
-    """Write table to sqlite."""
-    home_df = pd.DataFrame({"value": value}, index=[pd.Timestamp.now()])
-    common.to_sql(home_df, table)
+def write_prices_table(name, redfin, zillow):
+    """Write prices to sqlite."""
+    home_df = pd.DataFrame(
+        {"name": name, "redfin_value": redfin, "zillow_value": zillow},
+        index=[pd.Timestamp.now()],
+    )
+    common.to_sql(home_df, "real_estate_prices", foreign_key=True)
+
+
+def write_rents_table(name, value):
+    """Write rents to sqlite."""
+    home_df = pd.DataFrame({"name": name, "value": value}, index=[pd.Timestamp.now()])
+    common.to_sql(home_df, "real_estate_rents", foreign_key=True)
 
 
 def main():
     """Main."""
-    for filename in REDFIN_URLS:
+    for filename, redfin_url in REDFIN_URLS.items():
         # Home value
-        value = get_home_estimate(filename)
-        output = common.PREFIX + filename
-        if not value:
+        redfin = get_redfin_estimate(redfin_url)
+        zillow = get_zillow_estimate(ZILLOW_URLS[filename])
+        average = round(statistics.mean([redfin, zillow]))
+        if not average:
             continue
-        with common.temporary_file_move(output) as output_file:
-            output_file.write(str(value))
-        table_name = filename.split(".")[0]
-        write_table(table_name, value)
+        with common.temporary_file_move(f"{common.PREFIX}{filename}") as output_file:
+            output_file.write(str(average))
+        write_prices_table(FILE_TO_NAME[filename], redfin, zillow)
 
         # Home rent estimate
-        write_table(
-            f"{table_name}_rent",
+        write_rents_table(
+            FILE_TO_NAME[filename],
             get_zillow_rent_estimate(ZILLOW_URLS[filename]),
         )
 
