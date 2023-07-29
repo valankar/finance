@@ -22,15 +22,23 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver import FirefoxOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.support.wait import WebDriverWait
 from sqlalchemy import create_engine
 from sqlalchemy import text as sqlalchemy_text
 
 import authorization
 
-PREFIX = str(Path.home()) + authorization.PUBLIC_HTML
+PREFIX = f"{Path.home()}{authorization.PUBLIC_HTML}"
 SQLITE_URI = f"sqlite:///{PREFIX}sqlite.db"
 SQLITE_URI_RO = f"sqlite:///file:{PREFIX}sqlite.db?mode=ro&uri=true"
 SQLITE3_URI_RO = f"file:{PREFIX}sqlite.db?mode=ro"
+
+LEDGER_BIN = f"{Path.home()}/bin/ledger"
+LEDGER_DIR = f"{Path.home()}/code/ledger"
+LEDGER_DAT = f"{LEDGER_DIR}/ledger.ledger"
+LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
+# pylint: disable-next=line-too-long
+LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
 
 selenium_lock = RLock()
 
@@ -277,7 +285,7 @@ def temporary_file_move(dest_file):
 
 
 @functools.cache
-@retry((NoSuchElementException, TimeoutException), delay=30, tries=4)
+@retry(TimeoutException, delay=30, tries=4)
 def find_xpath_via_browser(url, xpath):
     """Find XPATH via Selenium with retries. Returns text of element."""
     with selenium_lock:
@@ -285,10 +293,10 @@ def find_xpath_via_browser(url, xpath):
         try:
             browser.get(url)
             try:
-                if text := browser.find_element(By.XPATH, xpath).text:
-                    return text
-                raise NoSuchElementException
-            except NoSuchElementException:
+                return WebDriverWait(browser, timeout=30).until(
+                    lambda d: d.find_element(By.XPATH, xpath).text
+                )
+            except TimeoutException:
                 browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
                 raise
         finally:

@@ -531,20 +531,6 @@ def make_change_section(daily_df, column, title):
     return changes_section
 
 
-def make_total_bar_dod(daily_df, column):
-    """Make day over day total profit bar graphs."""
-    diff_df = daily_df.diff().dropna().iloc[-30:]
-    daily_bar = px.bar(diff_df, x=diff_df.index, y=column)
-    return daily_bar
-
-
-def make_total_bar_wow(daily_df, column):
-    """Make week over week total profit bar graphs."""
-    diff_df = daily_df.resample("W").last().interpolate().diff().dropna().iloc[-52:]
-    weekly_bar = px.bar(diff_df, x=diff_df.index, y=column)
-    return weekly_bar
-
-
 def make_total_bar_mom(daily_df, column):
     """Make month over month total profit bar graphs."""
     diff_df = daily_df.resample("M").last().interpolate().diff().dropna().iloc[-36:]
@@ -564,7 +550,7 @@ def make_total_bar_yoy(daily_df, column):
 def make_performance_section():
     """Create performance metrics graph."""
     perf_df = common.read_sql_query(
-        "select strftime('%Y-%m-%d %H:00:00', date) as date, name, avg(elapsed) "
+        "select date(date) as date, name, avg(elapsed) "
         "as elapsed from performance group by 1, 2 order by 1 asc"
     )
     perf_df = perf_df.groupby(["date", "name"]).mean().unstack("name")

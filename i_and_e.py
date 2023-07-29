@@ -4,7 +4,6 @@
 import io
 import subprocess
 from datetime import date
-from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
@@ -13,10 +12,7 @@ from dateutil.relativedelta import relativedelta
 import common
 
 HTML_PREFIX = f"{common.PREFIX}i_and_e/"
-LEDGER_BIN = f"{Path.home()}/bin/ledger"
-LEDGER_DIR = f"{Path.home()}/code/ledger"
-# pylint: disable-next=line-too-long
-LEDGER_CSV_CMD = f"{LEDGER_BIN} -f {LEDGER_DIR}/ledger.ledger --price-db {LEDGER_DIR}/prices.db -X '$' -c --no-revalued csv ^Expenses ^Income"
+LEDGER_CSV_CMD = f"{common.LEDGER_PREFIX} csv ^Expenses ^Income"
 TOSHL_INCOME_TABLE = "toshl_income_export_2023-01-01"
 TOSHL_EXPENSES_TABLE = "toshl_expenses_export_2023-01-01"
 
