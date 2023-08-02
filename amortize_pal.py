@@ -22,7 +22,7 @@ MONTHS = 12
 
 # Ledger command to get monthly investment income.
 # pylint: disable-next=line-too-long
-LEDGER_INCOME_CMD = f"{common.LEDGER_PREFIX} -M -n -A -b '2023' --tail 1 -J register \\(^Income:Dividends or ^Income:Interest\\)"
+LEDGER_INCOME_CMD = f"{common.LEDGER_PREFIX} -D -n -A -b '2023' --tail 1 -J register \\(^Income:Dividends or ^Income:Interest\\)"
 
 
 def get_args():
@@ -52,7 +52,8 @@ def get_monthly_investment_income():
                     )
                 )[0].split()[1]
             )
-        ),
+        )
+        * 30,
     )
 
 

@@ -2,22 +2,24 @@
 """Calculate ETF values."""
 
 import sys
+from datetime import date
 
 import pandas as pd
 
 import common
 
 ETFS_PATH = f"{common.PREFIX}schwab_etfs_values.csv"
-DESIRED_PERCENT = (
+DESIRED_PERCENT = {
     # Large cap
-    ("SCHX", 47),
+    "SCHX": 47,
     # Small cap
-    ("SCHA", 16),
+    "SCHA": 16,
     # International
-    ("SCHF", 21),
+    "SCHF": 21,
     # Fixed income
-    ("SCHR", 16),
-)
+    "SCHR": 16,
+}
+BIRTHDAY = date(1975, 2, 28)
 
 
 def trade(etfs_df, amount, original_amount, total):
@@ -50,28 +52,40 @@ def fill_unknown_prices(etfs_df):
     return etfs_df
 
 
+def age_adjustment(allocation):
+    """Make bond adjustment based on age."""
+    age_in_days = (date.today() - BIRTHDAY).days
+    current_bonds = allocation["SCHR"]
+    wanted_bonds = (age_in_days / 365) - 32
+    diff_bonds = current_bonds - wanted_bonds
+    if current_bonds == wanted_bonds:
+        return allocation
+    diff = diff_bonds / (len(allocation) - 1)
+    new_allocation = {}
+    for ticker, percent in allocation.items():
+        if ticker == "SCHR":
+            new_allocation[ticker] = wanted_bonds
+        else:
+            new_allocation[ticker] = percent + diff
+    return new_allocation
+
+
 def main():
     """Main."""
     amount = 0
     if len(sys.argv) > 1:
         amount = float(sys.argv[1])
-    percents = [x[1] for x in DESIRED_PERCENT]
-    if sum(percents) != 100:
+    desired_allocation = age_adjustment(DESIRED_PERCENT)
+
+    if sum(desired_allocation.values()) != 100:
         print("Sum of percents != 100")
         return
 
     etfs_df = pd.read_csv(ETFS_PATH, index_col=0)
-    wanted_df = pd.DataFrame(
-        {
-            "wanted_percent": pd.Series(
-                percents,
-                index=[x[0] for x in DESIRED_PERCENT],
-            )
-        }
-    )
+    wanted_df = pd.DataFrame({"wanted_percent": pd.Series(desired_allocation)})
     total = etfs_df["value"].sum()
     etfs_df["current_percent"] = (etfs_df["value"] / total) * 100
-    # ETFs that don't exist in DESIRED_PERCENT get a default of 0.
+    # ETFs that don't exist in desired_allocation get a default of 0.
     etfs_df = etfs_df.join(wanted_df, how="outer").fillna(0).sort_index()
     etfs_df = fill_unknown_prices(etfs_df)
 

@@ -8,7 +8,6 @@ import tempfile
 from contextlib import contextmanager, closing
 from os import path
 from pathlib import Path
-from threading import RLock
 from timeit import default_timer as timer
 
 import pandas as pd
@@ -32,15 +31,14 @@ PREFIX = f"{Path.home()}{authorization.PUBLIC_HTML}"
 SQLITE_URI = f"sqlite:///{PREFIX}sqlite.db"
 SQLITE_URI_RO = f"sqlite:///file:{PREFIX}sqlite.db?mode=ro&uri=true"
 SQLITE3_URI_RO = f"file:{PREFIX}sqlite.db?mode=ro"
-
 LEDGER_BIN = f"{Path.home()}/bin/ledger"
 LEDGER_DIR = f"{Path.home()}/code/ledger"
 LEDGER_DAT = f"{LEDGER_DIR}/ledger.ledger"
 LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 # pylint: disable-next=line-too-long
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
-
-selenium_lock = RLock()
+GECKODRIVER = f"{Path.home()}/software/miniconda3/envs/investing/bin/geckodriver"
+FIREFOX_BIN = f"{Path.home()}/bin/firefox"
 
 
 class GetTickerError(Exception):
@@ -121,28 +119,22 @@ def get_ticker(ticker):
 @functools.cache
 def get_ticker_browser(ticker):
     """Get ticker price from Yahoo via Selenium."""
-    with selenium_lock:
-        browser = get_browser()
+
+    def execute_before(browser):
+        # First look for accept cookies dialog.
         try:
-            browser.get(f"https://finance.yahoo.com/quote/{ticker}")
-            # First look for accept cookies dialog.
-            try:
-                browser.find_element(By.ID, "scroll-down-btn").click()
-                browser.find_element(By.XPATH, '//button[text()="Accept all"]').click()
-            except NoSuchElementException:
-                pass
-            try:
-                return float(
-                    browser.find_element(
-                        By.XPATH,
-                        '//*[@id="quote-header-info"]/div[3]/div[1]/div/fin-streamer[1]',
-                    ).text.replace(",", "")
-                )
-            except NoSuchElementException:
-                browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
-                raise
-        finally:
-            browser.quit()
+            browser.find_element(By.ID, "scroll-down-btn").click()
+            browser.find_element(By.XPATH, '//button[text()="Accept all"]').click()
+        except NoSuchElementException:
+            pass
+
+    return float(
+        find_xpath_via_browser(
+            f"https://finance.yahoo.com/quote/{ticker}",
+            '//*[@id="quote-header-info"]/div[3]/div[1]/div/fin-streamer[1]',
+            execute_before=execute_before,
+        ).replace(",", "")
+    )
 
 
 @functools.cache
@@ -286,27 +278,33 @@ def temporary_file_move(dest_file):
 
 @functools.cache
 @retry(TimeoutException, delay=30, tries=4)
-def find_xpath_via_browser(url, xpath):
-    """Find XPATH via Selenium with retries. Returns text of element."""
-    with selenium_lock:
-        browser = get_browser()
+def find_xpath_via_browser(url, xpath, execute_before=None):
+    """Find XPATH via Selenium with retries. Returns text of element.
+
+    execute_before is method passed a browser that runs after the get and
+    before waiting for xpath.
+    """
+    browser = get_browser()
+    try:
+        browser.get(url)
+        if execute_before:
+            execute_before(browser)
         try:
-            browser.get(url)
-            try:
-                return WebDriverWait(browser, timeout=30).until(
-                    lambda d: d.find_element(By.XPATH, xpath).text
-                )
-            except TimeoutException:
-                browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
-                raise
-        finally:
-            browser.quit()
+            return WebDriverWait(browser, timeout=30).until(
+                lambda d: d.find_element(By.XPATH, xpath).text
+            )
+        except TimeoutException:
+            browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
+            raise
+    finally:
+        browser.quit()
 
 
 def get_browser():
     """Get a Selenium/Firefox browser."""
     opts = FirefoxOptions()
     opts.add_argument("--headless")
-    service = FirefoxService(log_path=path.devnull)
+    opts.binary_location = FIREFOX_BIN
+    service = FirefoxService(log_path=path.devnull, executable_path=GECKODRIVER)
     browser = webdriver.Firefox(options=opts, service=service)
     return browser
