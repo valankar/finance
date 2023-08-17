@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Run daily finance functions."""
 
-import common
 import fedfunds
 import homes
 import i_and_e
@@ -11,14 +10,11 @@ import wealthfront_cash_yield
 
 def main():
     """Main."""
-    for func in [
-        homes.main,
-        fedfunds.main,
-        swvxx_yield.main,
-        wealthfront_cash_yield.main,
-        i_and_e.main,
-    ]:
-        common.run_and_save_performance(func)
+    homes.main()
+    fedfunds.main()
+    swvxx_yield.main()
+    wealthfront_cash_yield.main()
+    i_and_e.main()
 
 
 if __name__ == "__main__":

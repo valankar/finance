@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Plot finance graphs."""
 
+import io
 import math
+import subprocess
 from datetime import datetime
 from functools import reduce
 
@@ -10,12 +12,13 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
-import pytz
 from dateutil.relativedelta import relativedelta
 from plotly.subplots import make_subplots
 from prefixed import Float
 
 import common
+from common import reduce_merge_asof
+from common import get_real_estate_df
 
 TODAY_TIME = datetime.now()
 TIMEZONE = "Europe/Zurich"
@@ -37,6 +40,10 @@ HOMES = [
     "Northlake",
     "Villa Maria",
 ]
+
+LEDGER_IBONDS_CMD = (
+    f'{common.LEDGER_PREFIX} -J -D reg ^"Assets:Investments:Treasury Direct"'
+)
 
 
 def add_fl_home_sale(fig, row="all", col="all"):
@@ -255,11 +262,17 @@ def make_assets_breakdown_section(daily_df):
     return section
 
 
-def get_investing_retirement_df(daily_df, accounts_df):
+def get_investing_retirement_df(daily_df):
     """Get merged df with other investment accounts."""
     invret_cols = ["pillar2", "ira", "commodities", "etfs"]
     invret_df = daily_df[invret_cols]
-    ibonds_df = accounts_df["USD_Treasury Direct"].rename("ibonds").fillna(0)
+    ibonds_df = pd.read_csv(
+        io.StringIO(subprocess.check_output(LEDGER_IBONDS_CMD, shell=True, text=True)),
+        delim_whitespace=True,
+        index_col=0,
+        parse_dates=True,
+        names=["date", "ibonds"],
+    )
     return reduce_merge_asof([invret_df, ibonds_df])
 
 
@@ -300,6 +313,7 @@ def make_real_estate_section(real_estate_df):
         labels={"value": "USD"},
         title="Real Estate",
     )
+    section.data = [t for t in section.data if t.mode == "lines"]
     section.update_xaxes(title_text="", matches="x", showticklabels=True)
     section.update_yaxes(title_text="")
     section.update_yaxes(matches=None)
@@ -547,28 +561,6 @@ def make_total_bar_yoy(daily_df, column):
     return yearly_bar
 
 
-def make_performance_section():
-    """Create performance metrics graph."""
-    perf_df = common.read_sql_query(
-        "select date(date) as date, name, avg(elapsed) "
-        "as elapsed from performance group by 1, 2 order by 1 asc"
-    )
-    perf_df = perf_df.groupby(["date", "name"]).mean().unstack("name")
-    perf_df.columns = perf_df.columns.get_level_values(1).str.removesuffix(".main")
-    now = datetime.now().astimezone(pytz.timezone(TIMEZONE)).strftime("%c")
-    section = px.line(
-        perf_df,
-        x=perf_df.index,
-        y=perf_df.columns,
-        title=f"Script Performance ({now})",
-        markers=True,
-    )
-    section.update_yaxes(title_text="")
-    section.update_yaxes(title_text="seconds", col=1)
-    section.update_xaxes(title_text="")
-    return section
-
-
 def write_dynamic_plots(section_tuples):
     """Write out dynamic plots."""
     wrote_plotlyjs = False
@@ -618,50 +610,26 @@ def write_html_and_images(section_tuples):
     write_static_plots(section_tuples)
 
 
-def load_sqlite_and_rename_col(
-    table, rename_cols=None, extra_cols=None, other_group=None
-):
-    """Load resampled table from sqlite and rename columns."""
-    dataframe = common.read_sql_table_daily_resampled_last(
-        table, extra_cols=extra_cols, other_group=other_group
+def load_sqlite_and_rename_col(table, rename_cols=None, extra_cols=None):
+    """Load SQL table with weekly resampling."""
+    return common.load_sqlite_and_rename_col(
+        table, frequency="weekly", rename_cols=rename_cols, extra_cols=extra_cols
     )
-    if rename_cols:
-        dataframe = dataframe.rename(columns=rename_cols)
-    return dataframe
-
-
-def get_real_estate_df():
-    """Get real estate price and rent data from sqlite."""
-    price_df = (
-        load_sqlite_and_rename_col(
-            "real_estate_prices", extra_cols=["value"], other_group="name"
-        )[["name", "value"]]
-        .groupby(["date", "name"])
-        .mean()
-        .unstack("name")
-    )
-    price_df.columns = price_df.columns.get_level_values(1) + " Price"
-    price_df.columns.name = "variable"
-    rent_df = (
-        load_sqlite_and_rename_col("real_estate_rents", other_group="name")
-        .groupby(["date", "name"])
-        .mean()
-        .unstack("name")
-    )
-    rent_df.columns = rent_df.columns.get_level_values(1) + " Rent"
-    rent_df.columns.name = "variable"
-    return reduce_merge_asof([price_df, rent_df]).sort_index(axis=1).interpolate()
 
 
 def get_interest_rate_df():
     """Merge interest rate data."""
-    fedfunds_df = load_sqlite_and_rename_col("fedfunds", {"percent": "Fed Funds"})[
+    fedfunds_df = load_sqlite_and_rename_col(
+        "fedfunds", rename_cols={"percent": "Fed Funds"}
+    )["2019":]
+    sofr_df = load_sqlite_and_rename_col("sofr", rename_cols={"percent": "SOFR"})[
         "2019":
     ]
-    sofr_df = load_sqlite_and_rename_col("sofr", {"percent": "SOFR"})["2019":]
-    swvxx_df = load_sqlite_and_rename_col("swvxx_yield", {"percent": "Schwab SWVXX"})
+    swvxx_df = load_sqlite_and_rename_col(
+        "swvxx_yield", rename_cols={"percent": "Schwab SWVXX"}
+    )
     wealthfront_df = load_sqlite_and_rename_col(
-        "wealthfront_cash_yield", {"percent": "Wealthfront Cash"}
+        "wealthfront_cash_yield", rename_cols={"percent": "Wealthfront Cash"}
     )
     merged = reduce(
         lambda l, r: pd.merge(l, r, left_index=True, right_index=True, how="outer"),
@@ -675,29 +643,20 @@ def get_interest_rate_df():
     return merged[sorted(merged.columns)].interpolate()
 
 
-def reduce_merge_asof(dataframes):
-    """Reduce and merge date tables."""
-    return reduce(
-        lambda l, r: pd.merge_asof(l, r, left_index=True, right_index=True),
-        dataframes,
-    )
-
-
 def main():
     """Main."""
     pio.templates.default = "plotly_dark"
     all_daily_df = load_sqlite_and_rename_col(
         "history", extra_cols=["total", "total_no_homes"]
     )
-    accounts_daily_df = load_sqlite_and_rename_col("account_history")
     prices_daily_df = reduce_merge_asof(
         [
             load_sqlite_and_rename_col("forex"),
             load_sqlite_and_rename_col("commodities_prices"),
         ]
     )
-    real_estate_daily_df = get_real_estate_df()
-    invret_daily_df = get_investing_retirement_df(all_daily_df, accounts_daily_df)
+    real_estate_daily_df = get_real_estate_df(frequency="weekly")
+    invret_daily_df = get_investing_retirement_df(all_daily_df)
 
     assets_section = make_assets_breakdown_section(all_daily_df)
     invret_section = make_investing_retirement_section(invret_daily_df)
@@ -713,7 +672,6 @@ def main():
     )
     prices_section = make_prices_section(prices_daily_df)
     yield_section = make_interest_rate_section(get_interest_rate_df())
-    performance_section = make_performance_section()
 
     write_html_and_images(
         (
@@ -725,7 +683,6 @@ def main():
             (total_no_homes_change_section, 0.50, 1),
             (prices_section, 0.75, 1),
             (yield_section, 0.5, 1),
-            (performance_section, 0.5, 1),
         ),
     )
     # Reset theme to default.

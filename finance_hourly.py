@@ -2,23 +2,27 @@
 """Run hourly finance functions."""
 
 import commodities
-import common
 import etfs
+import forex
 import history
+import ledger_amounts
+import ledger_prices_db
 import plot
+import push_web
 import schwab_ira
 
 
 def main():
     """Main."""
-    for func in [
-        commodities.main,
-        etfs.main,
-        schwab_ira.main,
-        history.main,
-        plot.main,
-    ]:
-        common.run_and_save_performance(func)
+    ledger_amounts.main()
+    commodities.main()
+    etfs.main()
+    forex.main()
+    schwab_ira.main()
+    ledger_prices_db.main()
+    history.main()
+    plot.main()
+    push_web.main()
 
 
 if __name__ == "__main__":

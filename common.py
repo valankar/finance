@@ -2,13 +2,13 @@
 """Common functions."""
 
 import functools
+from functools import reduce
 import shutil
 import sqlite3
 import tempfile
 from contextlib import contextmanager, closing
 from os import path
 from pathlib import Path
-from timeit import default_timer as timer
 
 import pandas as pd
 import stockquotes
@@ -31,14 +31,14 @@ PREFIX = f"{Path.home()}{authorization.PUBLIC_HTML}"
 SQLITE_URI = f"sqlite:///{PREFIX}sqlite.db"
 SQLITE_URI_RO = f"sqlite:///file:{PREFIX}sqlite.db?mode=ro&uri=true"
 SQLITE3_URI_RO = f"file:{PREFIX}sqlite.db?mode=ro"
-LEDGER_BIN = f"{Path.home()}/bin/ledger"
+LEDGER_BIN = f"{Path.home()}/miniforge3/envs/ledger/bin/ledger"
 LEDGER_DIR = f"{Path.home()}/code/ledger"
 LEDGER_DAT = f"{LEDGER_DIR}/ledger.ledger"
 LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 # pylint: disable-next=line-too-long
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
-GECKODRIVER = f"{Path.home()}/software/miniconda3/envs/investing/bin/geckodriver"
-FIREFOX_BIN = f"{Path.home()}/bin/firefox"
+GECKODRIVER = f"{Path.home()}/miniforge3/envs/firefox/bin/geckodriver"
+FIREFOX_BIN = f"{Path.home()}/miniforge3/envs/firefox/bin/firefox"
 
 
 class GetTickerError(Exception):
@@ -64,18 +64,6 @@ def log_function_result(name, success, error_string=None):
         ),
         "function_result",
     )
-
-
-def run_and_save_performance(func):
-    """Run function and save elapsed time."""
-    name = f"{func.__module__}.{func.__name__}"
-    start_time = timer()
-    func()
-    end_time = timer()
-    perf_df = pd.DataFrame(
-        {"name": name, "elapsed": end_time - start_time}, index=[pd.Timestamp.now()]
-    )
-    to_sql(perf_df, "performance")
 
 
 @functools.cache
@@ -184,14 +172,20 @@ def read_sql_query(query):
         )
 
 
-def read_sql_table_daily_resampled_last(table, extra_cols=None, other_group=None):
+def read_sql_table_daily_resampled_last(
+    table, frequency="daily", extra_cols=None, other_group=None
+):
     """Load table from sqlite resampling daily before loading.
 
     extra_cols is a list of columns auto-generated in sqlite to include.
     other_group is another group to partition by other than date.
     """
     append_sql = []
-    partition_by = ["DATE(date)"]
+    match frequency:
+        case "daily":
+            partition_by = ["DATE(date)"]
+        case "weekly":
+            partition_by = ["DATE(date, 'weekday 5')"]
     with closing(sqlite3.connect(SQLITE3_URI_RO, uri=True)) as con:
         cols = [
             fields[1]
@@ -208,7 +202,7 @@ def read_sql_table_daily_resampled_last(table, extra_cols=None, other_group=None
                 continue
             append_sql.append(f'last_value("{col}") OVER win AS "{col}"')
     sql = (
-        f"SELECT DISTINCT DATE(date) AS date, {', '.join(append_sql)} FROM "
+        f"SELECT DISTINCT {partition_by[0]} AS date, {', '.join(append_sql)} FROM "
         + f"{table} WINDOW win AS (PARTITION BY {', '.join(partition_by)} ORDER "
         + "BY date ASC RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) "
         + "ORDER BY date ASC"
@@ -308,3 +302,51 @@ def get_browser():
     service = FirefoxService(log_path=path.devnull, executable_path=GECKODRIVER)
     browser = webdriver.Firefox(options=opts, service=service)
     return browser
+
+
+def reduce_merge_asof(dataframes):
+    """Reduce and merge date tables."""
+    return reduce(
+        lambda l, r: pd.merge_asof(l, r, left_index=True, right_index=True),
+        dataframes,
+    )
+
+
+def load_sqlite_and_rename_col(
+    table, frequency="daily", rename_cols=None, extra_cols=None, other_group=None
+):
+    """Load resampled table from sqlite and rename columns."""
+    dataframe = read_sql_table_daily_resampled_last(
+        table, frequency=frequency, extra_cols=extra_cols, other_group=other_group
+    )
+    if rename_cols:
+        dataframe = dataframe.rename(columns=rename_cols)
+    return dataframe
+
+
+def get_real_estate_df(frequency="daily"):
+    """Get real estate price and rent data from sqlite."""
+    price_df = (
+        load_sqlite_and_rename_col(
+            "real_estate_prices",
+            frequency=frequency,
+            extra_cols=["value"],
+            other_group="name",
+        )[["name", "value"]]
+        .groupby(["date", "name"])
+        .mean()
+        .unstack("name")
+    )
+    price_df.columns = price_df.columns.get_level_values(1) + " Price"
+    price_df.columns.name = "variable"
+    rent_df = (
+        load_sqlite_and_rename_col(
+            "real_estate_rents", frequency=frequency, other_group="name"
+        )
+        .groupby(["date", "name"])
+        .mean()
+        .unstack("name")
+    )
+    rent_df.columns = rent_df.columns.get_level_values(1) + " Rent"
+    rent_df.columns.name = "variable"
+    return reduce_merge_asof([price_df, rent_df]).sort_index(axis=1).interpolate()

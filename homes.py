@@ -4,6 +4,7 @@
 import statistics
 
 import pandas as pd
+from retry import retry
 
 import common
 
@@ -20,6 +21,8 @@ FILE_TO_NAME = {
 }
 
 
+# Retry a few times to avoid captcha.
+@retry(delay=30, tries=4)
 def get_site_estimate(url, xpath):
     """Get home value from either Redfin or Zillow."""
     return int(

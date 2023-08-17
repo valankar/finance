@@ -487,7 +487,6 @@ def main():
         get_ledger_csv(),
         index_col=0,
         parse_dates=True,
-        infer_datetime_format=True,
         names=[
             "date",
             "skip",
