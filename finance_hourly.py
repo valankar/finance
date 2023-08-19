@@ -7,7 +7,6 @@ import forex
 import history
 import ledger_amounts
 import ledger_prices_db
-import plot
 import push_web
 import schwab_ira
 
@@ -21,7 +20,6 @@ def main():
     schwab_ira.main()
     ledger_prices_db.main()
     history.main()
-    plot.main()
     push_web.main()
 
 

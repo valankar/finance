@@ -2,39 +2,22 @@
 """Plot finance graphs."""
 
 import io
-import math
 import subprocess
 from datetime import datetime
 from functools import reduce
 
-import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import plotly.io as pio
 from dateutil.relativedelta import relativedelta
 from plotly.subplots import make_subplots
 from prefixed import Float
 
 import common
 from common import reduce_merge_asof
-from common import get_real_estate_df
 
-TODAY_TIME = datetime.now()
-TIMEZONE = "Europe/Zurich"
-INDEX_HTML = "index.html"
-STATIC_HTML = "static.html"
 COLOR_GREEN = "DarkGreen"
 COLOR_RED = "DarkRed"
-HTML_STYLE = """
-<style>
-body {
-  background-color: black;
-  color: white;
-}
-</style>
-"""
-
 HOMES = [
     "Mt Vernon",
     "Northlake",
@@ -44,35 +27,6 @@ HOMES = [
 LEDGER_IBONDS_CMD = (
     f'{common.LEDGER_PREFIX} -J -D reg ^"Assets:Investments:Treasury Direct"'
 )
-
-
-def add_fl_home_sale(fig, row="all", col="all"):
-    """Add Florida Home Sale rectangle."""
-    fig.add_vrect(
-        x0="2019-10-13",
-        x1="2019-10-16",
-        annotation_text="FL Home Sale",
-        fillcolor="green",
-        opacity=0.25,
-        line_width=0,
-        annotation_position="top left",
-        row=row,
-        col=col,
-    )
-
-
-def add_retirement(fig, row="all", col="all"):
-    """Add Retirement line."""
-    ret_time = datetime(2022, 5, 31).timestamp() * 1000
-    fig.add_vline(
-        x=ret_time,
-        annotation_text="Unemployed",
-        line_color="green",
-        opacity=0.25,
-        annotation_position="top left",
-        row=row,
-        col=col,
-    )
 
 
 def add_hline_current(
@@ -99,111 +53,20 @@ def add_hline_current(
     )
 
 
-def build_ranges(dataframe, columns):
-    """Build graph ranges based on min/max values."""
+def get_xranges(dataframe):
+    """Get date ranges for timerange buttons."""
+    today_time = datetime.now()
     last_time = dataframe.index[-1].strftime("%Y-%m-%d")
     xranges = {
         "All": [dataframe.index[0].strftime("%Y-%m-%d"), last_time],
-        "2y": [(TODAY_TIME + relativedelta(years=-2)).strftime("%Y-%m-%d"), last_time],
-        "1y": [(TODAY_TIME + relativedelta(years=-1)).strftime("%Y-%m-%d"), last_time],
-        "YTD": [TODAY_TIME.strftime("%Y-01-01"), last_time],
-        "6m": [(TODAY_TIME + relativedelta(months=-6)).strftime("%Y-%m-%d"), last_time],
-        "3m": [(TODAY_TIME + relativedelta(months=-3)).strftime("%Y-%m-%d"), last_time],
-        "1m": [(TODAY_TIME + relativedelta(months=-1)).strftime("%Y-%m-%d"), last_time],
+        "2y": [(today_time + relativedelta(years=-2)).strftime("%Y-%m-%d"), last_time],
+        "1y": [(today_time + relativedelta(years=-1)).strftime("%Y-%m-%d"), last_time],
+        "YTD": [today_time.strftime("%Y-01-01"), last_time],
+        "6m": [(today_time + relativedelta(months=-6)).strftime("%Y-%m-%d"), last_time],
+        "3m": [(today_time + relativedelta(months=-3)).strftime("%Y-%m-%d"), last_time],
+        "1m": [(today_time + relativedelta(months=-1)).strftime("%Y-%m-%d"), last_time],
     }
-    ranges = {}
-    for column in columns:
-        col_dict = {}
-        for span, xrange in xranges.items():
-            col_dict[span] = {
-                "yrange": [
-                    dataframe.loc[xrange[0] : xrange[1], column].min(),
-                    dataframe.loc[xrange[0] : xrange[1], column].max(),
-                ],
-                "xrange": xrange,
-            }
-        ranges[column] = col_dict
-    return ranges
-
-
-def add_range_buttons_single(fig, dataframe, columns):
-    """Add a range selector to a single plot that updates y axis as well as x."""
-    ranges = build_ranges(dataframe, columns)
-    buttons = []
-    for label in ("All", "2y", "1y", "YTD", "6m", "3m", "1m"):
-        button_dict = dict(
-            label=label,
-            method="relayout",
-        )
-        arg_dict = {}
-        mins = maxes = []
-        for col_dict in ranges.values():
-            mins.append(col_dict[label]["yrange"][0])
-            maxes.append(col_dict[label]["yrange"][1])
-            xrange = col_dict[label]["xrange"]
-
-        arg_dict["xaxis.range"] = xrange
-        arg_dict["yaxis.range"] = [min(mins), max(maxes)]
-        button_dict["args"] = [arg_dict]
-        buttons.append(button_dict)
-    fig.update_layout(
-        updatemenus=[
-            dict(
-                type="buttons",
-                direction="right",
-                active=2,  # 1y
-                x=0.5,
-                y=-0.05,
-                buttons=buttons,
-            )
-        ]
-    )
-    # Select button 2.
-    fig.plotly_relayout(buttons[2]["args"][0])
-
-
-def add_range_buttons(subplot, dataframe, columns):
-    """Add a range selector to a 2-col subplot that updates y axis as well as x."""
-    ranges = build_ranges(dataframe, columns)
-    num_col = len(columns)
-    col_split = list(
-        reversed(np.array_split(np.array(columns), math.ceil(num_col / 2)))
-    )
-    buttons = []
-    for label in ("All", "2y", "1y", "YTD", "6m", "3m", "1m"):
-        button_dict = dict(
-            label=label,
-            method="relayout",
-        )
-        arg_dict = {}
-        col = 0
-        for pair in col_split:
-            for col_name in pair:
-                suffix = ""
-                if col == 0:
-                    arg_dict["xaxis.range"] = ranges[col_name][label]["xrange"]
-                else:
-                    suffix = f"{col + 1}"
-                arg_dict[f"yaxis{suffix}.range"] = ranges[col_name][label]["yrange"]
-                col += 1
-            if len(pair) < 2:
-                col += 1
-        button_dict["args"] = [arg_dict]
-        buttons.append(button_dict)
-    subplot.update_layout(
-        updatemenus=[
-            dict(
-                type="buttons",
-                direction="right",
-                active=2,  # 1y
-                x=0.5,
-                y=-0.05,
-                buttons=buttons,
-            )
-        ]
-    )
-    # Select button 2.
-    subplot.plotly_relayout(buttons[2]["args"][0])
+    return xranges
 
 
 def make_assets_breakdown_section(daily_df):
@@ -242,23 +105,6 @@ def make_assets_breakdown_section(daily_df):
     add_hline_current(section, daily_df, "total_retirement", 2, 2)
     add_hline_current(section, daily_df, "total_investing", 1, 1)
     add_hline_current(section, daily_df, "total_liquid", 1, 2)
-
-    for row, col in [(1, 2), (2, 1), (3, 2)]:
-        add_fl_home_sale(section, row, col)
-    for row, col in [(0, 1), (2, 1), (1, 2)]:
-        add_retirement(section, row, col)
-    section.add_vrect(
-        x0="2019-01-01",
-        x1="2019-10-13",
-        annotation_text="Debt",
-        fillcolor="red",
-        opacity=0.25,
-        line_width=0,
-        annotation_position="top right",
-        row=1,
-        col=2,
-    )
-    add_range_buttons(section, daily_df, columns)
     return section
 
 
@@ -298,22 +144,20 @@ def make_investing_retirement_section(invret_df):
     add_hline_current(section, invret_df, "commodities", 2, 1)
     add_hline_current(section, invret_df, "etfs", 2, 2)
     add_hline_current(section, invret_df, "ibonds", 1, 1)
-    add_range_buttons(section, invret_df, invret_df.columns)
     return section
 
 
 def make_real_estate_section(real_estate_df):
-    """Line graph of real estate with percent change."""
+    """Line graph of real estate."""
     section = px.line(
         real_estate_df,
         x=real_estate_df.index,
-        y=real_estate_df.columns,
+        y=[x for x in real_estate_df.columns if "Percent" not in x],
         facet_col="variable",
         facet_col_wrap=2,
         labels={"value": "USD"},
         title="Real Estate",
     )
-    section.data = [t for t in section.data if t.mode == "lines"]
     section.update_xaxes(title_text="", matches="x", showticklabels=True)
     section.update_yaxes(title_text="")
     section.update_yaxes(matches=None)
@@ -326,7 +170,6 @@ def make_real_estate_section(real_estate_df):
     add_hline_current(section, real_estate_df, "Northlake Rent", 2, 2)
     add_hline_current(section, real_estate_df, "Villa Maria Price", 1, 1)
     add_hline_current(section, real_estate_df, "Villa Maria Rent", 1, 2)
-    add_range_buttons(section, real_estate_df, real_estate_df.columns)
     return section
 
 
@@ -505,7 +348,6 @@ def make_prices_section(prices_df):
     add_hline_current(fig, prices_df, "SGDUSD", 0, 2, precision=2)
     add_hline_current(fig, prices_df, "GOLD", 1, 1, precision=2)
     add_hline_current(fig, prices_df, "SILVER", 1, 2, precision=2)
-    add_range_buttons(fig, prices_df, prices_df.columns)
     return fig
 
 
@@ -516,7 +358,6 @@ def make_interest_rate_section(interest_df):
     )
     fig.update_yaxes(title_text="Percent")
     fig.update_xaxes(title_text="")
-    add_range_buttons_single(fig, interest_df, interest_df.columns)
     return fig
 
 
@@ -561,75 +402,21 @@ def make_total_bar_yoy(daily_df, column):
     return yearly_bar
 
 
-def write_dynamic_plots(section_tuples):
-    """Write out dynamic plots."""
-    wrote_plotlyjs = False
-    with common.temporary_file_move(f"{common.PREFIX}{INDEX_HTML}") as index_file:
-        index_file.write(HTML_STYLE)
-        for section, height, width in section_tuples:
-            if wrote_plotlyjs:
-                include_plotlyjs = False
-            else:
-                include_plotlyjs = "cdn"
-                wrote_plotlyjs = True
-            height_percent = f"{height*100}%"
-            width_percent = f"{width*100}%"
-            index_file.write(
-                section.to_html(
-                    full_html=False,
-                    include_plotlyjs=include_plotlyjs,
-                    default_height=height_percent,
-                    default_width=width_percent,
-                )
-            )
-
-
-def write_static_plots(section_tuples):
-    """Write out static plots."""
-    # Static plots
-    default_image_width = 1920
-    default_image_height = 1080
-    image_name = 1
-    with common.temporary_file_move(f"{common.PREFIX}{STATIC_HTML}") as index_file:
-        index_file.write(HTML_STYLE)
-        for section, height, width in section_tuples:
-            # Remove interaction buttons.
-            section["layout"].pop("updatemenus")
-            section.write_image(
-                common.PREFIX + f"images/{image_name}.png",
-                width=default_image_width * width,
-                height=default_image_height * height,
-            )
-            print(f'<img src="images/{image_name}.png">', file=index_file)
-            image_name += 1
-
-
-def write_html_and_images(section_tuples):
-    """Generate html and images."""
-    write_dynamic_plots(section_tuples)
-    write_static_plots(section_tuples)
-
-
-def load_sqlite_and_rename_col(table, rename_cols=None, extra_cols=None):
-    """Load SQL table with weekly resampling."""
-    return common.load_sqlite_and_rename_col(
-        table, frequency="weekly", rename_cols=rename_cols, extra_cols=extra_cols
-    )
-
-
-def get_interest_rate_df():
+def get_interest_rate_df(frequency):
     """Merge interest rate data."""
-    fedfunds_df = load_sqlite_and_rename_col(
-        "fedfunds", rename_cols={"percent": "Fed Funds"}
+    fedfunds_df = common.load_sqlite_and_rename_col(
+        "fedfunds", rename_cols={"percent": "Fed Funds"}, frequency=frequency
     )["2019":]
-    sofr_df = load_sqlite_and_rename_col("sofr", rename_cols={"percent": "SOFR"})[
-        "2019":
-    ]
-    swvxx_df = load_sqlite_and_rename_col(
-        "swvxx_yield", rename_cols={"percent": "Schwab SWVXX"}
+    sofr_df = common.load_sqlite_and_rename_col(
+        "sofr", rename_cols={"percent": "SOFR"}, frequency=frequency
+    )["2019":]
+    swvxx_df = common.load_sqlite_and_rename_col(
+        "swvxx_yield", rename_cols={"percent": "Schwab SWVXX"}, frequency=frequency
     )
-    wealthfront_df = load_sqlite_and_rename_col(
-        "wealthfront_cash_yield", rename_cols={"percent": "Wealthfront Cash"}
+    wealthfront_df = common.load_sqlite_and_rename_col(
+        "wealthfront_cash_yield",
+        rename_cols={"percent": "Wealthfront Cash"},
+        frequency=frequency,
     )
     merged = reduce(
         lambda l, r: pd.merge(l, r, left_index=True, right_index=True, how="outer"),
@@ -641,53 +428,3 @@ def get_interest_rate_df():
         ],
     )
     return merged[sorted(merged.columns)].interpolate()
-
-
-def main():
-    """Main."""
-    pio.templates.default = "plotly_dark"
-    all_daily_df = load_sqlite_and_rename_col(
-        "history", extra_cols=["total", "total_no_homes"]
-    )
-    prices_daily_df = reduce_merge_asof(
-        [
-            load_sqlite_and_rename_col("forex"),
-            load_sqlite_and_rename_col("commodities_prices"),
-        ]
-    )
-    real_estate_daily_df = get_real_estate_df(frequency="weekly")
-    invret_daily_df = get_investing_retirement_df(all_daily_df)
-
-    assets_section = make_assets_breakdown_section(all_daily_df)
-    invret_section = make_investing_retirement_section(invret_daily_df)
-    real_estate_section = make_real_estate_section(real_estate_daily_df)
-    allocation_section = make_allocation_profit_section(
-        all_daily_df, invret_daily_df, real_estate_daily_df
-    )
-    net_worth_change_section = make_change_section(
-        all_daily_df, "total", "Total Net Worth Change"
-    )
-    total_no_homes_change_section = make_change_section(
-        all_daily_df, "total_no_homes", "Total Without Real Estate Change"
-    )
-    prices_section = make_prices_section(prices_daily_df)
-    yield_section = make_interest_rate_section(get_interest_rate_df())
-
-    write_html_and_images(
-        (
-            (assets_section, 1, 1),
-            (invret_section, 1, 1),
-            (real_estate_section, 1, 1),
-            (allocation_section, 0.75, 1),
-            (net_worth_change_section, 0.50, 1),
-            (total_no_homes_change_section, 0.50, 1),
-            (prices_section, 0.75, 1),
-            (yield_section, 0.5, 1),
-        ),
-    )
-    # Reset theme to default.
-    pio.templates.default = "plotly"
-
-
-if __name__ == "__main__":
-    main()

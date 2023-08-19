@@ -481,8 +481,8 @@ def write_plots(output_file, plots):
         )
 
 
-def main():
-    """Main."""
+def get_ledger_dataframes():
+    """Get ledger and ledger summarized dataframes."""
     ledger_df = pd.read_csv(
         get_ledger_csv(),
         index_col=0,
@@ -508,26 +508,4 @@ def main():
     ledger_summarized_df["category"] = ledger_summarized_df["category"].replace(
         r"([^:]+:[^:]+):.+", r"\1", regex=True
     )
-
-    with common.temporary_file_move(f"{HTML_PREFIX}/index.html") as output_file:
-        write_plots(
-            output_file,
-            [
-                get_income_expense_yearly_chart(ledger_summarized_df),
-                get_yearly_chart(ledger_summarized_df, "Income", "Yearly Income"),
-                get_yearly_chart(ledger_summarized_df, "Expenses", "Yearly Expenses"),
-                get_income_expense_monthly_chart(ledger_summarized_df),
-                get_monthly_chart(ledger_summarized_df, "Income", "Monthly Income"),
-                get_monthly_chart(ledger_summarized_df, "Expenses", "Monthly Expenses"),
-                get_monthly_chart(ledger_df, "Income", "Monthly Income Categorized"),
-                get_monthly_chart(
-                    ledger_df, "Expenses", "Monthly Expenses Categorized"
-                ),
-                get_average_monthly_income_expenses_chart(ledger_df),
-                get_average_monthly_top_expenses(ledger_df),
-            ],
-        )
-
-
-if __name__ == "__main__":
-    main()
+    return ledger_df, ledger_summarized_df
