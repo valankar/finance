@@ -7,7 +7,6 @@ from dash import (
     Dash,
     Input,
     Output,
-    Patch,
     callback,
     ctx,
     dcc,
@@ -144,39 +143,12 @@ def get_frequency(selected_range):
     return frequency
 
 
-def make_patch(cols, dataframe, selected_range):
-    """Make a subplot patch."""
-    start, end = get_xrange(dataframe, selected_range)
-    dataframe = dataframe[start:end]
-    patched_fig = Patch()
-    for i, col in enumerate(cols):
-        patched_fig["data"][i]["x"] = dataframe[col].index.values
-        patched_fig["data"][i]["y"] = dataframe[col].values
-    return patched_fig
-
-
 def make_assets_section(selected_range):
     """Make assets section."""
     all_df = load_all_df(get_frequency(selected_range))
     start, end = get_xrange(all_df, selected_range)
     return plot.make_assets_breakdown_section(all_df[start:end]).update_layout(
         margin=SUBPLOT_MARGIN
-    )
-
-
-def patch_assets_section(selected_range):
-    """Patch assets section."""
-    return make_patch(
-        [
-            "total",
-            "total_real_estate",
-            "total_no_homes",
-            "total_retirement",
-            "total_investing",
-            "total_liquid",
-        ],
-        load_all_df(get_frequency(selected_range)),
-        selected_range,
     )
 
 
@@ -189,43 +161,12 @@ def make_invret_section(selected_range):
     )
 
 
-def patch_invret_section(selected_range):
-    """Patch investing and retirement section."""
-    return make_patch(
-        [
-            "pillar2",
-            "ira",
-            "commodities",
-            "etfs",
-            "ibonds",
-        ],
-        load_invret_df(get_frequency(selected_range)),
-        selected_range,
-    )
-
-
 def make_real_estate_section(selected_range):
     """Make real estate section."""
     real_estate_df = load_real_estate_df(get_frequency(selected_range))
     start, end = get_xrange(real_estate_df, selected_range)
     return plot.make_real_estate_section(real_estate_df[start:end]).update_layout(
         margin=SUBPLOT_MARGIN
-    )
-
-
-def patch_real_estate_section(selected_range):
-    """Patch real estate section."""
-    return make_patch(
-        [
-            "Mt Vernon Price",
-            "Mt Vernon Rent",
-            "Northlake Price",
-            "Northlake Rent",
-            "Villa Maria Price",
-            "Villa Maria Rent",
-        ],
-        load_real_estate_df(get_frequency(selected_range)),
-        selected_range,
     )
 
 
@@ -255,20 +196,6 @@ def make_prices_section(selected_range):
     )
 
 
-def patch_prices_section(selected_range):
-    """Patch prices section."""
-    return make_patch(
-        [
-            "CHFUSD",
-            "SGDUSD",
-            "GOLD",
-            "SILVER",
-        ],
-        load_prices_df(get_frequency(selected_range)),
-        selected_range,
-    )
-
-
 def make_interest_rate_section(selected_range):
     """Make interest rate section."""
     intrate_df = load_interest_rate_df(get_frequency(selected_range))
@@ -276,21 +203,6 @@ def make_interest_rate_section(selected_range):
     return plot.make_interest_rate_section(intrate_df[start:end])
 
 
-def patch_interest_rate_section(selected_range):
-    """Patch interest rate section."""
-    return make_patch(
-        [
-            "Fed Funds",
-            "SOFR",
-            "Schwab SWVXX",
-            "Wealthfront Cash",
-        ],
-        load_interest_rate_df(get_frequency(selected_range)),
-        selected_range,
-    )
-
-
-@ttl_cache
 def i_and_e_layout():
     """Income & Expenses page layout."""
     ledger_df, ledger_summarized_df = i_and_e.get_ledger_dataframes()
@@ -340,7 +252,6 @@ def i_and_e_layout():
     )
 
 
-@ttl_cache
 def home_layout():
     """Main page layout."""
     graph_style_full = {"width": "98vw", "height": "96vh"}
@@ -350,54 +261,44 @@ def home_layout():
         [
             dcc.Graph(
                 id="assets",
-                figure=make_assets_section(INITIAL_TIMERANGE),
                 style=graph_style_full,
             ),
             make_range_buttons("timerange_assets"),
             dcc.Graph(
                 id="investing_retirement",
-                figure=make_invret_section(INITIAL_TIMERANGE),
                 style=graph_style_full,
             ),
             make_range_buttons("timerange_invret"),
             dcc.Graph(
                 id="real_estate",
-                figure=make_real_estate_section(INITIAL_TIMERANGE),
                 style=graph_style_full,
             ),
             make_range_buttons("timerange_real_estate"),
             dcc.Graph(
                 id="allocation",
-                figure=make_allocation_profit_section(INITIAL_TIMERANGE),
                 style=graph_style_three_quarters,
             ),
             dcc.Graph(
                 id="total_change",
-                figure=make_change_section(
-                    INITIAL_TIMERANGE, "total", "Total Net Worth Change"
-                ),
                 style=graph_style_half,
             ),
             dcc.Graph(
                 id="total_no_homes_change",
-                figure=make_change_section(
-                    INITIAL_TIMERANGE, "total_no_homes", "Total Net Worth Change"
-                ),
                 style=graph_style_half,
             ),
             dcc.Graph(
                 id="prices",
-                figure=make_prices_section(INITIAL_TIMERANGE),
                 style=graph_style_half,
             ),
             dcc.Graph(
                 id="yield",
-                figure=make_interest_rate_section(INITIAL_TIMERANGE),
                 style=graph_style_half,
             ),
             make_range_buttons("timerange_prices"),
             dcc.Interval(id="refresh", interval=10 * 60 * 1000),
         ],
+        id="maindiv",
+        style={"visibility": "hidden"},
     )
 
 
@@ -405,8 +306,12 @@ def home_layout():
     Output("assets", "figure"),
     Output("investing_retirement", "figure"),
     Output("real_estate", "figure"),
+    Output("allocation", "figure"),
+    Output("total_change", "figure"),
+    Output("total_no_homes_change", "figure"),
     Output("prices", "figure"),
     Output("yield", "figure"),
+    Output("maindiv", "style"),
     Output("timerange_assets", "value"),
     Output("timerange_invret", "value"),
     Output("timerange_real_estate", "value"),
@@ -416,7 +321,6 @@ def home_layout():
     Input("timerange_real_estate", "value"),
     Input("timerange_prices", "value"),
     Input("refresh", "n_intervals"),
-    prevent_initial_call=True,
 )
 def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _):
     """Update graphs based on time selection."""
@@ -432,17 +336,27 @@ def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _
             selected_range = prices_value
 
     return (
-        patch_assets_section(selected_range),
-        patch_invret_section(selected_range),
-        patch_real_estate_section(selected_range),
-        patch_prices_section(selected_range),
-        patch_interest_rate_section(selected_range),
+        make_assets_section(selected_range),
+        make_invret_section(selected_range),
+        make_real_estate_section(selected_range),
+        make_allocation_profit_section(selected_range),
+        make_change_section(selected_range, "total", "Total Net Worth Change"),
+        make_change_section(selected_range, "total_no_homes", "Total Net Worth Change"),
+        make_prices_section(selected_range),
+        make_interest_rate_section(selected_range),
+        {"visibility": "visible"},
         *[selected_range] * 4,
     )
 
 
 pio.templates.default = "plotly_dark"
-app = Dash(__name__, url_base_pathname="/accounts/", use_pages=True, pages_folder="")
+app = Dash(
+    __name__,
+    url_base_pathname="/accounts/",
+    use_pages=True,
+    pages_folder="",
+    serve_locally=False,
+)
 app.title = "Accounts"
 server = app.server
 register_page("home", title="Accounts", path="/", layout=home_layout)
