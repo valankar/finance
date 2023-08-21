@@ -3,13 +3,11 @@
 
 import io
 import subprocess
-from datetime import datetime
 from functools import reduce
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dateutil.relativedelta import relativedelta
 from plotly.subplots import make_subplots
 from prefixed import Float
 
@@ -51,22 +49,6 @@ def add_hline_current(
         col=col,
         secondary_y=secondary_y,
     )
-
-
-def get_xranges(dataframe):
-    """Get date ranges for timerange buttons."""
-    today_time = datetime.now()
-    last_time = dataframe.index[-1].strftime("%Y-%m-%d")
-    xranges = {
-        "All": [dataframe.index[0].strftime("%Y-%m-%d"), last_time],
-        "2y": [(today_time + relativedelta(years=-2)).strftime("%Y-%m-%d"), last_time],
-        "1y": [(today_time + relativedelta(years=-1)).strftime("%Y-%m-%d"), last_time],
-        "YTD": [today_time.strftime("%Y-01-01"), last_time],
-        "6m": [(today_time + relativedelta(months=-6)).strftime("%Y-%m-%d"), last_time],
-        "3m": [(today_time + relativedelta(months=-3)).strftime("%Y-%m-%d"), last_time],
-        "1m": [(today_time + relativedelta(months=-1)).strftime("%Y-%m-%d"), last_time],
-    }
-    return xranges
 
 
 def make_assets_breakdown_section(daily_df):

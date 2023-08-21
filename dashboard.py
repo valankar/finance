@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Dash app."""
 
+from datetime import datetime
+
 import plotly.io as pio
 from cachetools.func import ttl_cache
+from dateutil.relativedelta import relativedelta
 from dash import (
     Dash,
     Input,
@@ -82,7 +85,7 @@ def make_range_buttons(name):
 @ttl_cache
 def load_all_df(frequency):
     """Load all dataframe."""
-    return common.load_sqlite_and_rename_col(
+    return common.read_sql_table_resampled_last(
         "history", extra_cols=["total", "total_no_homes"], frequency=frequency
     )
 
@@ -102,6 +105,8 @@ def load_real_estate_df(frequency):
             resample = "W"
         case "daily":
             resample = "D"
+        case "hourly":
+            resample = "H"
     return (
         common.get_real_estate_df(frequency=frequency)
         .resample(resample)
@@ -115,8 +120,8 @@ def load_prices_df(frequency):
     """Load prices dataframe."""
     return plot.reduce_merge_asof(
         [
-            common.load_sqlite_and_rename_col("forex", frequency=frequency),
-            common.load_sqlite_and_rename_col(
+            common.read_sql_table_resampled_last("forex", frequency=frequency),
+            common.read_sql_table_resampled_last(
                 "commodities_prices", frequency=frequency
             ),
         ]
@@ -131,15 +136,49 @@ def load_interest_rate_df(frequency):
 
 def get_xrange(dataframe, selected_range):
     """Determine time range for selected button."""
-    xranges = plot.get_xranges(dataframe)
-    return (xranges[selected_range][0], xranges[selected_range][1])
+    today_time = datetime.now()
+    last_time = dataframe.index[-1].strftime("%Y-%m-%d")
+    match selected_range:
+        case "All":
+            return [dataframe.index[0].strftime("%Y-%m-%d"), last_time]
+        case "2y":
+            return [
+                (today_time + relativedelta(years=-2)).strftime("%Y-%m-%d"),
+                last_time,
+            ]
+        case "1y":
+            return [
+                (today_time + relativedelta(years=-1)).strftime("%Y-%m-%d"),
+                last_time,
+            ]
+        case "YTD":
+            return [today_time.strftime("%Y-01-01"), last_time]
+        case "6m":
+            return [
+                (today_time + relativedelta(months=-6)).strftime("%Y-%m-%d"),
+                last_time,
+            ]
+        case "3m":
+            return [
+                (today_time + relativedelta(months=-3)).strftime("%Y-%m-%d"),
+                last_time,
+            ]
+        case "1m":
+            return [
+                (today_time + relativedelta(months=-1)).strftime("%Y-%m-%d"),
+                last_time,
+            ]
 
 
 def get_frequency(selected_range):
     """Determine frequency from selected range button."""
-    frequency = "daily"
-    if selected_range in ("All", "2y"):
-        frequency = "weekly"
+    match selected_range:
+        case "All" | "2y":
+            frequency = "weekly"
+        case "1m":
+            frequency = "hourly"
+        case _:
+            frequency = "daily"
     return frequency
 
 
@@ -322,9 +361,9 @@ def home_layout():
     Input("timerange_prices", "value"),
     Input("refresh", "n_intervals"),
 )
+@ttl_cache
 def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _):
     """Update graphs based on time selection."""
-    selected_range = assets_value
     match ctx.triggered_id:
         case "timerange_assets":
             selected_range = assets_value
@@ -334,6 +373,8 @@ def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _
             selected_range = real_estate_value
         case "timerange_prices":
             selected_range = prices_value
+        case _:
+            selected_range = assets_value
 
     return (
         make_assets_section(selected_range),
@@ -352,12 +393,12 @@ def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _
 pio.templates.default = "plotly_dark"
 app = Dash(
     __name__,
+    title="Accounts",
     url_base_pathname="/accounts/",
     use_pages=True,
     pages_folder="",
     serve_locally=False,
 )
-app.title = "Accounts"
 server = app.server
 register_page("home", title="Accounts", path="/", layout=home_layout)
 register_page(

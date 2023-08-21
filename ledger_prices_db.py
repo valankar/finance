@@ -22,14 +22,12 @@ def main():
     with common.temporary_file_move(common.LEDGER_PRICES_DB) as output_file:
         # Commodities
         for commodity_table in COMMODITY_TABLES:
-            series = common.read_sql_table_daily_resampled_last(commodity_table).iloc[
-                -1
-            ]
+            series = common.read_sql_table_resampled_last(commodity_table).iloc[-1]
             for ticker, price in series.items():
                 output_file.write(f"P {NOW} {ticker} ${price}\n")
 
         # Forex values
-        forex_df = common.read_sql_table_daily_resampled_last("forex").loc["2023":]
+        forex_df = common.read_sql_table_resampled_last("forex").loc["2023":]
         for date_index, series in forex_df.iterrows():
             new_date = date_index.strftime(DATE_FORMAT)
             if series.notna()["CHFUSD"]:

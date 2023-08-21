@@ -172,7 +172,7 @@ def read_sql_query(query):
         )
 
 
-def read_sql_table_daily_resampled_last(
+def read_sql_table_resampled_last(
     table, frequency="daily", extra_cols=None, other_group=None
 ):
     """Load table from sqlite resampling daily before loading.
@@ -186,6 +186,8 @@ def read_sql_table_daily_resampled_last(
             partition_by = ["DATE(date)"]
         case "weekly":
             partition_by = ["DATE(date, 'weekday 5')"]
+        case "hourly":
+            partition_by = ["STRFTIME('%Y-%m-%d %H:00:00', date)"]
     with closing(sqlite3.connect(SQLITE3_URI_RO, uri=True)) as con:
         cols = [
             fields[1]
@@ -316,7 +318,7 @@ def load_sqlite_and_rename_col(
     table, frequency="daily", rename_cols=None, extra_cols=None, other_group=None
 ):
     """Load resampled table from sqlite and rename columns."""
-    dataframe = read_sql_table_daily_resampled_last(
+    dataframe = read_sql_table_resampled_last(
         table, frequency=frequency, extra_cols=extra_cols, other_group=other_group
     )
     if rename_cols:
@@ -327,7 +329,7 @@ def load_sqlite_and_rename_col(
 def get_real_estate_df(frequency="daily"):
     """Get real estate price and rent data from sqlite."""
     price_df = (
-        load_sqlite_and_rename_col(
+        read_sql_table_resampled_last(
             "real_estate_prices",
             frequency=frequency,
             extra_cols=["value"],
@@ -340,7 +342,7 @@ def get_real_estate_df(frequency="daily"):
     price_df.columns = price_df.columns.get_level_values(1) + " Price"
     price_df.columns.name = "variable"
     rent_df = (
-        load_sqlite_and_rename_col(
+        read_sql_table_resampled_last(
             "real_estate_rents", frequency=frequency, other_group="name"
         )
         .groupby(["date", "name"])
