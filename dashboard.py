@@ -239,7 +239,9 @@ def make_interest_rate_section(selected_range):
     """Make interest rate section."""
     intrate_df = load_interest_rate_df(get_frequency(selected_range))
     start, end = get_xrange(intrate_df, selected_range)
-    return plot.make_interest_rate_section(intrate_df[start:end])
+    return plot.make_interest_rate_section(intrate_df[start:end]).update_layout(
+        margin=SUBPLOT_MARGIN
+    )
 
 
 def i_and_e_layout():
@@ -293,9 +295,9 @@ def i_and_e_layout():
 
 def home_layout():
     """Main page layout."""
-    graph_style_full = {"width": "98vw", "height": "96vh"}
-    graph_style_half = {"width": "98vw", "height": "50vh"}
-    graph_style_three_quarters = {"width": "98vw", "height": "75vh"}
+    graph_style_width = {"width": "98vw"}
+    graph_style_full = {**graph_style_width, **{"height": "96vh"}}
+    graph_style_half = {**graph_style_width, **{"height": "50vh"}}
     return html.Div(
         [
             dcc.Graph(
@@ -315,7 +317,7 @@ def home_layout():
             make_range_buttons("timerange_real_estate"),
             dcc.Graph(
                 id="allocation",
-                style=graph_style_three_quarters,
+                style={**graph_style_width, **{"height": "75vh"}},
             ),
             dcc.Graph(
                 id="total_change",
@@ -327,11 +329,11 @@ def home_layout():
             ),
             dcc.Graph(
                 id="prices",
-                style=graph_style_half,
+                style={**graph_style_width, **{"height": "60vh"}},
             ),
             dcc.Graph(
                 id="yield",
-                style=graph_style_half,
+                style={**graph_style_width, **{"height": "40vh"}},
             ),
             make_range_buttons("timerange_prices"),
             dcc.Interval(id="refresh", interval=10 * 60 * 1000),
