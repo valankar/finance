@@ -5,7 +5,7 @@ import subprocess
 
 import common
 
-DESTINATION = "nginx:/var/www/html/accounts_data/"
+DESTINATION = "debian:/home/valankar/caddy/site/accounts_data/"
 
 
 def main():

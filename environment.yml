@@ -1,0 +1,24 @@
+name: investing
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - ipython
+  - plotly
+  - python-kaleido
+  - kaleido-core
+  - sqlite-utils
+  - selenium
+  - pandas
+  - sqlalchemy
+  - retry
+  - pylint
+  - numpy-financial
+  - prefixed
+  - statsmodels
+  - pluggy
+  - dash
+  - gunicorn
+  - cachetools
+  - orjson
+prefix: /home/valankar/miniforge3/envs/investing
