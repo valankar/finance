@@ -384,7 +384,9 @@ def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _
         make_real_estate_section(selected_range),
         make_allocation_profit_section(selected_range),
         make_change_section(selected_range, "total", "Total Net Worth Change"),
-        make_change_section(selected_range, "total_no_homes", "Total Net Worth Change"),
+        make_change_section(
+            selected_range, "total_no_homes", "Total Net Worth Change w/o Real Estate"
+        ),
         make_prices_section(selected_range),
         make_interest_rate_section(selected_range),
         {"visibility": "visible"},

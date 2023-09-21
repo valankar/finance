@@ -25,9 +25,8 @@ from selenium.webdriver.support.wait import WebDriverWait
 from sqlalchemy import create_engine
 from sqlalchemy import text as sqlalchemy_text
 
-import authorization
-
-PREFIX = f"{Path.home()}{authorization.PUBLIC_HTML}"
+PUBLIC_HTML = f"{Path.home()}/code/accounts/web/"
+PREFIX = PUBLIC_HTML
 SQLITE_URI = f"sqlite:///{PREFIX}sqlite.db"
 SQLITE_URI_RO = f"sqlite:///file:{PREFIX}sqlite.db?mode=ro&uri=true"
 SQLITE3_URI_RO = f"file:{PREFIX}sqlite.db?mode=ro"

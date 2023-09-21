@@ -1,0 +1,13 @@
+services:
+  accounts:
+    image: accounts_mambaforge:latest
+    container_name: accounts
+    user: 1000:1000
+    volumes:
+      - ${HOME}/code/accounts:/home/valankar/code/accounts
+      - ${HOME}/code/ledger:/home/valankar/code/ledger
+    ports:
+      - 8050:8050
+    labels:
+      com.centurylinklabs.watchtower.enable: false
+    restart: unless-stopped

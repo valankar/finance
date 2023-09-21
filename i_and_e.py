@@ -11,7 +11,6 @@ from dateutil.relativedelta import relativedelta
 
 import common
 
-HTML_PREFIX = f"{common.PREFIX}i_and_e/"
 LEDGER_CSV_CMD = f"{common.LEDGER_PREFIX} csv ^Expenses ^Income"
 TOSHL_INCOME_TABLE = "toshl_income_export_2023-01-01"
 TOSHL_EXPENSES_TABLE = "toshl_expenses_export_2023-01-01"
