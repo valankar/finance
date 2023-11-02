@@ -11,9 +11,6 @@ from tabulate import tabulate
 
 import common
 
-# Desired monthly payment
-MONTHLY_PAYMENT = 800
-
 # APY is SOFR plus this amount
 APY_OVER_SOFR = 2.9
 
@@ -41,7 +38,7 @@ def get_args():
 
 def get_monthly_investment_income():
     """Get monthly dividend and interest income."""
-    return round(
+    amount = round(
         abs(
             float(
                 list(
@@ -55,6 +52,8 @@ def get_monthly_investment_income():
         )
         * 30,
     )
+    print(f"Monthly dividend and interest income: ${amount}")
+    return amount
 
 
 def main():

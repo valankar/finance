@@ -263,6 +263,11 @@ def i_and_e_layout():
                 )
             ),
             dcc.Graph(
+                figure=i_and_e.get_yearly_chart(
+                    ledger_df, "Expenses", "Yearly Expenses Categorized"
+                )
+            ),
+            dcc.Graph(
                 figure=i_and_e.get_income_expense_monthly_chart(ledger_summarized_df)
             ),
             dcc.Graph(

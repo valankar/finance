@@ -3,6 +3,7 @@ RUN groupadd -g 1000 valankar
 RUN useradd -u 1000 -g 1000 -d /home/valankar valankar
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends libdbus-glib-1-2 libasound2
+RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get -y install tzdata
 USER valankar
 WORKDIR /home/valankar/code/accounts
 COPY environment*.yml .

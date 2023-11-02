@@ -92,6 +92,7 @@ def write_balances():
     )
     write_balance('"^Liabilities:Charles Schwab PAL"', "schwab_pledged_asset_line.txt")
     write_balance('"^Liabilities:UBS Visa"', "ubs_visa.txt")
+    write_balance('"^Assets:Rental Property:Reserve"', "rental_property_reserve.txt")
 
 
 def main():
