@@ -12,7 +12,9 @@ from plotly.subplots import make_subplots
 from prefixed import Float
 
 import common
+from balance_etfs import get_desired_df
 from common import reduce_merge_asof
+
 
 COLOR_GREEN = "DarkGreen"
 COLOR_RED = "DarkRed"
@@ -21,10 +23,6 @@ HOMES = [
     "Northlake",
     "Villa Maria",
 ]
-
-LEDGER_IBONDS_CMD = (
-    f'{common.LEDGER_PREFIX} -J -D reg ^"Assets:Investments:Treasury Direct"'
-)
 
 
 def add_hline_current(
@@ -94,14 +92,7 @@ def get_investing_retirement_df(daily_df):
     """Get merged df with other investment accounts."""
     invret_cols = ["pillar2", "ira", "commodities", "etfs"]
     invret_df = daily_df[invret_cols]
-    ibonds_df = pd.read_csv(
-        io.StringIO(subprocess.check_output(LEDGER_IBONDS_CMD, shell=True, text=True)),
-        delim_whitespace=True,
-        index_col=0,
-        parse_dates=True,
-        names=["date", "ibonds"],
-    )
-    return reduce_merge_asof([invret_df, ibonds_df])
+    return invret_df
 
 
 def make_investing_retirement_section(invret_df):
@@ -121,11 +112,10 @@ def make_investing_retirement_section(invret_df):
     section.update_yaxes(col=2, showticklabels=True)
     section.update_yaxes(col=1, title_text="USD")
     section.update_traces(showlegend=False)
-    add_hline_current(section, invret_df, "pillar2", 3, 1)
-    add_hline_current(section, invret_df, "ira", 3, 2)
-    add_hline_current(section, invret_df, "commodities", 2, 1)
-    add_hline_current(section, invret_df, "etfs", 2, 2)
-    add_hline_current(section, invret_df, "ibonds", 1, 1)
+    add_hline_current(section, invret_df, "pillar2", 0, 1)
+    add_hline_current(section, invret_df, "ira", 0, 2)
+    add_hline_current(section, invret_df, "commodities", 1, 1)
+    add_hline_current(section, invret_df, "etfs", 1, 2)
     return section
 
 
@@ -226,24 +216,17 @@ def make_profit_bar(invret_df):
     )
     etfs_profit = invret_df[["etfs"]].iloc[-1]["etfs"] - etfs_cost_basis
 
-    ibonds_cost_basis = common.load_float_from_text_file(
-        f"{common.PREFIX}treasury_direct_cost_basis.txt"
-    )
-    ibonds_profit = invret_df[["ibonds"]].iloc[-1]["ibonds"] - ibonds_cost_basis
-
     values = [
         commodities_profit,
         commodities_gold_profit,
         commodities_silver_profit,
         etfs_profit,
-        ibonds_profit,
     ]
     percent = [
         commodities_profit / commodities_cost_basis * 100,
         commodities_gold_profit / commodities_gold_cost_basis * 100,
         commodities_silver_profit / commodities_silver_cost_basis * 100,
         etfs_profit / etfs_cost_basis * 100,
-        ibonds_profit / ibonds_cost_basis * 100,
     ]
     profit_bar = go.Figure(
         go.Bar(
@@ -254,6 +237,48 @@ def make_profit_bar(invret_df):
         )
     )
     return profit_bar
+
+
+def make_investing_allocation_section():
+    """Make investing current and desired allocation pie graphs."""
+    changes_section = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=(
+            "Current",
+            "Desired",
+        ),
+        specs=[[{"type": "pie"}, {"type": "pie"}]],
+    )
+    dataframe, _ = get_desired_df(0)
+
+    # Current allocation
+    labels = ["Bonds", "Commodities", "International Equities", "US Equities"]
+    values = [
+        dataframe.loc["SWAGX"]["value"],
+        dataframe.loc["COMMODITIES"]["value"],
+        dataframe.loc["SWISX"]["value"],
+        dataframe.loc["SWTSX"]["value"],
+    ]
+    pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
+    for trace in pie_total.data:
+        changes_section.add_trace(trace, row=1, col=1)
+
+    # Desired allocation
+    values = [
+        dataframe.loc["SWAGX"]["value"] + dataframe.loc["SWAGX"]["usd_to_reconcile"],
+        dataframe.loc["COMMODITIES"]["value"]
+        + dataframe.loc["COMMODITIES"]["usd_to_reconcile"],
+        dataframe.loc["SWISX"]["value"] + dataframe.loc["SWISX"]["usd_to_reconcile"],
+        dataframe.loc["SWTSX"]["value"] + dataframe.loc["SWTSX"]["usd_to_reconcile"],
+    ]
+    pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
+    for trace in pie_total.data:
+        changes_section.add_trace(trace, row=1, col=2)
+
+    changes_section.update_traces(textinfo="percent+value")
+    changes_section.update_layout(title="Investing Allocation")
+    return changes_section
 
 
 def make_allocation_profit_section(daily_df, invret_df, real_estate_df):

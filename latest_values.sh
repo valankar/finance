@@ -1,7 +1,5 @@
 #!/bin/bash
 
-export TZ=Europe/Zurich
-
 SQLITE_CMD="sqlite3 web/sqlite.db -readonly"
 SQL_PREFIX="select datetime(date, 'localtime') as date, \
     format('%,.0f', total) as total, \

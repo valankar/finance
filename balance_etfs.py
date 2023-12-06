@@ -9,17 +9,25 @@ import pandas as pd
 import common
 
 ETFS_PATH = f"{common.PREFIX}schwab_etfs_values.csv"
-DESIRED_PERCENT = {
-    # Large cap
-    "SCHX": 47,
-    # Small cap
-    "SCHA": 16,
-    # International
-    "SCHF": 21,
-    # Fixed income
-    "SCHR": 16,
-}
+IRA_PATH = f"{common.PREFIX}schwab_ira_values.csv"
+COMMODITIES_PATH = f"{common.PREFIX}commodities_values.csv"
 BIRTHDAY = date(1975, 2, 28)
+# Modeled from:
+# https://www.morningstar.com/etfs/arcx/vt/portfolio
+DESIRED_ALLOCATION = {
+    "SWTSX": 60,  # US equities
+    "SWISX": 40,  # International equities
+    "SWAGX": 0,  # Bonds/Fixed Income, replaced with (age - 15)
+    "COMMODITIES": 10,  # Bonds are further reduced by this to make room
+}
+# Conversion of SWYGX to mutual fund allocation. Update with data from:
+# https://www.morningstar.com/funds/xnas/swygx/portfolio
+# Last updated: 2023-11-22
+IRA_CURRENT_ALLOCATION = {
+    "SWTSX": 56.77,  # US equities
+    "SWISX": 23.87,  # International equities
+    "SWAGX": 17.25,  # Bonds/Fixed Income
+}
 
 
 def trade(etfs_df, amount, original_amount, total):
@@ -42,32 +50,83 @@ def trade(etfs_df, amount, original_amount, total):
     return (etfs_df, cost)
 
 
-def fill_unknown_prices(etfs_df):
-    """Get prices for tickers if they are unknown."""
-    unknown_tickers = list(etfs_df[etfs_df["current_price"] == 0].index.unique())
-    prices = common.get_tickers(unknown_tickers)
-    for ticker, price in prices.items():
-        etfs_df.loc[ticker, "current_price"] = price
-        etfs_df.loc[ticker, "value"] = price * etfs_df.loc[ticker, "shares"]
-    return etfs_df
-
-
 def age_adjustment(allocation):
-    """Make bond adjustment based on age."""
+    """Make bond adjustment based on age (age - 15)."""
+    allocation = allocation.copy()
     age_in_days = (date.today() - BIRTHDAY).days
-    current_bonds = allocation["SCHR"]
-    wanted_bonds = (age_in_days / 365) - 32
-    diff_bonds = current_bonds - wanted_bonds
-    if current_bonds == wanted_bonds:
-        return allocation
-    diff = diff_bonds / (len(allocation) - 1)
-    new_allocation = {}
-    for ticker, percent in allocation.items():
-        if ticker == "SCHR":
-            new_allocation[ticker] = wanted_bonds
-        else:
-            new_allocation[ticker] = percent + diff
-    return new_allocation
+    wanted_bonds = (age_in_days / 365) - 15
+    allocation["SWAGX"] = wanted_bonds - allocation["COMMODITIES"]
+    remaining = (100 - wanted_bonds) / 100
+    allocation["SWTSX"] *= remaining
+    allocation["SWISX"] *= remaining
+    return allocation
+
+
+def convert_ira_to_mutual_funds(ira_df):
+    """Convert SWYGX to mutual funds in 3-fund portfolio."""
+    # Equivalent ETFs
+    ira_df.loc["SWTSX"] = (
+        0,
+        0,
+        ira_df.loc["SWYGX"].value * IRA_CURRENT_ALLOCATION["SWTSX"] / 100,
+    )
+    ira_df.loc["SWISX"] = (
+        0,
+        0,
+        ira_df.loc["SWYGX"].value * IRA_CURRENT_ALLOCATION["SWISX"] / 100,
+    )
+    ira_df.loc["SWAGX"] = (
+        0,
+        0,
+        ira_df.loc["SWYGX"].value * IRA_CURRENT_ALLOCATION["SWAGX"] / 100,
+    )
+    return ira_df.loc[["SWTSX", "SWISX", "SWAGX"]]
+
+
+def convert_etfs_to_mutual_funds(etfs_df):
+    """Convert ETFs to mutual funds in 3-fund portfolio."""
+    # Equivalent ETFs
+    etfs_df.loc["SWTSX"] = (
+        0,
+        etfs_df.loc["SWTSX"].current_price,
+        sum(etfs_df.loc[["SCHA", "SCHX", "SWTSX"]]["value"].fillna(0)),
+    )
+    etfs_df.loc["SWISX"] = (
+        0,
+        etfs_df.loc["SWISX"].current_price,
+        sum(etfs_df.loc[["SCHF", "SWISX"]]["value"].fillna(0)),
+    )
+    etfs_df.loc["SWAGX"] = (
+        0,
+        etfs_df.loc["SWAGX"].current_price,
+        sum(etfs_df.loc[["SCHR", "SCHZ", "SWAGX"]]["value"].fillna(0)),
+    )
+    return etfs_df.loc[["SWTSX", "SWISX", "SWAGX"]]
+
+
+def get_desired_df(amount):
+    """Get dataframe, cost to get to desired allocation."""
+    desired_allocation = age_adjustment(DESIRED_ALLOCATION)
+    if (s := round(sum(desired_allocation.values()))) != 100:
+        print(f"Sum of percents {s} != 100")
+        return
+
+    etfs_df = pd.read_csv(ETFS_PATH, index_col=0)
+    ira_df = pd.read_csv(IRA_PATH, index_col=0)
+    commodities_df = (
+        pd.read_csv(COMMODITIES_PATH, index_col=0)
+        .rename_axis("ticker")
+        .rename(columns={"troy_oz": "shares"})
+    )
+    wanted_df = pd.DataFrame({"wanted_percent": pd.Series(desired_allocation)})
+    mf_df = convert_etfs_to_mutual_funds(etfs_df) + convert_ira_to_mutual_funds(ira_df)
+    mf_df.loc["COMMODITIES"] = commodities_df.loc["GOLD"] + commodities_df.loc["SILVER"]
+    mf_df.loc["COMMODITIES"]["current_price"] = 1
+    total = mf_df["value"].sum()
+    mf_df["current_percent"] = (mf_df["value"] / total) * 100
+    mf_df["shares"] = mf_df["value"] / mf_df["current_price"]
+    mf_df = mf_df.join(wanted_df, how="outer").fillna(0).sort_index()
+    return trade(mf_df, amount, amount, total)
 
 
 def main():
@@ -75,22 +134,9 @@ def main():
     amount = 0
     if len(sys.argv) > 1:
         amount = float(sys.argv[1])
-    desired_allocation = age_adjustment(DESIRED_PERCENT)
 
-    if sum(desired_allocation.values()) != 100:
-        print("Sum of percents != 100")
-        return
-
-    etfs_df = pd.read_csv(ETFS_PATH, index_col=0)
-    wanted_df = pd.DataFrame({"wanted_percent": pd.Series(desired_allocation)})
-    total = etfs_df["value"].sum()
-    etfs_df["current_percent"] = (etfs_df["value"] / total) * 100
-    # ETFs that don't exist in desired_allocation get a default of 0.
-    etfs_df = etfs_df.join(wanted_df, how="outer").fillna(0).sort_index()
-    etfs_df = fill_unknown_prices(etfs_df)
-
-    etfs_df, cost = trade(etfs_df, amount, amount, total)
-    print(etfs_df)
+    mf_df, cost = get_desired_df(amount)
+    print(mf_df)
     print(f"Sum of trades: {round(cost, 2)}")
 
 

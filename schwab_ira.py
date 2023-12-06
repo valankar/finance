@@ -38,7 +38,7 @@ def main():
         f"{TABLE_PREFIX}_amounts",
         f"{TABLE_PREFIX}_prices",
         CSV_OUTPUT_PATH,
-        ticker_prices={"SWYGX": get_ticker()},
+        ticker_prices={"SWYGX": common.get_ticker("SWYGX")},
     )
 
 

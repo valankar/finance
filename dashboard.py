@@ -312,7 +312,7 @@ def home_layout():
             make_range_buttons("timerange_assets"),
             dcc.Graph(
                 id="investing_retirement",
-                style=graph_style_full,
+                style={**graph_style_width, **{"height": "75vh"}},
             ),
             make_range_buttons("timerange_invret"),
             dcc.Graph(
@@ -330,6 +330,10 @@ def home_layout():
             ),
             dcc.Graph(
                 id="total_no_homes_change",
+                style=graph_style_half,
+            ),
+            dcc.Graph(
+                id="investing_allocation",
                 style=graph_style_half,
             ),
             dcc.Graph(
@@ -355,6 +359,7 @@ def home_layout():
     Output("allocation", "figure"),
     Output("total_change", "figure"),
     Output("total_no_homes_change", "figure"),
+    Output("investing_allocation", "figure"),
     Output("prices", "figure"),
     Output("yield", "figure"),
     Output("maindiv", "style"),
@@ -392,6 +397,7 @@ def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _
         make_change_section(
             selected_range, "total_no_homes", "Total Net Worth Change w/o Real Estate"
         ),
+        plot.make_investing_allocation_section(),
         make_prices_section(selected_range),
         make_interest_rate_section(selected_range),
         {"visibility": "visible"},
@@ -403,7 +409,7 @@ pio.templates.default = "plotly_dark"
 app = Dash(
     __name__,
     title="Accounts",
-    url_base_pathname="/accounts/",
+    url_base_pathname="/accounts_plotly/",
     use_pages=True,
     pages_folder="",
     serve_locally=False,

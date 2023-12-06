@@ -2,14 +2,12 @@
 """Run daily finance functions."""
 
 import fedfunds
-import homes
 import swvxx_yield
 import wealthfront_cash_yield
 
 
 def main():
     """Main."""
-    homes.main()
     fedfunds.main()
     swvxx_yield.main()
     wealthfront_cash_yield.main()

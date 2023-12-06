@@ -145,7 +145,7 @@ def get_ticker_yahooquery(ticker):
 @functools.cache
 def get_ticker_yfinance(ticker):
     """Get ticker price via yfinance library."""
-    return yfinance.Ticker(ticker).history(period="5d")["Close"][-1]
+    return yfinance.Ticker(ticker).history(period="5d")["Close"].iloc[-1]
 
 
 def load_float_from_text_file(filename):
@@ -253,8 +253,8 @@ def write_ticker_csv(
         amounts_df = amounts_df.rename(
             columns={v: k for k, v in ticker_aliases.items()}
         )
-    latest_amounts = amounts_df.iloc[-1].rename(ticker_amt_col)
-    latest_prices = prices_df.iloc[-1].rename("current_price")
+    latest_amounts = amounts_df.iloc[-1].rename(ticker_amt_col).sort_index()
+    latest_prices = prices_df.iloc[-1].rename("current_price").sort_index()
     # Multiply latest amounts by prices.
     latest_values = (latest_amounts * latest_prices.values).rename("value")
     new_df = pd.DataFrame([latest_amounts, latest_prices, latest_values]).T.rename_axis(

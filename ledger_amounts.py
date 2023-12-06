@@ -67,7 +67,6 @@ def write_balances():
     write_balance('"^Assets:UBS Personal Account"', "ubs.txt")
     write_balance('"^Assets:Wealthfront Cash"', "wealthfront_cash.txt")
     write_balance('"^Assets:Zurcher Kantonal"', "zurcher.txt")
-    write_balance('"^Assets:Investments:Treasury Direct"', "treasury_direct.txt")
     write_balance(
         '"^Assets:Investments:Retirement:UBS Vested Benefits"', "ubs_pillar2.txt"
     )
@@ -75,6 +74,11 @@ def write_balances():
         "-X '$' --limit 'commodity=~/(SWVXX|\\\\$)/' -n "
         + '"^Assets:Investments:Charles Schwab .*Brokerage"',
         "schwab_brokerage_cash.txt",
+    )
+    write_balance(
+        "-X '$' --limit 'commodity=~/(SWVXX|\\\\$)/' -n "
+        + '"^Assets:Investments:Interactive Brokers"',
+        "interactive_brokers_cash.txt",
     )
     write_balance("--limit 'commodity == \"CHF\"' " + '"^Assets:Cash"', "cash_chf.txt")
     write_balance("--limit 'commodity == \"CHF\"' " + '"^Assets:Wise"', "wise_chf.txt")
@@ -99,7 +103,7 @@ def main():
     """Main."""
     write_balances()
     write_commodity(
-        '--limit "commodity=~/^SCH/" ^"Assets:Investments:Charles Schwab .*Brokerage"',
+        '--limit "commodity=~/^(SCH|SW|IBKR)/" --limit "account=~/^Assets:Investments:(Charles Schwab .*Brokerage|Interactive Brokers)/"',
         "schwab_etfs_amounts",
     )
     write_commodity(
