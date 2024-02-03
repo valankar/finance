@@ -6,6 +6,7 @@ from functools import reduce
 import shutil
 import sqlite3
 import tempfile
+import warnings
 from contextlib import contextmanager, closing
 from os import path
 from pathlib import Path
@@ -145,7 +146,10 @@ def get_ticker_yahooquery(ticker):
 @functools.cache
 def get_ticker_yfinance(ticker):
     """Get ticker price via yfinance library."""
-    return yfinance.Ticker(ticker).history(period="5d")["Close"].iloc[-1]
+    with warnings.catch_warnings():
+        # See https://github.com/ranaroussi/yfinance/issues/1837
+        warnings.simplefilter(action="ignore", category=FutureWarning)
+        return yfinance.Ticker(ticker).history(period="5d")["Close"].iloc[-1]
 
 
 def load_float_from_text_file(filename):

@@ -106,7 +106,7 @@ def load_real_estate_df(frequency):
         case "daily":
             resample = "D"
         case "hourly":
-            resample = "H"
+            resample = "h"
     return (
         common.get_real_estate_df(frequency=frequency)
         .resample(resample)
@@ -118,7 +118,7 @@ def load_real_estate_df(frequency):
 @ttl_cache
 def load_prices_df(frequency):
     """Load prices dataframe."""
-    return plot.reduce_merge_asof(
+    return common.reduce_merge_asof(
         [
             common.read_sql_table_resampled_last("forex", frequency=frequency),
             common.read_sql_table_resampled_last(
@@ -244,6 +244,15 @@ def make_interest_rate_section(selected_range):
     )
 
 
+def make_margin_loan_section(selected_range):
+    """Make margin loan section."""
+    balance_df = plot.load_margin_loan_df()
+    start, end = get_xrange(balance_df, selected_range)
+    return plot.make_margin_loan_section(balance_df[start:end]).update_layout(
+        margin=SUBPLOT_MARGIN
+    )
+
+
 def i_and_e_layout():
     """Income & Expenses page layout."""
     ledger_df, ledger_summarized_df = i_and_e.get_ledger_dataframes()
@@ -345,6 +354,10 @@ def home_layout():
                 style={**graph_style_width, **{"height": "40vh"}},
             ),
             make_range_buttons("timerange_prices"),
+            dcc.Graph(
+                id="margin_loan",
+                style={**graph_style_width, **{"height": "40vh"}},
+            ),
             dcc.Interval(id="refresh", interval=10 * 60 * 1000),
         ],
         id="maindiv",
@@ -362,6 +375,7 @@ def home_layout():
     Output("investing_allocation", "figure"),
     Output("prices", "figure"),
     Output("yield", "figure"),
+    Output("margin_loan", "figure"),
     Output("maindiv", "style"),
     Output("timerange_assets", "value"),
     Output("timerange_invret", "value"),
@@ -400,6 +414,7 @@ def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _
         plot.make_investing_allocation_section(),
         make_prices_section(selected_range),
         make_interest_rate_section(selected_range),
+        make_margin_loan_section(selected_range),
         {"visibility": "visible"},
         *[selected_range] * 4,
     )

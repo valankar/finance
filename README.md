@@ -20,8 +20,8 @@ This stores all the historical data as text or CSV files, and then creates plots
 Crontab example:
 
 ```shell
-@hourly             flock $HOME/code/accounts -c "$HOME/software/miniconda3/condabin/conda run -n investing $HOME/bin/accounts/finance_hourly.py"
-@daily              flock $HOME/code/accounts -c "$HOME/software/miniconda3/condabin/conda run -n investing $HOME/bin/accounts/finance_daily.py"
+@hourly             flock $HOME/code/accounts -c "$HOME/software/miniconda3/condabin/mamba run -n investing $HOME/bin/accounts/finance_hourly.py"
+@daily              flock $HOME/code/accounts -c "$HOME/software/miniconda3/condabin/mamba run -n investing $HOME/bin/accounts/finance_daily.py"
 ```
 
 Locking the directory is to prevent both scripts writing at the same time.

@@ -22,11 +22,11 @@ DESIRED_ALLOCATION = {
 }
 # Conversion of SWYGX to mutual fund allocation. Update with data from:
 # https://www.morningstar.com/funds/xnas/swygx/portfolio
-# Last updated: 2023-11-22
+# Last updated: 2024-01-19
 IRA_CURRENT_ALLOCATION = {
-    "SWTSX": 56.77,  # US equities
-    "SWISX": 23.87,  # International equities
-    "SWAGX": 17.25,  # Bonds/Fixed Income
+    "SWTSX": 56.65,  # US equities
+    "SWISX": 24.09,  # International equities
+    "SWAGX": 17.24,  # Bonds/Fixed Income
 }
 
 
@@ -117,11 +117,12 @@ def get_desired_df(amount):
         pd.read_csv(COMMODITIES_PATH, index_col=0)
         .rename_axis("ticker")
         .rename(columns={"troy_oz": "shares"})
+        .dropna()
     )
     wanted_df = pd.DataFrame({"wanted_percent": pd.Series(desired_allocation)})
     mf_df = convert_etfs_to_mutual_funds(etfs_df) + convert_ira_to_mutual_funds(ira_df)
-    mf_df.loc["COMMODITIES"] = commodities_df.loc["GOLD"] + commodities_df.loc["SILVER"]
-    mf_df.loc["COMMODITIES"]["current_price"] = 1
+    mf_df.loc["COMMODITIES"] = commodities_df.sum()
+    mf_df.loc["COMMODITIES", "current_price"] = 1
     total = mf_df["value"].sum()
     mf_df["current_percent"] = (mf_df["value"] / total) * 100
     mf_df["shares"] = mf_df["value"] / mf_df["current_price"]

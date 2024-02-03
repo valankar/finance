@@ -15,6 +15,9 @@ LEDGER_BALANCE_CMD = (
     f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} "
     '--balance-format "%(quantity(scrub(display_total)))" -c bal'
 )
+LEDGER_BALANCE_MULTI_CURRENCY_CMD = (
+    f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} " "-c -n -J bal"
+)
 
 
 def write_commodity(ledger_args, table):
@@ -41,17 +44,25 @@ def write_commodity(ledger_args, table):
     common.to_sql(dataframe, table)
 
 
-def write_balance(ledger_args, filename):
+def write_balance(ledger_args, filename, multi_currency=False):
     """Write balance to file."""
+    if multi_currency:
+        cmd = f"{LEDGER_BALANCE_MULTI_CURRENCY_CMD} {ledger_args}"
+    else:
+        cmd = f"{LEDGER_BALANCE_CMD} {ledger_args}"
     process = subprocess.run(
-        f"{LEDGER_BALANCE_CMD} {ledger_args}",
+        cmd,
         shell=True,
         check=True,
         text=True,
         capture_output=True,
     )
+    if multi_currency:
+        amount = process.stdout.split()[-1]
+    else:
+        amount = process.stdout
     try:
-        value = float(process.stdout)
+        value = float(amount)
     except ValueError:
         value = 0
     with common.temporary_file_move(f"{common.PREFIX}{filename}") as output_file:
@@ -76,9 +87,9 @@ def write_balances():
         "schwab_brokerage_cash.txt",
     )
     write_balance(
-        "-X '$' --limit 'commodity=~/(SWVXX|\\\\$)/' -n "
-        + '"^Assets:Investments:Interactive Brokers"',
+        "-X '$' --limit 'commodity=~/^(CHF|\\\\$)/' " + '"Interactive Brokers"',
         "interactive_brokers_cash.txt",
+        multi_currency=True,
     )
     write_balance("--limit 'commodity == \"CHF\"' " + '"^Assets:Cash"', "cash_chf.txt")
     write_balance("--limit 'commodity == \"CHF\"' " + '"^Assets:Wise"', "wise_chf.txt")
@@ -103,7 +114,8 @@ def main():
     """Main."""
     write_balances()
     write_commodity(
-        '--limit "commodity=~/^(SCH|SW|IBKR)/" --limit "account=~/^Assets:Investments:(Charles Schwab .*Brokerage|Interactive Brokers)/"',
+        '--limit "commodity=~/^(SCH|SW|IBKR)/" --limit '
+        + '"account=~/^Assets:Investments:(Charles Schwab .*Brokerage|Interactive Brokers)/"',
         "schwab_etfs_amounts",
     )
     write_commodity(

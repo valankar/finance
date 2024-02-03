@@ -404,7 +404,7 @@ def get_income_expense_monthly_chart(ledger_df):
     dataframe = get_income_expense_df(ledger_df)
     # Only keep last 12 months.
     dataframe = dataframe[
-        dataframe.resample("M")
+        dataframe.resample("ME")
         .sum(numeric_only=True)
         .iloc[-12]
         .name.strftime("%Y-%m") :
@@ -443,7 +443,7 @@ def get_monthly_chart(ledger_df, category_prefix, title):
     dataframe = get_dataframe(ledger_df, category_prefix)
     # Only keep last 12 months.
     dataframe = dataframe[
-        dataframe.resample("M")
+        dataframe.resample("ME")
         .sum(numeric_only=True)
         .iloc[-12]
         .name.strftime("%Y-%m") :
@@ -459,7 +459,7 @@ def get_monthly_chart(ledger_df, category_prefix, title):
     )
     configure_monthly_chart(chart)
     # Add a trendline that is shifted left to the middle of the month.
-    line_df = dataframe.resample("M").sum(numeric_only=True)
+    line_df = dataframe.resample("ME").sum(numeric_only=True)
     line_df.index = line_df.index.map(lambda x: pd.to_datetime(x.strftime("%Y-%m-15")))
     line_chart = px.scatter(line_df, x=line_df.index, y="amount", trendline="lowess")
     line_chart.update_traces(showlegend=True)

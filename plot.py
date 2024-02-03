@@ -11,10 +11,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from prefixed import Float
 
+import amortize_pal
 import common
 from balance_etfs import get_desired_df
-from common import reduce_merge_asof
-
 
 COLOR_GREEN = "DarkGreen"
 COLOR_RED = "DarkRed"
@@ -23,6 +22,13 @@ HOMES = [
     "Northlake",
     "Villa Maria",
 ]
+
+LEDGER_LOAN_BALANCE = (
+    f"{common.LEDGER_PREFIX} "
+    # pylint: disable-next=line-too-long
+    + r"""--limit 'commodity=~/^(\\$|CHF)/' reg \(^Assets:Investments:'Interactive Brokers' or ^Liabilities:'Charles Schwab PAL'\) -J"""
+)
+APY_OVER_SOFR = 1.52
 
 
 def add_hline_current(
@@ -192,22 +198,10 @@ def make_real_estate_profit_bar_yearly(real_estate_df):
 
 def make_profit_bar(invret_df):
     """Profit from cost basis."""
-    commodities_df = pd.read_csv(
-        f"{common.PREFIX}commodities_values.csv", index_col="commodity"
-    )
     commodities_gold_cost_basis = common.load_float_from_text_file(
         f"{common.PREFIX}commodities_gold_cost_basis.txt"
     )
-    commodities_gold_profit = (
-        commodities_df.loc["GOLD"]["value"] - commodities_gold_cost_basis
-    )
-    commodities_silver_cost_basis = common.load_float_from_text_file(
-        f"{common.PREFIX}commodities_silver_cost_basis.txt"
-    )
-    commodities_silver_profit = (
-        commodities_df.loc["SILVER"]["value"] - commodities_silver_cost_basis
-    )
-    commodities_cost_basis = commodities_gold_cost_basis + commodities_silver_cost_basis
+    commodities_cost_basis = commodities_gold_cost_basis
     commodities_profit = (
         invret_df[["commodities"]].iloc[-1]["commodities"] - commodities_cost_basis
     )
@@ -218,19 +212,15 @@ def make_profit_bar(invret_df):
 
     values = [
         commodities_profit,
-        commodities_gold_profit,
-        commodities_silver_profit,
         etfs_profit,
     ]
     percent = [
         commodities_profit / commodities_cost_basis * 100,
-        commodities_gold_profit / commodities_gold_cost_basis * 100,
-        commodities_silver_profit / commodities_silver_cost_basis * 100,
         etfs_profit / etfs_cost_basis * 100,
     ]
     profit_bar = go.Figure(
         go.Bar(
-            x=["Commodities", "Gold", "Silver", "ETFs", "I Bonds"],
+            x=["Commodities", "ETFs"],
             y=values,
             marker_color=[COLOR_GREEN if x >= 0 else COLOR_RED for x in values],
             text=[f"{Float(x):.2h}<br>{y:.2f}%" for x, y in zip(values, percent)],
@@ -368,6 +358,48 @@ def make_interest_rate_section(interest_df):
     return fig
 
 
+def load_margin_loan_df():
+    """Get dataframe of margin loan balance."""
+    balance_data = io.StringIO(
+        subprocess.check_output(LEDGER_LOAN_BALANCE, shell=True, text=True)
+    )
+    balance_df = pd.read_csv(
+        balance_data, sep=" ", index_col=0, parse_dates=True, names=["date", "balance"]
+    )
+    balance_df = balance_df[balance_df["balance"] <= 0]
+    return balance_df
+
+
+def make_margin_loan_section(balance_df):
+    """Make margin loan section."""
+    fig = px.area(
+        balance_df,
+        x=balance_df.index,
+        y=balance_df.columns,
+        title="Margin Loan",
+        line_shape="hv",
+    )
+    fig.update_yaxes(title_text="USD")
+    fig.update_xaxes(title_text="")
+    sofr = amortize_pal.get_sofr()
+    apy = (sofr + APY_OVER_SOFR) / 100
+    monthly_investment_income = amortize_pal.get_monthly_investment_income()
+    max_loan = amortize_pal.get_max_loan(apy, 12, monthly_investment_income)
+    hline_label = (
+        f"Loan of ${max_loan:,} would result in 12 monthly payments "
+        f"of ${monthly_investment_income:,.0f} (dividend & interest income) at {apy*100:.2f}% APY"
+        f" ({sofr} (SOFR) + {APY_OVER_SOFR})"
+    )
+    fig.add_hline(
+        y=-max_loan,
+        annotation_text=hline_label,
+        line_dash="dot",
+        line_color="red",
+        annotation_position="top right",
+    )
+    return fig
+
+
 def make_change_section(daily_df, column, title):
     """Make section with change in different timespans."""
     changes_section = make_subplots(
@@ -395,14 +427,14 @@ def make_change_section(daily_df, column, title):
 
 def make_total_bar_mom(daily_df, column):
     """Make month over month total profit bar graphs."""
-    diff_df = daily_df.resample("M").last().interpolate().diff().dropna().iloc[-36:]
+    diff_df = daily_df.resample("ME").last().interpolate().diff().dropna().iloc[-36:]
     monthly_bar = px.bar(diff_df, x=diff_df.index, y=column)
     return monthly_bar
 
 
 def make_total_bar_yoy(daily_df, column):
     """Make year over year total profit bar graphs."""
-    diff_df = daily_df.resample("Y").last().interpolate().diff().dropna()
+    diff_df = daily_df.resample("YE").last().interpolate().diff().dropna()
     # Re-align at beginning of year.
     diff_df.index = pd.DatetimeIndex(diff_df.index.strftime("%Y-01-01"))
     yearly_bar = px.bar(diff_df, x=diff_df.index, y=column, text_auto=".3s")
