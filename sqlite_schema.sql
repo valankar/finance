@@ -28,7 +28,7 @@ CREATE TABLE "schwab_etfs_amounts" (
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT);
 CREATE TABLE "commodities_amounts" (
 	date DATETIME, 
 	"GOLD" FLOAT, 
@@ -40,7 +40,7 @@ CREATE TABLE schwab_etfs_prices (
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT);
 CREATE TABLE commodities_prices (
 	date TIMESTAMP, 
 	"GOLD" FLOAT, 
@@ -84,6 +84,23 @@ CREATE TABLE real_estate(name TEXT PRIMARY KEY NOT NULL);
 CREATE TABLE real_estate_prices(date DATETIME, name TEXT NOT NULL REFERENCES real_estate(name), redfin_value BIGINT, zillow_value BIGINT, value BIGINT generated always as ((redfin_value+zillow_value)/2));
 CREATE TABLE real_estate_rents(date DATETIME, name TEXT NOT NULL REFERENCES real_estate(name), value BIGINT);
 CREATE TABLE sqlite_stat1(tbl,idx,stat);
+CREATE TABLE swygx_holdings (
+	date DATETIME, 
+	"SCHX" FLOAT, 
+	"SCHF" FLOAT, 
+	"SCHZ" FLOAT, 
+	"SCHH" FLOAT, 
+	"SCHA" FLOAT, 
+	"SCHE" FLOAT, 
+	"USD" FLOAT, 
+	"SCHO" FLOAT, 
+	"SVUXX" FLOAT
+);
+CREATE TABLE swtsx_market_cap (
+	date DATETIME, 
+	"US_LARGE_CAP" FLOAT, 
+	"US_SMALL_CAP" FLOAT
+);
 CREATE INDEX ix_history_date ON history (date);
 CREATE INDEX ix_forex_date ON forex (date);
 CREATE INDEX ix_wealthfront_cash_yield_date ON wealthfront_cash_yield (date);
@@ -99,6 +116,8 @@ CREATE INDEX "ix_toshl_expenses_export_2023-01-01_Date" ON "toshl_expenses_expor
 CREATE INDEX ix_function_result_date ON function_result (date);
 CREATE INDEX ix_real_estate_prices_date ON real_estate_prices (date);
 CREATE INDEX ix_real_estate_rents_date ON real_estate_rents (date);
+CREATE INDEX ix_swygx_holdings_date ON swygx_holdings (date);
+CREATE INDEX ix_swtsx_market_cap_date ON swtsx_market_cap (date);
 CREATE TABLE fedfunds (
 	date DATETIME, 
 	percent FLOAT
