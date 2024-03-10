@@ -8,9 +8,9 @@ dependencies:
   - boost=1.82.0=h17c5347_6
   - boost-cpp=1.82.0=h44aadfe_6
   - bzip2=1.0.8=hd590300_5
-  - ca-certificates=2023.11.17=hbcca054_0
+  - ca-certificates=2024.2.2=hbcca054_0
   - cairo=1.18.0=h3faef2a_0
-  - expat=2.5.0=hcb278e6_1
+  - expat=2.6.1=h59595ed_0
   - font-ttf-dejavu-sans-mono=2.37=hab24e00_0
   - font-ttf-inconsolata=3.000=h77eed37_0
   - font-ttf-source-code-pro=2.038=h77eed37_0
@@ -42,23 +42,23 @@ dependencies:
   - libcblas=3.9.0=21_linux64_openblas
   - libdeflate=1.19=hd590300_0
   - libedit=3.1.20191231=he28a2e2_2
-  - libexpat=2.5.0=hcb278e6_1
+  - libexpat=2.6.1=h59595ed_0
   - libffi=3.4.2=h7f98852_5
-  - libgcc-ng=13.2.0=h807b86a_3
+  - libgcc-ng=13.2.0=h807b86a_5
   - libgd=2.3.3=h119a65a_9
-  - libgfortran-ng=13.2.0=h69a702a_3
-  - libgfortran5=13.2.0=ha4646dd_3
-  - libglib=2.78.3=h783c2da_0
-  - libgomp=13.2.0=h807b86a_3
+  - libgfortran-ng=13.2.0=h69a702a_5
+  - libgfortran5=13.2.0=ha4646dd_5
+  - libglib=2.78.4=hf2295e7_4
+  - libgomp=13.2.0=h807b86a_5
   - libiconv=1.17=hd590300_2
   - libjpeg-turbo=3.0.0=hd590300_1
   - liblapack=3.9.0=21_linux64_openblas
   - libnsl=2.0.1=hd590300_0
   - libopenblas=0.3.26=pthreads_h413a1c8_0
-  - libpng=1.6.39=h753d276_0
+  - libpng=1.6.43=h2797004_0
   - librsvg=2.56.3=he3f83f7_1
-  - libsqlite=3.44.2=h2797004_0
-  - libstdcxx-ng=13.2.0=h7e041cc_3
+  - libsqlite=3.45.1=h2797004_0
+  - libstdcxx-ng=13.2.0=h7e041cc_5
   - libtiff=4.6.0=ha9c0a0a_2
   - libtool=2.4.7=h27087fc_0
   - libuuid=2.38.1=h0b41bf4_0
@@ -66,23 +66,23 @@ dependencies:
   - libwebp-base=1.3.2=hd590300_0
   - libxcb=1.15=h0b41bf4_0
   - libxcrypt=4.4.36=hd590300_1
-  - libxml2=2.12.4=h232c23b_1
+  - libxml2=2.12.5=h232c23b_0
   - libzlib=1.2.13=hd590300_5
   - mpfr=4.2.1=h9458935_0
   - ncurses=6.4=h59595ed_2
-  - numpy=1.26.3=py310hb13e2d6_0
-  - openssl=3.2.0=hd590300_1
-  - pango=1.50.14=ha41ecd1_2
-  - pcre2=10.42=hcad00b1_0
-  - pip=23.3.2=pyhd8ed1ab_0
-  - pixman=0.43.0=h59595ed_0
+  - numpy=1.26.4=py310hb13e2d6_0
+  - openssl=3.2.1=hd590300_0
+  - pango=1.52.1=ha41ecd1_0
+  - pcre2=10.43=hcad00b1_0
+  - pip=24.0=pyhd8ed1ab_0
+  - pixman=0.43.2=h59595ed_0
   - pthread-stubs=0.4=h36c2ea0_1001
   - python=3.10.13=hd12c33a_1_cpython
   - python_abi=3.10=4_cp310
   - readline=8.2=h8228510_1
-  - setuptools=69.0.3=pyhd8ed1ab_0
+  - setuptools=69.1.1=pyhd8ed1ab_0
   - tk=8.6.13=noxft_h4845f30_101
-  - tzdata=2023d=h0c530f3_0
+  - tzdata=2024a=h0c530f3_0
   - utfcpp=4.0.5=ha770c72_0
   - wheel=0.42.0=pyhd8ed1ab_0
   - xorg-kbproto=1.0.7=h7f98852_1002
@@ -99,4 +99,4 @@ dependencies:
   - xz=5.2.6=h166bdaf_0
   - zlib=1.2.13=hd590300_5
   - zstd=1.5.5=hfc55251_0
-prefix: /home/valankar/miniforge3/envs/ledger
+prefix: /home/valankar-dev/miniforge3/envs/ledger

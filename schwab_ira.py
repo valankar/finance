@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Get Schwab IRA value."""
 
+import time
+
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
@@ -17,6 +19,11 @@ def browser_execute_before(browser):
         WebDriverWait(browser, timeout=30).until(
             lambda d: d.find_element(By.PARTIAL_LINK_TEXT, "Continue with a limited")
         ).click()
+        # Accept cookies
+        WebDriverWait(browser, timeout=30).until(
+            lambda d: d.find_element(By.XPATH, '//*[@id="onetrust-accept-btn-handler"]')
+        ).click()
+        time.sleep(10)
     except TimeoutException:
         pass
 

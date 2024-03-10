@@ -14,7 +14,7 @@ SQL_PREFIX="select datetime(date, 'localtime') as date, \
 
 # get_ticker failures
 $SQLITE_CMD -header -column \
-    "select datetime(date, 'localtime') as date, name, success from (\
+    "select datetime(date, 'localtime') as date, name, error from (\
     select * from function_result where success=False and date > datetime('now', '-1 day') order by date desc limit 5 \
     ) order by date asc;"
 echo

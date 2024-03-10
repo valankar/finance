@@ -4,16 +4,22 @@ channels:
 dependencies:
   - _libgcc_mutex=0.1=conda_forge
   - _openmp_mutex=4.5=2_gnu
+  - alsa-lib=1.2.11=hd590300_1
+  - alsa-plugins=1.2.7.1=h03a20ba_10
+  - aom=3.8.1=h59595ed_0
   - at-spi2-atk=2.38.0=h0630a04_3
   - at-spi2-core=2.40.3=h0630a04_0
   - atk-1.0=2.38.0=hd4edc92_1
+  - attr=2.5.1=h166bdaf_1
   - bzip2=1.0.8=hd590300_5
-  - ca-certificates=2023.11.17=hbcca054_0
+  - ca-certificates=2024.2.2=hbcca054_0
   - cairo=1.18.0=h3faef2a_0
+  - dav1d=1.2.1=hd590300_0
   - dbus=1.13.6=h5008d03_3
   - epoxy=1.5.10=h166bdaf_1
-  - expat=2.5.0=hcb278e6_1
-  - firefox=122.0=hd3aeb46_0
+  - expat=2.6.1=h59595ed_0
+  - ffmpeg=6.1.1=gpl_h8007c5b_104
+  - firefox=123.0=hd3aeb46_0
   - font-ttf-dejavu-sans-mono=2.37=hab24e00_0
   - font-ttf-inconsolata=3.000=h77eed37_0
   - font-ttf-source-code-pro=2.038=h77eed37_0
@@ -26,42 +32,92 @@ dependencies:
   - gdk-pixbuf=2.42.10=h829c605_4
   - geckodriver=0.34.0=h2b8f863_0
   - gettext=0.21.1=h27087fc_0
-  - glib-tools=2.78.3=hfc55251_0
+  - glib-tools=2.78.4=hfc55251_4
+  - gmp=6.3.0=h59595ed_0
+  - gnutls=3.7.9=hb077bed_0
   - graphite2=1.3.13=h58526e2_1001
   - gtk3=3.24.41=h280cfa0_0
   - harfbuzz=8.3.0=h3d44ed6_0
   - hicolor-icon-theme=0.17=ha770c72_2
   - icu=73.2=h59595ed_0
+  - jack=1.9.22=h7c63dc7_2
   - keyutils=1.6.1=h166bdaf_0
   - krb5=1.21.2=h659d440_0
+  - lame=3.100=h166bdaf_1003
   - lerc=4.0.0=h27087fc_0
+  - libabseil=20240116.1=cxx17_h59595ed_2
+  - libass=0.17.1=h8fe9dca_1
+  - libcap=2.69=h0f662aa_0
   - libcups=2.3.3=h4637d8d_4
+  - libdb=6.2.32=h9c3ff4c_0
   - libdeflate=1.19=hd590300_0
+  - libdrm=2.4.120=hd590300_0
   - libedit=3.1.20191231=he28a2e2_2
-  - libexpat=2.5.0=hcb278e6_1
+  - libexpat=2.6.1=h59595ed_0
   - libffi=3.4.2=h7f98852_5
-  - libgcc-ng=13.2.0=h807b86a_3
-  - libglib=2.78.3=h783c2da_0
-  - libgomp=13.2.0=h807b86a_3
+  - libflac=1.4.3=h59595ed_0
+  - libgcc-ng=13.2.0=h807b86a_5
+  - libgcrypt=1.10.3=hd590300_0
+  - libglib=2.78.4=hf2295e7_4
+  - libgomp=13.2.0=h807b86a_5
+  - libgpg-error=1.48=h71f35ed_0
+  - libhwloc=2.9.3=default_h554bfaf_1009
   - libiconv=1.17=hd590300_2
+  - libidn2=2.3.7=hd590300_0
   - libjpeg-turbo=3.0.0=hd590300_1
-  - libpng=1.6.39=h753d276_0
-  - libstdcxx-ng=13.2.0=h7e041cc_3
+  - libogg=1.3.4=h7f98852_1
+  - libopenvino=2023.3.0=h2e90f83_2
+  - libopenvino-auto-batch-plugin=2023.3.0=hd5fc58b_2
+  - libopenvino-auto-plugin=2023.3.0=hd5fc58b_2
+  - libopenvino-hetero-plugin=2023.3.0=h3ecfda7_2
+  - libopenvino-intel-cpu-plugin=2023.3.0=h2e90f83_2
+  - libopenvino-intel-gpu-plugin=2023.3.0=h2e90f83_2
+  - libopenvino-ir-frontend=2023.3.0=h3ecfda7_2
+  - libopenvino-onnx-frontend=2023.3.0=h469e5c9_2
+  - libopenvino-paddle-frontend=2023.3.0=h469e5c9_2
+  - libopenvino-pytorch-frontend=2023.3.0=h59595ed_2
+  - libopenvino-tensorflow-frontend=2023.3.0=he1e0747_2
+  - libopenvino-tensorflow-lite-frontend=2023.3.0=h59595ed_2
+  - libopus=1.3.1=h7f98852_1
+  - libpciaccess=0.18=hd590300_0
+  - libpng=1.6.43=h2797004_0
+  - libprotobuf=4.25.2=h08a7969_1
+  - libsndfile=1.2.2=hc60ed4a_1
+  - libstdcxx-ng=13.2.0=h7e041cc_5
+  - libsystemd0=255=h3516f8a_1
+  - libtasn1=4.19.0=h166bdaf_0
   - libtiff=4.6.0=ha9c0a0a_2
+  - libunistring=0.9.10=h7f98852_0
   - libuuid=2.38.1=h0b41bf4_0
+  - libva=2.20.0=hd590300_0
+  - libvorbis=1.3.7=h9c3ff4c_0
+  - libvpx=1.13.1=h59595ed_0
   - libwebp-base=1.3.2=hd590300_0
   - libxcb=1.15=h0b41bf4_0
   - libxkbcommon=1.6.0=hd429924_1
-  - libxml2=2.12.4=h232c23b_1
+  - libxml2=2.12.5=h232c23b_0
   - libzlib=1.2.13=hd590300_5
+  - lz4-c=1.9.4=hcb278e6_0
+  - mpg123=1.32.4=h59595ed_0
   - ncurses=6.4=h59595ed_2
-  - openssl=3.2.0=hd590300_1
-  - pango=1.50.14=ha41ecd1_2
-  - pcre2=10.42=hcad00b1_0
-  - pixman=0.43.0=h59595ed_0
+  - nettle=3.9.1=h7ab15ed_0
+  - ocl-icd=2.3.2=hd590300_0
+  - openh264=2.4.1=h59595ed_0
+  - openssl=3.2.1=hd590300_0
+  - p11-kit=0.24.1=hc5aa10d_0
+  - pango=1.52.1=ha41ecd1_0
+  - pcre2=10.43=hcad00b1_0
+  - pixman=0.43.2=h59595ed_0
   - pthread-stubs=0.4=h36c2ea0_1001
+  - pugixml=1.14=h59595ed_0
+  - pulseaudio-client=17.0=hb77b528_0
+  - snappy=1.1.10=h9fff704_0
+  - svt-av1=1.8.0=h59595ed_0
+  - tbb=2021.11.0=h00ab1b0_1
   - wayland=1.22.0=h8c25dac_1
-  - xkeyboard-config=2.40=hd590300_0
+  - x264=1!164.3095=h166bdaf_2
+  - x265=3.5=h924138e_3
+  - xkeyboard-config=2.41=hd590300_0
   - xorg-compositeproto=0.4.2=h7f98852_1001
   - xorg-damageproto=1.2.1=h7f98852_1002
   - xorg-fixesproto=5.0=h7f98852_1002
@@ -91,4 +147,4 @@ dependencies:
   - xz=5.2.6=h166bdaf_0
   - zlib=1.2.13=hd590300_5
   - zstd=1.5.5=hfc55251_0
-prefix: /home/valankar/miniforge3/envs/firefox
+prefix: /home/valankar-dev/miniforge3/envs/firefox

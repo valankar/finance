@@ -1,7 +1,8 @@
 #!/bin/bash
 
-rsync -av --delete --exclude={'web/','__pycache__'} $HOME/code/accounts/ debian:code/accounts/
-rsync -av --delete --exclude={'ledger.ledger','__pycache__'} --exclude 'prices.db' $HOME/code/ledger/ debian:code/ledger/
+HOST=valankar@debian
+rsync -av --delete --exclude={'web/','__pycache__'} $HOME/code/accounts/ $HOST:code/accounts/
+rsync -av --delete --exclude={'ledger.ledger','__pycache__'} --exclude 'prices.db' $HOME/code/ledger/ $HOST:code/ledger/
 
-rsync -av --delete debian:code/accounts/web/ $HOME/code/accounts/web/
-rsync -av debian:code/ledger/{ledger.ledger,prices.db} $HOME/code/ledger/
+rsync -av --delete $HOST:code/accounts/web/ $HOME/code/accounts/web/
+rsync -av $HOST:code/ledger/{ledger.ledger,prices.db} $HOME/code/ledger/

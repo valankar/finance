@@ -23,13 +23,6 @@ HOMES = [
     "Villa Maria",
 ]
 
-LEDGER_LOAN_BALANCE = (
-    f"{common.LEDGER_PREFIX} "
-    # pylint: disable-next=line-too-long
-    + r"""--limit 'commodity=~/^(\\$|CHF)/' reg \(^Assets:Investments:'Interactive Brokers' or ^Liabilities:'Charles Schwab PAL'\) -J"""
-)
-APY_OVER_SOFR = 1.52
-
 
 def add_hline_current(
     fig,
@@ -196,39 +189,6 @@ def make_real_estate_profit_bar_yearly(real_estate_df):
     return profit_bar
 
 
-def make_profit_bar(invret_df):
-    """Profit from cost basis."""
-    commodities_gold_cost_basis = common.load_float_from_text_file(
-        f"{common.PREFIX}commodities_gold_cost_basis.txt"
-    )
-    commodities_cost_basis = commodities_gold_cost_basis
-    commodities_profit = (
-        invret_df[["commodities"]].iloc[-1]["commodities"] - commodities_cost_basis
-    )
-    etfs_cost_basis = common.load_float_from_text_file(
-        f"{common.PREFIX}schwab_etfs_cost_basis.txt"
-    )
-    etfs_profit = invret_df[["etfs"]].iloc[-1]["etfs"] - etfs_cost_basis
-
-    values = [
-        commodities_profit,
-        etfs_profit,
-    ]
-    percent = [
-        commodities_profit / commodities_cost_basis * 100,
-        etfs_profit / etfs_cost_basis * 100,
-    ]
-    profit_bar = go.Figure(
-        go.Bar(
-            x=["Commodities", "ETFs"],
-            y=values,
-            marker_color=[COLOR_GREEN if x >= 0 else COLOR_RED for x in values],
-            text=[f"{Float(x):.2h}<br>{y:.2f}%" for x, y in zip(values, percent)],
-        )
-    )
-    return profit_bar
-
-
 def make_investing_allocation_section():
     """Make investing current and desired allocation pie graphs."""
     changes_section = make_subplots(
@@ -240,15 +200,22 @@ def make_investing_allocation_section():
         ),
         specs=[[{"type": "pie"}, {"type": "pie"}]],
     )
-    dataframe, _ = get_desired_df(0)
+    dataframe = get_desired_df(0)
 
     # Current allocation
-    labels = ["Bonds", "Commodities", "International Equities", "US Equities"]
+    labels = [
+        "US Large Cap",
+        "US Small Cap",
+        "US Bonds",
+        "International Equities",
+        "Commodities",
+    ]
     values = [
-        dataframe.loc["SWAGX"]["value"],
+        dataframe.loc["US_LARGE_CAP"]["value"],
+        dataframe.loc["US_SMALL_CAP"]["value"],
+        dataframe.loc["US_BONDS"]["value"],
+        dataframe.loc["INTERNATIONAL_EQUITIES"]["value"],
         dataframe.loc["COMMODITIES"]["value"],
-        dataframe.loc["SWISX"]["value"],
-        dataframe.loc["SWTSX"]["value"],
     ]
     pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
     for trace in pie_total.data:
@@ -256,11 +223,16 @@ def make_investing_allocation_section():
 
     # Desired allocation
     values = [
-        dataframe.loc["SWAGX"]["value"] + dataframe.loc["SWAGX"]["usd_to_reconcile"],
+        dataframe.loc["US_LARGE_CAP"]["value"]
+        + dataframe.loc["US_LARGE_CAP"]["usd_to_reconcile"],
+        dataframe.loc["US_SMALL_CAP"]["value"]
+        + dataframe.loc["US_SMALL_CAP"]["usd_to_reconcile"],
+        dataframe.loc["US_BONDS"]["value"]
+        + dataframe.loc["US_BONDS"]["usd_to_reconcile"],
+        dataframe.loc["INTERNATIONAL_EQUITIES"]["value"]
+        + dataframe.loc["INTERNATIONAL_EQUITIES"]["usd_to_reconcile"],
         dataframe.loc["COMMODITIES"]["value"]
         + dataframe.loc["COMMODITIES"]["usd_to_reconcile"],
-        dataframe.loc["SWISX"]["value"] + dataframe.loc["SWISX"]["usd_to_reconcile"],
-        dataframe.loc["SWTSX"]["value"] + dataframe.loc["SWTSX"]["usd_to_reconcile"],
     ]
     pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
     for trace in pie_total.data:
@@ -271,27 +243,29 @@ def make_investing_allocation_section():
     return changes_section
 
 
-def make_allocation_profit_section(daily_df, invret_df, real_estate_df):
+def make_allocation_profit_section(daily_df, real_estate_df):
     """Make asset allocation and day changes section."""
     changes_section = make_subplots(
         rows=2,
         cols=2,
         subplot_titles=(
             "Asset Allocation",
-            "Investing Profit or Loss (cost-based)",
             "Real Estate Change Since Purchase",
             "Real Estate Yearly Average Change Since Purchase",
         ),
-        specs=[[{"type": "pie"}, {"type": "xy"}], [{"type": "xy"}, {"type": "xy"}]],
+        specs=[[{"type": "pie", "colspan": 2}, None], [{"type": "xy"}, {"type": "xy"}]],
         vertical_spacing=0.07,
         horizontal_spacing=0.05,
     )
 
     # Pie chart breakdown of total
     labels = ["Investing", "Liquid", "Real Estate", "Retirement"]
+    liquid = daily_df.iloc[-1]["total_liquid"]
+    if liquid < 0:
+        liquid = 0
     values = [
         daily_df.iloc[-1]["total_investing"],
-        daily_df.iloc[-1]["total_liquid"],
+        liquid,
         daily_df.iloc[-1]["total_real_estate"],
         daily_df.iloc[-1]["total_retirement"],
     ]
@@ -300,8 +274,6 @@ def make_allocation_profit_section(daily_df, invret_df, real_estate_df):
     for trace in pie_total.data:
         changes_section.add_trace(trace, row=1, col=1)
 
-    for trace in make_profit_bar(invret_df).data:
-        changes_section.add_trace(trace, row=1, col=2)
     cols = [f"{home} Price" for home in HOMES]
     for home in cols:
         real_estate_df[f"{home} Percent Change"] = (
@@ -316,7 +288,6 @@ def make_allocation_profit_section(daily_df, invret_df, real_estate_df):
     changes_section.add_trace(
         make_real_estate_profit_bar_yearly(real_estate_df), row=2, col=2
     )
-    changes_section.update_yaxes(row=1, col=2, title_text="USD")
     changes_section.update_yaxes(row=2, col=1, title_text="USD")
     changes_section.update_traces(showlegend=False)
     changes_section.update_traces(
@@ -358,44 +329,91 @@ def make_interest_rate_section(interest_df):
     return fig
 
 
-def load_margin_loan_df():
+def load_margin_loan_df(ledger_loan_balance_cmd, ledger_balance_cmd):
     """Get dataframe of margin loan balance."""
-    balance_data = io.StringIO(
-        subprocess.check_output(LEDGER_LOAN_BALANCE, shell=True, text=True)
+    loan_balance_df = pd.read_csv(
+        io.StringIO(
+            subprocess.check_output(ledger_loan_balance_cmd, shell=True, text=True)
+        ),
+        sep=" ",
+        index_col=0,
+        parse_dates=True,
+        names=["date", "Loan Balance"],
     )
-    balance_df = pd.read_csv(
-        balance_data, sep=" ", index_col=0, parse_dates=True, names=["date", "balance"]
+    loan_balance_latest_df = pd.read_csv(
+        io.StringIO(
+            subprocess.check_output(
+                ledger_loan_balance_cmd.replace(" reg ", " bal "), shell=True, text=True
+            )
+        ),
+        sep=" ",
+        index_col=0,
+        parse_dates=True,
+        names=["date", "Loan Balance"],
     )
-    balance_df = balance_df[balance_df["balance"] <= 0]
-    return balance_df
+    loan_balance_df = pd.concat([loan_balance_df, loan_balance_latest_df])
+    loan_balance_df = loan_balance_df[loan_balance_df["Loan Balance"] <= 0]
+
+    equity_balance_df = pd.read_csv(
+        io.StringIO(subprocess.check_output(ledger_balance_cmd, shell=True, text=True)),
+        sep=" ",
+        index_col=0,
+        parse_dates=True,
+        names=["date", "Equity Balance"],
+    )
+    equity_balance_latest_df = pd.read_csv(
+        io.StringIO(
+            subprocess.check_output(
+                ledger_balance_cmd.replace(" reg ", " bal "), shell=True, text=True
+            )
+        ),
+        sep=" ",
+        index_col=0,
+        parse_dates=True,
+        names=["date", "Equity Balance"],
+    )
+    equity_balance_df = pd.concat([equity_balance_df, equity_balance_latest_df])
+
+    combined_df = pd.merge(
+        loan_balance_df.abs(),
+        equity_balance_df,
+        left_index=True,
+        right_index=True,
+        how="outer",
+    )
+    combined_df["30% Equity Balance"] = combined_df["Equity Balance"] * 0.3
+    return combined_df.resample("D").last().interpolate()
 
 
-def make_margin_loan_section(balance_df):
+def make_margin_loan_section(balance_df, title, apy_over_sofr, ledger_income_cmd):
     """Make margin loan section."""
-    fig = px.area(
+    fig = px.line(
         balance_df,
         x=balance_df.index,
         y=balance_df.columns,
-        title="Margin Loan",
-        line_shape="hv",
+        title=title,
     )
     fig.update_yaxes(title_text="USD")
     fig.update_xaxes(title_text="")
     sofr = amortize_pal.get_sofr()
-    apy = (sofr + APY_OVER_SOFR) / 100
-    monthly_investment_income = amortize_pal.get_monthly_investment_income()
-    max_loan = amortize_pal.get_max_loan(apy, 12, monthly_investment_income)
+    apy = (sofr + apy_over_sofr) / 100
+    monthly_investment_income = amortize_pal.get_monthly_investment_income(
+        income_cmd=ledger_income_cmd
+    )
+    max_loan = amortize_pal.get_max_loan_interest_only(
+        apy, 12, monthly_investment_income
+    )
     hline_label = (
-        f"Loan of ${max_loan:,} would result in 12 monthly payments "
+        f"Loan of ${max_loan:,} would result in monthly interest-only payment "
         f"of ${monthly_investment_income:,.0f} (dividend & interest income) at {apy*100:.2f}% APY"
-        f" ({sofr} (SOFR) + {APY_OVER_SOFR})"
+        f" ({sofr} (SOFR) + {apy_over_sofr})"
     )
     fig.add_hline(
-        y=-max_loan,
+        y=max_loan,
         annotation_text=hline_label,
         line_dash="dot",
         line_color="red",
-        annotation_position="top right",
+        annotation_position="top left",
     )
     return fig
 

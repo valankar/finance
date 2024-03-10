@@ -3,12 +3,13 @@
 
 import functools
 from functools import reduce
+import multiprocessing
+import os
 import shutil
 import sqlite3
 import tempfile
 import warnings
 from contextlib import contextmanager, closing
-from os import path
 from pathlib import Path
 
 import pandas as pd
@@ -39,6 +40,9 @@ LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
 GECKODRIVER = f"{Path.home()}/miniforge3/envs/firefox/bin/geckodriver"
 FIREFOX_BIN = f"{Path.home()}/miniforge3/envs/firefox/bin/firefox"
+FIREFOX_LIB = f"{Path.home()}/miniforge3/envs/firefox/lib"
+
+GET_TICKER_TIMEOUT = 30
 
 
 class GetTickerError(Exception):
@@ -53,8 +57,6 @@ def get_tickers(tickers: list) -> dict:
     return ticker_dict
 
 
-# Only call this method once per script run.
-@functools.cache
 def log_function_result(name, success, error_string=None):
     """Log the success or failure of a function."""
     to_sql(
@@ -66,7 +68,6 @@ def log_function_result(name, success, error_string=None):
     )
 
 
-@functools.cache
 def function_failed_last_day(name):
     """Determine whether function has failed in the last day."""
     with closing(sqlite3.connect(SQLITE3_URI_RO, uri=True)) as con:
@@ -84,23 +85,25 @@ def get_ticker(ticker):
     Failed methods are not retried until 1 day has passed.
     """
     get_ticker_methods = (
-        (get_ticker_yahooquery, Exception),
-        (get_ticker_yahoofinancials, Exception),
-        (get_ticker_yfinance, Exception),
-        (get_ticker_stockquotes, Exception),
-        (get_ticker_browser, NoSuchElementException),
+        get_ticker_yahooquery,
+        get_ticker_yahoofinancials,
+        get_ticker_yfinance,
+        get_ticker_stockquotes,
+        get_ticker_browser,
     )
-    for method, exc in get_ticker_methods:
+    for method in get_ticker_methods:
         name = method.__name__
         if function_failed_last_day(name):
             continue
-        try:
-            result = method(ticker)
-            log_function_result(name, True)
-            return result
-        # pylint: disable-next=broad-exception-caught
-        except exc as ex:
-            log_function_result(name, False, str(ex))
+        with multiprocessing.Pool(processes=1) as pool:
+            async_result = pool.apply_async(method, (ticker,))
+            try:
+                return async_result.get(timeout=GET_TICKER_TIMEOUT)
+            except multiprocessing.TimeoutError:
+                log_function_result(name, False, "Timeout")
+            # pylint: disable-next=broad-exception-caught
+            except Exception as ex:
+                log_function_result(name, False, str(ex))
     raise GetTickerError("No more methods to get ticker price")
 
 
@@ -304,7 +307,8 @@ def get_browser():
     opts = FirefoxOptions()
     opts.add_argument("--headless")
     opts.binary_location = FIREFOX_BIN
-    service = FirefoxService(log_path=path.devnull, executable_path=GECKODRIVER)
+    os.environ["LD_LIBRARY_PATH"] = FIREFOX_LIB
+    service = FirefoxService(log_path=os.path.devnull, executable_path=GECKODRIVER)
     browser = webdriver.Firefox(options=opts, service=service)
     return browser
 
@@ -355,3 +359,7 @@ def get_real_estate_df(frequency="daily"):
     rent_df.columns = rent_df.columns.get_level_values(1) + " Rent"
     rent_df.columns.name = "variable"
     return reduce_merge_asof([price_df, rent_df]).sort_index(axis=1).interpolate()
+
+
+if __name__ == "__main__":
+    print(f'{get_ticker("SWYGX")}')

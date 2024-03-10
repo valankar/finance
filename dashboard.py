@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Dash app."""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+import os
 
 import plotly.io as pio
-from cachetools.func import ttl_cache
 from dateutil.relativedelta import relativedelta
 from dash import (
     Dash,
@@ -18,12 +19,22 @@ from dash import (
     register_page,
 )
 
+import amortize_pal
 import common
 import i_and_e
 import plot
 
 INITIAL_TIMERANGE = "1y"
 SUBPLOT_MARGIN = {"l": 0, "r": 50, "b": 0, "t": 50}
+PORT = 8050
+DEV_PORT = 8051
+
+
+def call_with_args(args):
+    """Extract out function and arguments."""
+    if len(args) > 0:
+        return args[0](*args[1:])
+    return args[0]()
 
 
 def make_range_buttons(name):
@@ -82,7 +93,6 @@ def make_range_buttons(name):
     )
 
 
-@ttl_cache
 def load_all_df(frequency):
     """Load all dataframe."""
     return common.read_sql_table_resampled_last(
@@ -90,13 +100,11 @@ def load_all_df(frequency):
     )
 
 
-@ttl_cache
 def load_invret_df(frequency):
     """Load investing & retirement dataframe."""
     return plot.get_investing_retirement_df(load_all_df(frequency))
 
 
-@ttl_cache
 def load_real_estate_df(frequency):
     """Load real estate dataframe."""
     # Fix issue with missing datapoints.
@@ -115,7 +123,6 @@ def load_real_estate_df(frequency):
     )
 
 
-@ttl_cache
 def load_prices_df(frequency):
     """Load prices dataframe."""
     return common.reduce_merge_asof(
@@ -128,7 +135,6 @@ def load_prices_df(frequency):
     )
 
 
-@ttl_cache
 def load_interest_rate_df(frequency):
     """Load interest rate dataframe."""
     return plot.get_interest_rate_df(frequency)
@@ -214,7 +220,6 @@ def make_allocation_profit_section(selected_range):
     frequency = get_frequency(selected_range)
     return plot.make_allocation_profit_section(
         load_all_df(frequency),
-        load_invret_df(frequency),
         load_real_estate_df(frequency),
     )
 
@@ -244,67 +249,74 @@ def make_interest_rate_section(selected_range):
     )
 
 
-def make_margin_loan_section(selected_range):
-    """Make margin loan section."""
-    balance_df = plot.load_margin_loan_df()
-    start, end = get_xrange(balance_df, selected_range)
-    return plot.make_margin_loan_section(balance_df[start:end]).update_layout(
-        margin=SUBPLOT_MARGIN
+def make_ibkr_margin_loan_section(selected_range):
+    """Make Interactive Brokers margin loan section."""
+    balance_df = plot.load_margin_loan_df(
+        ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_IBKR,
+        ledger_balance_cmd=amortize_pal.LEDGER_BALANCE_HISTORY_IBKR,
     )
+    start, end = get_xrange(balance_df, selected_range)
+    return plot.make_margin_loan_section(
+        balance_df[start:end],
+        "Interactive Brokers Margin Loan",
+        amortize_pal.APY_OVER_SOFR_IBKR,
+        amortize_pal.LEDGER_INCOME_IBKR_CMD,
+    ).update_layout(margin=SUBPLOT_MARGIN)
+
+
+def make_schwab_margin_loan_section(selected_range):
+    """Make Charles Schwab margin loan section."""
+    balance_df = plot.load_margin_loan_df(
+        ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_SCHWAB,
+        ledger_balance_cmd=amortize_pal.LEDGER_BALANCE_HISTORY_SCHWAB,
+    )
+    start, end = get_xrange(balance_df, selected_range)
+    return plot.make_margin_loan_section(
+        balance_df[start:end],
+        "Charles Schwab PAL Loan",
+        amortize_pal.APY_OVER_SOFR_SCHWAB,
+        amortize_pal.LEDGER_INCOME_SCHWAB_CMD,
+    ).update_layout(margin=SUBPLOT_MARGIN)
 
 
 def i_and_e_layout():
     """Income & Expenses page layout."""
     ledger_df, ledger_summarized_df = i_and_e.get_ledger_dataframes()
-    return html.Div(
-        [
-            dcc.Graph(
-                figure=i_and_e.get_income_expense_yearly_chart(ledger_summarized_df)
-            ),
-            dcc.Graph(
-                figure=i_and_e.get_yearly_chart(
-                    ledger_summarized_df, "Income", "Yearly Income"
-                )
-            ),
-            dcc.Graph(
-                figure=i_and_e.get_yearly_chart(
-                    ledger_summarized_df, "Expenses", "Yearly Expenses"
-                )
-            ),
-            dcc.Graph(
-                figure=i_and_e.get_yearly_chart(
-                    ledger_df, "Expenses", "Yearly Expenses Categorized"
-                )
-            ),
-            dcc.Graph(
-                figure=i_and_e.get_income_expense_monthly_chart(ledger_summarized_df)
-            ),
-            dcc.Graph(
-                figure=i_and_e.get_monthly_chart(
-                    ledger_summarized_df, "Income", "Monthly Income"
-                )
-            ),
-            dcc.Graph(
-                figure=i_and_e.get_monthly_chart(
-                    ledger_summarized_df, "Expenses", "Monthly Expenses"
-                )
-            ),
-            dcc.Graph(
-                figure=i_and_e.get_monthly_chart(
-                    ledger_df, "Income", "Monthly Income Categorized"
-                )
-            ),
-            dcc.Graph(
-                figure=i_and_e.get_monthly_chart(
-                    ledger_df, "Expenses", "Monthly Expenses Categorized"
-                )
-            ),
-            dcc.Graph(
-                figure=i_and_e.get_average_monthly_income_expenses_chart(ledger_df)
-            ),
-            dcc.Graph(figure=i_and_e.get_average_monthly_top_expenses(ledger_df)),
-        ]
+    call_list = (
+        (i_and_e.get_income_expense_yearly_chart, ledger_summarized_df),
+        (i_and_e.get_yearly_chart, ledger_summarized_df, "Income", "Yearly Income"),
+        (i_and_e.get_yearly_chart, ledger_summarized_df, "Expenses", "Yearly Expenses"),
+        (
+            i_and_e.get_yearly_chart,
+            ledger_df,
+            "Expenses",
+            "Yearly Expenses Categorized",
+        ),
+        (i_and_e.get_income_expense_monthly_chart, ledger_summarized_df),
+        (i_and_e.get_monthly_chart, ledger_summarized_df, "Income", "Monthly Income"),
+        (
+            i_and_e.get_monthly_chart,
+            ledger_summarized_df,
+            "Expenses",
+            "Monthly Expenses",
+        ),
+        (i_and_e.get_monthly_chart, ledger_df, "Income", "Monthly Income Categorized"),
+        (
+            i_and_e.get_monthly_chart,
+            ledger_df,
+            "Expenses",
+            "Monthly Expenses Categorized",
+        ),
+        (i_and_e.get_average_monthly_income_expenses_chart, ledger_df),
+        (i_and_e.get_average_monthly_top_expenses, ledger_df),
     )
+
+    def make_graph(args):
+        return dcc.Graph(figure=call_with_args(args))
+
+    with ThreadPoolExecutor() as pool:
+        graphs = pool.map(make_graph, call_list)
+        return html.Div(list(graphs))
 
 
 def home_layout():
@@ -355,7 +367,11 @@ def home_layout():
             ),
             make_range_buttons("timerange_prices"),
             dcc.Graph(
-                id="margin_loan",
+                id="ibkr_margin_loan",
+                style={**graph_style_width, **{"height": "40vh"}},
+            ),
+            dcc.Graph(
+                id="schwab_margin_loan",
                 style={**graph_style_width, **{"height": "40vh"}},
             ),
             dcc.Interval(id="refresh", interval=10 * 60 * 1000),
@@ -375,7 +391,8 @@ def home_layout():
     Output("investing_allocation", "figure"),
     Output("prices", "figure"),
     Output("yield", "figure"),
-    Output("margin_loan", "figure"),
+    Output("ibkr_margin_loan", "figure"),
+    Output("schwab_margin_loan", "figure"),
     Output("maindiv", "style"),
     Output("timerange_assets", "value"),
     Output("timerange_invret", "value"),
@@ -387,7 +404,6 @@ def home_layout():
     Input("timerange_prices", "value"),
     Input("refresh", "n_intervals"),
 )
-@ttl_cache
 def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _):
     """Update graphs based on time selection."""
     match ctx.triggered_id:
@@ -402,22 +418,32 @@ def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _
         case _:
             selected_range = assets_value
 
-    return (
-        make_assets_section(selected_range),
-        make_invret_section(selected_range),
-        make_real_estate_section(selected_range),
-        make_allocation_profit_section(selected_range),
-        make_change_section(selected_range, "total", "Total Net Worth Change"),
-        make_change_section(
-            selected_range, "total_no_homes", "Total Net Worth Change w/o Real Estate"
+    call_list = (
+        (make_assets_section, selected_range),
+        (make_invret_section, selected_range),
+        (make_real_estate_section, selected_range),
+        (make_allocation_profit_section, selected_range),
+        (make_change_section, selected_range, "total", "Total Net Worth Change"),
+        (
+            make_change_section,
+            selected_range,
+            "total_no_homes",
+            "Total Net Worth Change w/o Real Estate",
         ),
-        plot.make_investing_allocation_section(),
-        make_prices_section(selected_range),
-        make_interest_rate_section(selected_range),
-        make_margin_loan_section(selected_range),
-        {"visibility": "visible"},
-        *[selected_range] * 4,
+        (plot.make_investing_allocation_section,),
+        (make_prices_section, selected_range),
+        (make_interest_rate_section, selected_range),
+        (make_ibkr_margin_loan_section, selected_range),
+        (make_schwab_margin_loan_section, selected_range),
     )
+
+    with ThreadPoolExecutor() as pool:
+        results = pool.map(call_with_args, call_list)
+        return (
+            *results,
+            {"visibility": "visible"},
+            *[selected_range] * 4,
+        )
 
 
 pio.templates.default = "plotly_dark"
@@ -438,4 +464,7 @@ app.layout = page_container
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port="8050")
+    USE_PORT = PORT
+    if os.getenv("USER") == "valankar-dev":
+        USE_PORT = DEV_PORT
+    app.run(debug=True, host="0.0.0.0", port=USE_PORT)
