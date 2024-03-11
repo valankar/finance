@@ -114,8 +114,10 @@ def get_ticker_browser(ticker):
     def execute_before(browser):
         # First look for accept cookies dialog.
         try:
-            browser.find_element(By.ID, "scroll-down-btn").click()
-            browser.find_element(By.XPATH, '//button[text()="Accept all"]').click()
+            browser.find_element(By.XPATH, '//*[@id="scroll-down-btn"]').click()
+            browser.find_element(
+                By.XPATH, "/html/body/div/div/div/div/form/div[2]/div[2]/button[1]"
+            ).click()
         except NoSuchElementException:
             pass
 

@@ -7,7 +7,7 @@ services:
       - ${HOME}/code/accounts:/home/valankar/code/accounts
       - ${HOME}/code/ledger:/home/valankar/code/ledger
     ports:
-      - 8050:8050
+      - 127.0.0.1:8050:8050
     labels:
       com.centurylinklabs.watchtower.enable: false
     restart: unless-stopped
