@@ -16,7 +16,7 @@ LEDGER_COMMODITIES_CMD = (
     f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Investments:Precious Metals"'
 )
 LEDGER_ETFS_CMD = (
-    f'{common.LEDGER_PREFIX} --limit "commodity=~/^(SCH|SW|IBKR)/" -J -n bal '
+    f'{common.LEDGER_PREFIX} --limit "commodity=~/^(SCH|SW|GLD|IBKR)/" -J -n bal '
     '^"Assets:Investments:.*Broker.*"'
 )
 LEDGER_IRA_CMD = (

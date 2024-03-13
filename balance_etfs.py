@@ -16,18 +16,20 @@ BIRTHDAY = date(1975, 2, 28)
 # Modeled from:
 # https://www.morningstar.com/etfs/arcx/vt/portfolio
 DESIRED_ALLOCATION = {
-    "US_EQUITIES": 60,  # US equities, split up into US_EQUITIES_ALLOCATION
+    "US_EQUITIES": 60,  # US equities, split up into US_SMALL_CAP and US_LARGE_CAP.
     "INTERNATIONAL_EQUITIES": 40,  # International equities
     "US_BONDS": 0,  # Bonds/Fixed Income, replaced with (age - 15)
     "COMMODITIES": 7,  # Bonds are further reduced by this to make room
 }
 ETF_TYPE_MAP = {
+    "COMMODITIES": ["GLDM"],
     "US_SMALL_CAP": ["SCHA"],
     "US_LARGE_CAP": ["SCHX"],
     "US_BONDS": ["SCHO", "SCHR", "SCHZ", "SWAGX"],
     "INTERNATIONAL_EQUITIES": ["SCHE", "SCHF", "SWISX"],
 }
-# These get expanded out into US_SMALL_CAP and US_LARGE_CAP according to US_EQUITIES_ALLOCATION.
+# These get expanded out into US_SMALL_CAP and US_LARGE_CAP according to allocation
+# of SWTSX.
 TOTAL_MARKET_FUNDS = ["SWTSX", "SCHB"]
 
 
@@ -61,8 +63,8 @@ def age_adjustment(allocation):
     return allocation
 
 
-def convert_ira_to_mutual_funds(ira_df):
-    """Convert SWYGX to mutual funds in 3-fund portfolio."""
+def convert_ira_to_types(ira_df):
+    """Convert SWYGX to types/categories."""
     holdings = common.read_sql_table_resampled_last("swygx_holdings").iloc[-1]
     for etf_type, etfs in ETF_TYPE_MAP.items():
         ira_df.loc[etf_type] = (
@@ -73,8 +75,8 @@ def convert_ira_to_mutual_funds(ira_df):
     return ira_df.loc[ETF_TYPE_MAP.keys()]
 
 
-def convert_etfs_to_mutual_funds(etfs_df):
-    """Convert ETFs to mutual funds in 3-fund portfolio."""
+def convert_etfs_to_types(etfs_df):
+    """Convert ETFs to types/categories."""
     for etf_type, etfs in ETF_TYPE_MAP.items():
         etfs_df.loc[etf_type] = sum(
             etfs_df.loc[etfs_df.index.intersection(etfs)]["value"].fillna(0)
@@ -106,30 +108,43 @@ def get_desired_df(amount):
         .dropna()
     ).fillna(0)
     wanted_df = pd.DataFrame({"wanted_percent": pd.Series(desired_allocation)})
-    mf_df = convert_etfs_to_mutual_funds(etfs_df) + convert_ira_to_mutual_funds(ira_df)
-    mf_df.loc["COMMODITIES"] = commodities_df.sum()
+    mf_df = convert_etfs_to_types(etfs_df) + convert_ira_to_types(ira_df)
+    mf_df.loc["COMMODITIES"] += commodities_df.sum()
     total = mf_df["value"].sum()
     mf_df["current_percent"] = (mf_df["value"] / total) * 100
     mf_df = mf_df.join(wanted_df, how="outer").fillna(0).sort_index()
     return reconcile(mf_df, amount, total)
 
 
-def get_buy_only_df(allocation_df, amount):
-    """Get an allocation dataframe that only involves buying and not selling.
+def get_common_only_df(allocation_df, clipped_df, amount, xact):
+    """Common function for only buying or selling.
 
     See https://arxiv.org/pdf/2305.12274.pdf. This is the l1 adjustment.
     """
-    if len(allocation_df[allocation_df["usd_to_reconcile"] < 0]) == 0:
-        return allocation_df
-    clipped_df = allocation_df.clip(lower=0)
-    allocation_df["buy_only"] = clipped_df["usd_to_reconcile"] * (
+    allocation_df[f"{xact}_only"] = clipped_df["usd_to_reconcile"] * (
         amount / clipped_df["usd_to_reconcile"].sum()
     )
-    allocation_df["percent_after_buy_only"] = (
-        (allocation_df["value"] + allocation_df["buy_only"])
-        / (allocation_df["value"].sum() + allocation_df["buy_only"].sum())
+    allocation_df[f"percent_after_{xact}_only"] = (
+        (allocation_df["value"] + allocation_df[f"{xact}_only"])
+        / (allocation_df["value"].sum() + allocation_df[f"{xact}_only"].sum())
     ) * 100
     return allocation_df.round(2)
+
+
+def get_buy_only_df(allocation_df, amount):
+    """Get an allocation dataframe that only involves buying and not selling."""
+    if len(allocation_df[allocation_df["usd_to_reconcile"] < 0]) == 0:
+        return allocation_df
+    return get_common_only_df(allocation_df, allocation_df.clip(lower=0), amount, "buy")
+
+
+def get_sell_only_df(allocation_df, amount):
+    """Get an allocation dataframe that only involves selling and not buying."""
+    if len(allocation_df[allocation_df["usd_to_reconcile"] > 0]) == 0:
+        return allocation_df
+    return get_common_only_df(
+        allocation_df, allocation_df.clip(upper=0), amount, "sell"
+    )
 
 
 def main():
@@ -140,6 +155,8 @@ def main():
     allocation_df = get_desired_df(amount)
     if amount > 0:
         allocation_df = get_buy_only_df(allocation_df, amount)
+    elif amount < 0:
+        allocation_df = get_sell_only_df(allocation_df, amount)
     print(allocation_df)
 
 

@@ -31,7 +31,7 @@ LEDGER_LOAN_BALANCE_HISTORY_IBKR = (
 )
 LEDGER_BALANCE_HISTORY_IBKR = (
     f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^(IB|SCH)/' -J -E reg ^Assets:Investments:'Interactive Brokers'"""
+    + r"""--limit 'commodity=~/^(IB|SCH|GLD)/' -J -E reg ^Assets:Investments:'Interactive Brokers'"""
 )
 LEDGER_LOAN_BALANCE_HISTORY_SCHWAB = (
     f"{common.LEDGER_PREFIX} "
