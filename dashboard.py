@@ -259,23 +259,6 @@ def make_ibkr_margin_loan_section(selected_range):
     return plot.make_margin_loan_section(
         balance_df[start:end],
         "Interactive Brokers Margin Loan",
-        amortize_pal.APY_OVER_SOFR_IBKR,
-        amortize_pal.LEDGER_INCOME_IBKR_CMD,
-    ).update_layout(margin=SUBPLOT_MARGIN)
-
-
-def make_schwab_margin_loan_section(selected_range):
-    """Make Charles Schwab margin loan section."""
-    balance_df = plot.load_margin_loan_df(
-        ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_SCHWAB,
-        ledger_balance_cmd=amortize_pal.LEDGER_BALANCE_HISTORY_SCHWAB,
-    )
-    start, end = get_xrange(balance_df, selected_range)
-    return plot.make_margin_loan_section(
-        balance_df[start:end],
-        "Charles Schwab PAL Loan",
-        amortize_pal.APY_OVER_SOFR_SCHWAB,
-        amortize_pal.LEDGER_INCOME_SCHWAB_CMD,
     ).update_layout(margin=SUBPLOT_MARGIN)
 
 
@@ -368,11 +351,11 @@ def home_layout():
             make_range_buttons("timerange_prices"),
             dcc.Graph(
                 id="ibkr_margin_loan",
-                style={**graph_style_width, **{"height": "40vh"}},
+                style=graph_style_half,
             ),
             dcc.Graph(
-                id="schwab_margin_loan",
-                style={**graph_style_width, **{"height": "40vh"}},
+                id="margin_comparison",
+                style=graph_style_half,
             ),
             dcc.Interval(id="refresh", interval=10 * 60 * 1000),
         ],
@@ -392,7 +375,7 @@ def home_layout():
     Output("prices", "figure"),
     Output("yield", "figure"),
     Output("ibkr_margin_loan", "figure"),
-    Output("schwab_margin_loan", "figure"),
+    Output("margin_comparison", "figure"),
     Output("maindiv", "style"),
     Output("timerange_assets", "value"),
     Output("timerange_invret", "value"),
@@ -434,7 +417,7 @@ def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _
         (make_prices_section, selected_range),
         (make_interest_rate_section, selected_range),
         (make_ibkr_margin_loan_section, selected_range),
-        (make_schwab_margin_loan_section, selected_range),
+        (plot.make_margin_comparison_chart,),
     )
 
     with ThreadPoolExecutor() as pool:
@@ -450,7 +433,6 @@ pio.templates.default = "plotly_dark"
 app = Dash(
     __name__,
     title="Accounts",
-    url_base_pathname="/accounts_plotly/",
     use_pages=True,
     pages_folder="",
     serve_locally=False,
@@ -461,6 +443,12 @@ register_page(
     "i_and_e", title="Income & Expenses", path="/i_and_e", layout=i_and_e_layout
 )
 app.layout = page_container
+
+
+@app.server.route("/health")
+def health():
+    """Healthcheck for docker."""
+    return "ok"
 
 
 if __name__ == "__main__":

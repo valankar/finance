@@ -11,8 +11,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from prefixed import Float
 
-import amortize_pal
 import common
+import i_and_e
+import margin_interest
 from balance_etfs import get_desired_df
 
 COLOR_GREEN = "DarkGreen"
@@ -322,14 +323,43 @@ def make_prices_section(prices_df):
 def make_interest_rate_section(interest_df):
     """Make interest rate section."""
     fig = px.line(
-        interest_df, x=interest_df.index, y=interest_df.columns, title="Interest Rates"
+        interest_df,
+        x=interest_df.index,
+        y=interest_df.columns,
+        title="Interest Rates",
     )
     fig.update_yaxes(title_text="Percent")
     fig.update_xaxes(title_text="")
     return fig
 
 
-def load_margin_loan_df(ledger_loan_balance_cmd, ledger_balance_cmd):
+def load_ledger_equity_balance_df(ledger_balance_cmd):
+    """Get dataframe of equity balance."""
+    equity_balance_df = pd.read_csv(
+        io.StringIO(subprocess.check_output(ledger_balance_cmd, shell=True, text=True)),
+        sep=" ",
+        index_col=0,
+        parse_dates=True,
+        names=["date", "Equity Balance"],
+    )
+    equity_balance_latest_df = pd.read_csv(
+        io.StringIO(
+            subprocess.check_output(
+                ledger_balance_cmd.replace(" reg ", " bal "), shell=True, text=True
+            )
+        ),
+        sep=" ",
+        index_col=0,
+        parse_dates=True,
+        names=["date", "Equity Balance"],
+    )
+    equity_balance_df = pd.concat([equity_balance_df, equity_balance_latest_df])
+    equity_balance_df["30% Equity Balance"] = equity_balance_df["Equity Balance"] * 0.3
+    equity_balance_df["50% Equity Balance"] = equity_balance_df["Equity Balance"] * 0.5
+    return equity_balance_df
+
+
+def load_loan_balance_df(ledger_loan_balance_cmd):
     """Get dataframe of margin loan balance."""
     loan_balance_df = pd.read_csv(
         io.StringIO(
@@ -352,40 +382,27 @@ def load_margin_loan_df(ledger_loan_balance_cmd, ledger_balance_cmd):
         names=["date", "Loan Balance"],
     )
     loan_balance_df = pd.concat([loan_balance_df, loan_balance_latest_df])
-    loan_balance_df = loan_balance_df[loan_balance_df["Loan Balance"] <= 0]
-
-    equity_balance_df = pd.read_csv(
-        io.StringIO(subprocess.check_output(ledger_balance_cmd, shell=True, text=True)),
-        sep=" ",
-        index_col=0,
-        parse_dates=True,
-        names=["date", "Equity Balance"],
-    )
-    equity_balance_latest_df = pd.read_csv(
-        io.StringIO(
-            subprocess.check_output(
-                ledger_balance_cmd.replace(" reg ", " bal "), shell=True, text=True
-            )
-        ),
-        sep=" ",
-        index_col=0,
-        parse_dates=True,
-        names=["date", "Equity Balance"],
-    )
-    equity_balance_df = pd.concat([equity_balance_df, equity_balance_latest_df])
-
-    combined_df = pd.merge(
-        loan_balance_df.abs(),
-        equity_balance_df,
-        left_index=True,
-        right_index=True,
-        how="outer",
-    )
-    combined_df["30% Equity Balance"] = combined_df["Equity Balance"] * 0.3
-    return combined_df.resample("D").last().interpolate()
+    loan_balance_df.loc[loan_balance_df["Loan Balance"] > 0, "Loan Balance"] = 0
+    return loan_balance_df
 
 
-def make_margin_loan_section(balance_df, title, apy_over_sofr, ledger_income_cmd):
+def load_margin_loan_df(ledger_loan_balance_cmd, ledger_balance_cmd):
+    """Get dataframe of margin loan balance with equity balance."""
+    loan_balance_df = load_loan_balance_df(ledger_loan_balance_cmd)
+    equity_balance_df = load_ledger_equity_balance_df(ledger_balance_cmd)
+    combined_df = equity_balance_df
+    if len(loan_balance_df) > 0:
+        combined_df = pd.merge(
+            loan_balance_df.abs(),
+            equity_balance_df,
+            left_index=True,
+            right_index=True,
+            how="outer",
+        )
+    return combined_df.resample("D").last().interpolate().fillna(0)
+
+
+def make_margin_loan_section(balance_df, title):
     """Make margin loan section."""
     fig = px.line(
         balance_df,
@@ -395,26 +412,6 @@ def make_margin_loan_section(balance_df, title, apy_over_sofr, ledger_income_cmd
     )
     fig.update_yaxes(title_text="USD")
     fig.update_xaxes(title_text="")
-    sofr = amortize_pal.get_sofr()
-    apy = (sofr + apy_over_sofr) / 100
-    monthly_investment_income = amortize_pal.get_monthly_investment_income(
-        income_cmd=ledger_income_cmd
-    )
-    max_loan = amortize_pal.get_max_loan_interest_only(
-        apy, 12, monthly_investment_income
-    )
-    hline_label = (
-        f"Loan of ${max_loan:,} would result in monthly interest-only payment "
-        f"of ${monthly_investment_income:,.0f} (dividend & interest income) at {apy*100:.2f}% APY"
-        f" ({sofr} (SOFR) + {apy_over_sofr})"
-    )
-    fig.add_hline(
-        y=max_loan,
-        annotation_text=hline_label,
-        line_dash="dot",
-        line_color="red",
-        annotation_position="top left",
-    )
     return fig
 
 
@@ -459,6 +456,20 @@ def make_total_bar_yoy(daily_df, column):
     return yearly_bar
 
 
+def make_margin_comparison_chart():
+    """Make margin comparison secion."""
+    dataframe = margin_interest.interest_comparison_df().abs()
+    chart = px.histogram(
+        dataframe,
+        x=dataframe.index,
+        y=dataframe.columns,
+        barmode="group",
+        title="IBKR Forex Margin Interest Comparison",
+    )
+    i_and_e.configure_monthly_chart(chart)
+    return chart
+
+
 def get_interest_rate_df(frequency):
     """Merge interest rate data."""
     fedfunds_df = common.load_sqlite_and_rename_col(
@@ -475,6 +486,11 @@ def get_interest_rate_df(frequency):
         rename_cols={"percent": "Wealthfront Cash"},
         frequency=frequency,
     )
+    ibkr_df = common.load_sqlite_and_rename_col(
+        "interactive_brokers_margin_rates",
+        rename_cols={"USD": "USD IBKR Margin", "CHF": "CHF IBKR Margin"},
+        frequency=frequency,
+    )
     merged = reduce(
         lambda l, r: pd.merge(l, r, left_index=True, right_index=True, how="outer"),
         [
@@ -482,6 +498,7 @@ def get_interest_rate_df(frequency):
             sofr_df,
             swvxx_df,
             wealthfront_df,
+            ibkr_df,
         ],
     )
-    return merged[sorted(merged.columns)].interpolate()
+    return merged.interpolate()

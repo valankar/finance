@@ -5,19 +5,19 @@ import pandas as pd
 
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 
 import common
-import schwab_ira
 
 
 def browser_execute_before(browser):
     """Click into portfolio section to get market cap weightings."""
     # Click popup that sometimes appears
-    schwab_ira.browser_execute_before(browser)
+    common.schwab_browser_execute_before(browser)
     try:
         WebDriverWait(browser, timeout=30).until(
-            lambda d: d.find_element(By.XPATH, '//*[@id="portfolio"]/h2')
+            EC.element_to_be_clickable((By.XPATH, '//*[@id="portfolio"]/h2'))
         ).click()
     except TimeoutException:
         pass
@@ -34,16 +34,25 @@ def save_market_cap():
         "https://www.schwabassetmanagement.com/products/swtsx",
         '//*[@id="marketcap"]',
         execute_before=browser_execute_before,
-    ).split("\n")[-10:]
+    ).split("\n")
     # Example:
-    # pylint: disable-next=line-too-long
-    # ['<$1,000 M', '0.87%', '$1,000-$3,000 M', '2.15%', '$3,000-$15,000 M', '10.10%', '$15,000-$70,000 M', '22.00%', '> $70,000 M', '64.88%']
+    # pylint: disable=line-too-long
+    # ['Market Cap', '03/31/2024', 'Market Cap Percent of Portfolio (%)', '<$1,000 M', '0.78%', '$1,000-$3,000 M', '1.95%', '$3,000-$15,000 M', '9.15%', '$15,000-$70,000 M', '20.83%', '> $70,000 M', '67.28%', '[N/A]', '0.01%']
+    table_dict = dict(zip(table_list[1::2], table_list[2::2]))
+    # {'03/31/2024': 'Market Cap Percent of Portfolio (%)', '<$1,000 M': '0.78%', '$1,000-$3,000 M': '1.95%', '$3,000-$15,000 M': '9.15%', '$15,000-$70,000 M': '20.83%', '> $70,000 M': '67.28%', '[N/A]': '0.01%'}
     market_cap_dict = {}
+    # For determining large vs small cap, compare:
+    # https://www.schwabassetmanagement.com/products/scha
+    # https://www.schwabassetmanagement.com/products/swtsx
     market_cap_dict["US_LARGE_CAP"] = reduce_sum_percents(
-        [table_list[-1], table_list[-3]]
+        [table_dict["> $70,000 M"], table_dict["$15,000-$70,000 M"]]
     )
     market_cap_dict["US_SMALL_CAP"] = reduce_sum_percents(
-        [table_list[-5], table_list[-7], table_list[-9]]
+        [
+            table_dict["<$1,000 M"],
+            table_dict["$1,000-$3,000 M"],
+            table_dict["$3,000-$15,000 M"],
+        ]
     )
     market_cap_df = pd.DataFrame(
         market_cap_dict,

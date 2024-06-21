@@ -1,13 +1,18 @@
 services:
   accounts:
-    image: accounts_mambaforge:latest
+    image: accounts_mambaforge:1.2
     container_name: accounts
     user: 1000:1000
     volumes:
       - ${HOME}/code/accounts:/home/valankar/code/accounts
       - ${HOME}/code/ledger:/home/valankar/code/ledger
-    ports:
-      - 127.0.0.1:8050:8050
     labels:
-      com.centurylinklabs.watchtower.enable: false
+      com.centurylinklabs.watchtower.no-pull: true
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8050/health" ]
+
+networks:
+  default:
+    name: cloudflare
+    external: true

@@ -2,14 +2,15 @@
 """Common functions."""
 
 import functools
-from functools import reduce
 import multiprocessing
 import os
 import shutil
 import sqlite3
 import tempfile
+import time
 import warnings
-from contextlib import contextmanager, closing
+from contextlib import closing, contextmanager
+from functools import reduce
 from pathlib import Path
 
 import pandas as pd
@@ -17,12 +18,16 @@ import stockquotes
 import yahoofinancials
 import yahooquery
 import yfinance
-from retry import retry
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import (
+    ElementNotInteractableException,
+    NoSuchElementException,
+    TimeoutException,
+)
 from selenium.webdriver import FirefoxOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 from sqlalchemy import create_engine
 from sqlalchemy import text as sqlalchemy_text
@@ -280,8 +285,27 @@ def temporary_file_move(dest_file):
     shutil.move(write_file.name, dest_file)
 
 
+def schwab_browser_execute_before(browser):
+    """Click popup that sometimes appears."""
+    try:
+        WebDriverWait(browser, timeout=30).until(
+            EC.element_to_be_clickable(
+                (By.PARTIAL_LINK_TEXT, "Continue with a limited")
+            )
+        ).click()
+        # Accept cookies
+        time.sleep(30)
+        WebDriverWait(browser, timeout=30).until(
+            EC.element_to_be_clickable(
+                (By.XPATH, '//*[@id="onetrust-accept-btn-handler"]')
+            )
+        ).click()
+        time.sleep(30)
+    except (TimeoutException, ElementNotInteractableException):
+        pass
+
+
 @functools.cache
-@retry(TimeoutException, delay=30, tries=4)
 def find_xpath_via_browser(url, xpath, execute_before=None):
     """Find XPATH via Selenium with retries. Returns text of element.
 
@@ -297,7 +321,7 @@ def find_xpath_via_browser(url, xpath, execute_before=None):
             return WebDriverWait(browser, timeout=30).until(
                 lambda d: d.find_element(By.XPATH, xpath).text
             )
-        except TimeoutException:
+        except (TimeoutException, ElementNotInteractableException):
             browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
             raise
     finally:

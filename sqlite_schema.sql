@@ -128,3 +128,9 @@ CREATE TABLE sofr (
 	percent FLOAT
 );
 CREATE INDEX ix_sofr_date ON sofr (date);
+CREATE TABLE interactive_brokers_margin_rates (
+	date DATETIME, 
+	"USD" FLOAT, 
+	"CHF" FLOAT
+);
+CREATE INDEX ix_interactive_brokers_margin_rates_date ON interactive_brokers_margin_rates (date);

@@ -35,6 +35,7 @@ TOTAL_MARKET_FUNDS = ["SWTSX", "SCHB"]
 
 def reconcile(etfs_df, amount, total):
     """Add reconciliation column."""
+    etfs_df["diff_percent"] = etfs_df["wanted_percent"] - etfs_df["current_percent"]
     etfs_df["usd_to_reconcile"] = (amount * (etfs_df["wanted_percent"] / 100)) + (
         ((etfs_df["wanted_percent"] / 100) * total) - etfs_df["value"]
     )
@@ -98,7 +99,7 @@ def get_desired_df(amount):
     desired_allocation = age_adjustment(DESIRED_ALLOCATION)
     if (s := round(sum(desired_allocation.values()))) != 100:
         print(f"Sum of percents {s} != 100")
-        return
+        return None
 
     etfs_df = pd.read_csv(ETFS_PATH, index_col=0, usecols=["ticker", "value"]).fillna(0)
     ira_df = pd.read_csv(IRA_PATH, index_col=0, usecols=["ticker", "value"]).fillna(0)

@@ -18,6 +18,7 @@ APY_OVER_SOFR_IBKR = 1.53
 # How long to amortize over.
 MONTHS = 12
 
+# pylint: disable=line-too-long
 # Ledger command to get monthly investment income.
 LEDGER_INCOME_BASE_CMD = (
     f"{common.LEDGER_PREFIX} -D -n -A -b '2023' --tail 1 -J register"
@@ -27,19 +28,11 @@ LEDGER_INCOME_SCHWAB_CMD = f"{LEDGER_INCOME_ALL_CMD} and payee Schwab"
 LEDGER_INCOME_IBKR_CMD = f"{LEDGER_INCOME_ALL_CMD} and payee Interactive"
 LEDGER_LOAN_BALANCE_HISTORY_IBKR = (
     f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^(\\$|CHF)/' -J -E reg ^Assets:Investments:'Interactive Brokers'"""
+    + r"""--limit 'commodity=~/^(\\$|CHF|"SPX)/' -J -E reg ^Assets:Investments:'Interactive Brokers'"""
 )
 LEDGER_BALANCE_HISTORY_IBKR = (
     f"{common.LEDGER_PREFIX} "
     + r"""--limit 'commodity=~/^(IB|SCH|GLD)/' -J -E reg ^Assets:Investments:'Interactive Brokers'"""
-)
-LEDGER_LOAN_BALANCE_HISTORY_SCHWAB = (
-    f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^\\$/' -J -E reg ^Liabilities:'Charles Schwab PAL'"""
-)
-LEDGER_BALANCE_HISTORY_SCHWAB = (
-    f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^(SCH|SW|\\$)/' -J -E reg ^Assets:Investments:'Charles Schwab PAL'"""
 )
 
 

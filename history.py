@@ -8,15 +8,16 @@ import pandas as pd
 import common
 
 LEDGER_LIQUID_CMD = (
-    f"{common.LEDGER_PREFIX} --limit 'commodity=~/(SWVXX|\\\\$|^CHF|^GBP|^SGD)/' "
+    f"""{common.LEDGER_PREFIX} --limit 'commodity=~/^(SWVXX|\\\\$|CHF|GBP|SGD|"SPX)/' """
     "--limit 'not(account=~/(Retirement|Precious Metals|Zurcher)/)' -J "
     "-n bal \\(^assets or ^liabilities\\)"
 )
 LEDGER_COMMODITIES_CMD = (
-    f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Investments:Precious Metals"'
+    f'{common.LEDGER_PREFIX} -J -n --limit "commodity=~/^(GOLD|SILVER|GLD)/" bal '
+    '^"Assets:Investments"'
 )
 LEDGER_ETFS_CMD = (
-    f'{common.LEDGER_PREFIX} --limit "commodity=~/^(SCH|SW|GLD|IBKR)/" -J -n bal '
+    f'{common.LEDGER_PREFIX} --limit "commodity=~/^(SCH|SW[AIT]|IBKR)/" -J -n bal '
     '^"Assets:Investments:.*Broker.*"'
 )
 LEDGER_IRA_CMD = (

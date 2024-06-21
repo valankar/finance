@@ -6,17 +6,25 @@ import pandas as pd
 import common
 
 
+class GetHoldingsError(Exception):
+    """Error getting holdings."""
+
+
 def save_holdings():
     """Writes SWYGX holdings to swygx_holdings DB table."""
     table = common.find_xpath_via_browser(
         "https://www.schwabassetmanagement.com/allholdings/SWYGX",
         '//*[@id="block-sch-beacon-csim-content"]/div/div/div/div',
+        execute_before=common.schwab_browser_execute_before,
     ).split("\n")
     holdings = {}
     for line in table:
         line_split = line.split()
         if "%" in line_split[-2]:
             holdings[line_split[-3]] = float(line_split[-2].strip("%"))
+    if len(holdings) != 9:
+        print(f"Failed to get SWYGX holdings: only {len(holdings)} found")
+        raise GetHoldingsError
     holdings_df = pd.DataFrame(
         holdings,
         index=[pd.Timestamp.now()],
