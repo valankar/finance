@@ -39,4 +39,8 @@ def interest_comparison_df():
 
 
 if __name__ == "__main__":
-    print(interest_comparison_df())
+    dataframe = interest_comparison_df()
+    print("Monthly:")
+    print(dataframe)
+    print("\nCumulative:")
+    print(dataframe.cumsum())
