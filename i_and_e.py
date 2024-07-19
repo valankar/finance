@@ -228,19 +228,19 @@ def get_toshl_income_dataframe():
     # Remove unnecessary transactions.
     dataframe = dataframe[~dataframe["Category"].isin(["Reconciliation", "Transfer"])]
     # Make dataframe like ledger.
-    dataframe.loc[
-        dataframe["Category"] == "Rental", "Category"
-    ] = "Income:Rental Property:Rent"
-    dataframe.loc[
-        dataframe["Category"] == "Property", "Category"
-    ] = "Income:Sales:Property"
+    dataframe.loc[dataframe["Category"] == "Rental", "Category"] = (
+        "Income:Rental Property:Rent"
+    )
+    dataframe.loc[dataframe["Category"] == "Property", "Category"] = (
+        "Income:Sales:Property"
+    )
     dataframe.loc[
         (dataframe["Category"] == "Other") & (dataframe["Currency"] == "CHF"),
         "Category",
     ] = "Income:Sales"
-    dataframe.loc[
-        dataframe["Tags"] == "cryptocurrency", "Category"
-    ] = "Income:Cryptocurrency"
+    dataframe.loc[dataframe["Tags"] == "cryptocurrency", "Category"] = (
+        "Income:Cryptocurrency"
+    )
     for category in (
         "Dividends",
         "Interest",
@@ -250,9 +250,9 @@ def get_toshl_income_dataframe():
         "Grants",
         "Reimbursements",
     ):
-        dataframe.loc[
-            dataframe["Category"] == category, "Category"
-        ] = f"Income:{category}"
+        dataframe.loc[dataframe["Category"] == category, "Category"] = (
+            f"Income:{category}"
+        )
     dataframe = convert_toshl_usd(dataframe)
     return dataframe
 
@@ -435,6 +435,18 @@ def get_yearly_chart(ledger_df, category_prefix, title):
         category_orders={"category": sorted(dataframe["category"].unique())},
     )
     configure_yearly_chart(chart)
+    # Add a trendline that excludes current year and shifted to middle.
+    line_df = (
+        dataframe[: (date.today() + relativedelta(years=-1)).strftime("%Y")]
+        .resample("YE")
+        .sum(numeric_only=True)
+    )
+    line_df.index = line_df.index.map(lambda x: pd.to_datetime(x.strftime("%Y-06")))
+    line_chart = px.scatter(line_df, x=line_df.index, y="amount", trendline="lowess")
+    line_chart.update_traces(showlegend=True)
+    for trace in line_chart.data:
+        if trace.mode == "lines":
+            chart.add_trace(trace)
     return chart
 
 
@@ -458,8 +470,12 @@ def get_monthly_chart(ledger_df, category_prefix, title):
         category_orders={"category": sorted(dataframe["category"].unique())},
     )
     configure_monthly_chart(chart)
-    # Add a trendline that is shifted left to the middle of the month.
-    line_df = dataframe.resample("ME").sum(numeric_only=True)
+    # Add a trendline that excludes current month and shifted to middle.
+    line_df = (
+        dataframe[: (date.today() + relativedelta(months=-1)).strftime("%Y-%m")]
+        .resample("ME")
+        .sum(numeric_only=True)
+    )
     line_df.index = line_df.index.map(lambda x: pd.to_datetime(x.strftime("%Y-%m-15")))
     line_chart = px.scatter(line_df, x=line_df.index, y="amount", trendline="lowess")
     line_chart.update_traces(showlegend=True)

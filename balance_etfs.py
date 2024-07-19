@@ -8,10 +8,9 @@ from datetime import date
 import pandas as pd
 
 import common
+import etfs
+import schwab_ira
 
-ETFS_PATH = f"{common.PREFIX}schwab_etfs_values.csv"
-IRA_PATH = f"{common.PREFIX}schwab_ira_values.csv"
-COMMODITIES_PATH = f"{common.PREFIX}commodities_values.csv"
 BIRTHDAY = date(1975, 2, 28)
 # Modeled from:
 # https://www.morningstar.com/etfs/arcx/vt/portfolio
@@ -22,7 +21,7 @@ DESIRED_ALLOCATION = {
     "COMMODITIES": 7,  # Bonds are further reduced by this to make room
 }
 ETF_TYPE_MAP = {
-    "COMMODITIES": ["GLDM"],
+    "COMMODITIES": ["GLDM", "SGOL"],
     "US_SMALL_CAP": ["SCHA"],
     "US_LARGE_CAP": ["SCHX"],
     "US_BONDS": ["SCHO", "SCHR", "SCHZ", "SWAGX"],
@@ -67,10 +66,10 @@ def age_adjustment(allocation):
 def convert_ira_to_types(ira_df):
     """Convert SWYGX to types/categories."""
     holdings = common.read_sql_table_resampled_last("swygx_holdings").iloc[-1]
-    for etf_type, etfs in ETF_TYPE_MAP.items():
+    for etf_type, etfs_list in ETF_TYPE_MAP.items():
         ira_df.loc[etf_type] = (
             ira_df.loc["SWYGX"].value
-            * holdings[holdings.index.intersection(etfs)].sum()
+            * holdings[holdings.index.intersection(etfs_list)].sum()
             / 100
         )
     return ira_df.loc[ETF_TYPE_MAP.keys()]
@@ -78,9 +77,9 @@ def convert_ira_to_types(ira_df):
 
 def convert_etfs_to_types(etfs_df):
     """Convert ETFs to types/categories."""
-    for etf_type, etfs in ETF_TYPE_MAP.items():
+    for etf_type, etfs_list in ETF_TYPE_MAP.items():
         etfs_df.loc[etf_type] = sum(
-            etfs_df.loc[etfs_df.index.intersection(etfs)]["value"].fillna(0)
+            etfs_df.loc[etfs_df.index.intersection(etfs_list)]["value"].fillna(0)
         )
 
     # Expand total market funds into allocation.
@@ -101,16 +100,14 @@ def get_desired_df(amount):
         print(f"Sum of percents {s} != 100")
         return None
 
-    etfs_df = pd.read_csv(ETFS_PATH, index_col=0, usecols=["ticker", "value"]).fillna(0)
-    ira_df = pd.read_csv(IRA_PATH, index_col=0, usecols=["ticker", "value"]).fillna(0)
-    commodities_df = (
-        pd.read_csv(COMMODITIES_PATH, index_col=0, usecols=["commodity", "value"])
-        .rename_axis("ticker")
-        .dropna()
+    etfs_df = pd.read_csv(
+        etfs.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "value"]
+    ).fillna(0)
+    ira_df = pd.read_csv(
+        schwab_ira.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "value"]
     ).fillna(0)
     wanted_df = pd.DataFrame({"wanted_percent": pd.Series(desired_allocation)})
     mf_df = convert_etfs_to_types(etfs_df) + convert_ira_to_types(ira_df)
-    mf_df.loc["COMMODITIES"] += commodities_df.sum()
     total = mf_df["value"].sum()
     mf_df["current_percent"] = (mf_df["value"] / total) * 100
     mf_df = mf_df.join(wanted_df, how="outer").fillna(0).sort_index()

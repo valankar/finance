@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Run hourly finance functions."""
 
-import commodities
 import etfs
 import forex
 import history
@@ -14,7 +13,6 @@ import schwab_ira
 def main():
     """Main."""
     ledger_amounts.main()
-    commodities.main()
     etfs.main()
     forex.main()
     schwab_ira.main()

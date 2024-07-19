@@ -28,24 +28,14 @@ CREATE TABLE "schwab_etfs_amounts" (
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT);
-CREATE TABLE "commodities_amounts" (
-	date DATETIME, 
-	"GOLD" FLOAT, 
-	"SILVER" FLOAT
-);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT);
 CREATE TABLE schwab_etfs_prices (
 	date DATETIME, 
 	"SCHA" FLOAT, 
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT);
-CREATE TABLE commodities_prices (
-	date TIMESTAMP, 
-	"GOLD" FLOAT, 
-	"SILVER" FLOAT
-);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT);
 CREATE TABLE schwab_ira_amounts (
 	date DATETIME, 
 	"SWYGX" FLOAT
@@ -107,8 +97,6 @@ CREATE INDEX ix_wealthfront_cash_yield_date ON wealthfront_cash_yield (date);
 CREATE INDEX ix_swvxx_yield_date ON swvxx_yield (date);
 CREATE INDEX ix_schwab_etfs_prices_date ON schwab_etfs_prices (date);
 CREATE INDEX ix_schwab_etfs_amounts_date ON schwab_etfs_amounts (date);
-CREATE INDEX ix_commodities_amounts_date ON commodities_amounts (date);
-CREATE INDEX ix_commodities_prices_date ON commodities_prices (date);
 CREATE INDEX ix_schwab_ira_amounts_date ON schwab_ira_amounts (date);
 CREATE INDEX ix_schwab_ira_prices_date ON schwab_ira_prices (date);
 CREATE INDEX "ix_toshl_income_export_2023-01-01_Date" ON "toshl_income_export_2023-01-01" ("Date");
@@ -118,6 +106,12 @@ CREATE INDEX ix_real_estate_prices_date ON real_estate_prices (date);
 CREATE INDEX ix_real_estate_rents_date ON real_estate_rents (date);
 CREATE INDEX ix_swygx_holdings_date ON swygx_holdings (date);
 CREATE INDEX ix_swtsx_market_cap_date ON swtsx_market_cap (date);
+CREATE TABLE interactive_brokers_margin_rates (
+	date DATETIME, 
+	"USD" FLOAT, 
+	"CHF" FLOAT
+);
+CREATE INDEX ix_interactive_brokers_margin_rates_date ON interactive_brokers_margin_rates (date);
 CREATE TABLE fedfunds (
 	date DATETIME, 
 	percent FLOAT
@@ -128,9 +122,3 @@ CREATE TABLE sofr (
 	percent FLOAT
 );
 CREATE INDEX ix_sofr_date ON sofr (date);
-CREATE TABLE interactive_brokers_margin_rates (
-	date DATETIME, 
-	"USD" FLOAT, 
-	"CHF" FLOAT
-);
-CREATE INDEX ix_interactive_brokers_margin_rates_date ON interactive_brokers_margin_rates (date);

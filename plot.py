@@ -12,6 +12,7 @@ from plotly.subplots import make_subplots
 from prefixed import Float
 
 import common
+import find_collar_options
 import i_and_e
 import margin_interest
 from balance_etfs import get_desired_df
@@ -315,8 +316,6 @@ def make_prices_section(prices_df):
     fig.update_traces(showlegend=False)
     add_hline_current(fig, prices_df, "CHFUSD", 0, 1, precision=2)
     add_hline_current(fig, prices_df, "SGDUSD", 0, 2, precision=2)
-    add_hline_current(fig, prices_df, "GOLD", 1, 1, precision=2)
-    add_hline_current(fig, prices_df, "SILVER", 1, 2, precision=2)
     return fig
 
 
@@ -457,7 +456,7 @@ def make_total_bar_yoy(daily_df, column):
 
 
 def make_margin_comparison_chart():
-    """Make margin comparison secion."""
+    """Make margin comparison bar chart."""
     dataframe = margin_interest.interest_comparison_df().abs()
     chart = px.histogram(
         dataframe,
@@ -467,6 +466,21 @@ def make_margin_comparison_chart():
         title="IBKR Forex Margin Interest Comparison",
     )
     i_and_e.configure_monthly_chart(chart)
+    return chart
+
+
+def make_short_call_chart():
+    """Make short call moneyness/loss bar chart."""
+    dataframe = find_collar_options.short_calls_df()[
+        ["name", "current_price_minus_strike"]
+    ]
+    chart = px.bar(
+        dataframe, x="name", y="current_price_minus_strike", title="Short call losses"
+    )
+    for trace in chart.data:
+        trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
+    chart.update_yaxes(title_text="USD")
+    chart.update_xaxes(title_text="")
     return chart
 
 

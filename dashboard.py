@@ -128,9 +128,6 @@ def load_prices_df(frequency):
     return common.reduce_merge_asof(
         [
             common.read_sql_table_resampled_last("forex", frequency=frequency),
-            common.read_sql_table_resampled_last(
-                "commodities_prices", frequency=frequency
-            ),
         ]
     )
 
@@ -258,7 +255,20 @@ def make_ibkr_margin_loan_section(selected_range):
     start, end = get_xrange(balance_df, selected_range)
     return plot.make_margin_loan_section(
         balance_df[start:end],
-        "Interactive Brokers Margin Loan",
+        "Interactive Brokers Margin/Box Loan",
+    ).update_layout(margin=SUBPLOT_MARGIN)
+
+
+def make_schwab_margin_loan_section(selected_range):
+    """Make Charles Schwab box spread section."""
+    balance_df = plot.load_margin_loan_df(
+        ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL,
+        ledger_balance_cmd=amortize_pal.LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL,
+    )
+    start, end = get_xrange(balance_df, selected_range)
+    return plot.make_margin_loan_section(
+        balance_df[start:end],
+        "Charles Schwab Margin/Box Loan",
     ).update_layout(margin=SUBPLOT_MARGIN)
 
 
@@ -342,7 +352,7 @@ def home_layout():
             ),
             dcc.Graph(
                 id="prices",
-                style={**graph_style_width, **{"height": "60vh"}},
+                style=graph_style_half,
             ),
             dcc.Graph(
                 id="yield",
@@ -351,10 +361,18 @@ def home_layout():
             make_range_buttons("timerange_prices"),
             dcc.Graph(
                 id="ibkr_margin_loan",
-                style=graph_style_half,
+                style={**graph_style_width, **{"height": "40vh"}},
+            ),
+            dcc.Graph(
+                id="schwab_margin_loan",
+                style={**graph_style_width, **{"height": "40vh"}},
             ),
             dcc.Graph(
                 id="margin_comparison",
+                style=graph_style_half,
+            ),
+            dcc.Graph(
+                id="short_calls",
                 style=graph_style_half,
             ),
             dcc.Interval(id="refresh", interval=10 * 60 * 1000),
@@ -375,7 +393,9 @@ def home_layout():
     Output("prices", "figure"),
     Output("yield", "figure"),
     Output("ibkr_margin_loan", "figure"),
+    Output("schwab_margin_loan", "figure"),
     Output("margin_comparison", "figure"),
+    Output("short_calls", "figure"),
     Output("maindiv", "style"),
     Output("timerange_assets", "value"),
     Output("timerange_invret", "value"),
@@ -417,7 +437,9 @@ def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _
         (make_prices_section, selected_range),
         (make_interest_rate_section, selected_range),
         (make_ibkr_margin_loan_section, selected_range),
+        (make_schwab_margin_loan_section, selected_range),
         (plot.make_margin_comparison_chart,),
+        (plot.make_short_call_chart,),
     )
 
     with ThreadPoolExecutor() as pool:

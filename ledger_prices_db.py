@@ -8,7 +8,6 @@ import common
 COMMODITY_TABLES = [
     "schwab_etfs_prices",
     "schwab_ira_prices",
-    "commodities_prices",
 ]
 PROPERTY_COLS = {
     "Prop 1": "Prop 1 Price",

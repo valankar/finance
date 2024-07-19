@@ -5,21 +5,21 @@ dependencies:
   - _libgcc_mutex=0.1=conda_forge
   - _openmp_mutex=4.5=2_gnu
   - alsa-lib=1.2.12=h4ab18f5_0
-  - alsa-plugins=1.2.7.1=h03a20ba_10
+  - alsa-plugins=1.2.12=h8d43b63_0
   - aom=3.9.1=hac33072_0
   - at-spi2-atk=2.38.0=h0630a04_3
   - at-spi2-core=2.40.3=h0630a04_0
   - atk-1.0=2.38.0=h04ea711_2
   - attr=2.5.1=h166bdaf_1
-  - bzip2=1.0.8=hd590300_5
-  - ca-certificates=2024.6.2=hbcca054_0
-  - cairo=1.18.0=h3faef2a_0
+  - bzip2=1.0.8=h4bc722e_7
+  - ca-certificates=2024.7.4=hbcca054_0
+  - cairo=1.18.0=hbb29018_2
   - dav1d=1.2.1=hd590300_0
   - dbus=1.13.6=h5008d03_3
   - epoxy=1.5.10=h166bdaf_1
   - expat=2.6.2=h59595ed_0
-  - ffmpeg=6.1.1=gpl_he44c6f3_112
-  - firefox=126.0.1=he02047a_0
+  - ffmpeg=6.1.1=gpl_he2f97eb_114
+  - firefox=127.0.2=he02047a_0
   - font-ttf-dejavu-sans-mono=2.37=hab24e00_0
   - font-ttf-inconsolata=3.000=h77eed37_0
   - font-ttf-source-code-pro=2.038=h77eed37_0
@@ -33,20 +33,20 @@ dependencies:
   - geckodriver=0.34.0=h2b8f863_0
   - gettext=0.22.5=h59595ed_2
   - gettext-tools=0.22.5=h59595ed_2
-  - glib-tools=2.80.2=h73ef956_1
-  - gmp=6.3.0=h59595ed_1
+  - glib-tools=2.80.3=h73ef956_1
+  - gmp=6.3.0=hac33072_2
   - gnutls=3.7.9=hb077bed_0
   - graphite2=1.3.13=h59595ed_1003
-  - gtk3=3.24.42=h6d40eaa_0
+  - gtk3=3.24.43=h0359ba6_0
   - harfbuzz=8.5.0=hfac3d4d_0
   - hicolor-icon-theme=0.17=ha770c72_2
   - icu=73.2=h59595ed_0
   - jack=1.9.22=h7c63dc7_2
   - keyutils=1.6.1=h166bdaf_0
-  - krb5=1.21.2=h659d440_0
+  - krb5=1.21.3=h659f571_0
   - lame=3.100=h166bdaf_1003
   - lerc=4.0.0=h27087fc_0
-  - libabseil=20240116.2=cxx17_h59595ed_0
+  - libabseil=20240116.2=cxx17_he02047a_1
   - libasprintf=0.22.5=h661eb56_2
   - libasprintf-devel=0.22.5=h661eb56_2
   - libass=0.17.1=h8fe9dca_1
@@ -54,54 +54,54 @@ dependencies:
   - libcups=2.3.3=h4637d8d_4
   - libdb=6.2.32=h9c3ff4c_0
   - libdeflate=1.20=hd590300_0
-  - libdrm=2.4.120=hd590300_0
+  - libdrm=2.4.122=h4ab18f5_0
   - libedit=3.1.20191231=he28a2e2_2
   - libexpat=2.6.2=h59595ed_0
   - libffi=3.4.2=h7f98852_5
   - libflac=1.4.3=h59595ed_0
-  - libgcc-ng=13.2.0=h77fa898_10
-  - libgcrypt=1.10.3=hd590300_0
+  - libgcc-ng=14.1.0=h77fa898_0
+  - libgcrypt=1.11.0=h4ab18f5_0
   - libgettextpo=0.22.5=h59595ed_2
   - libgettextpo-devel=0.22.5=h59595ed_2
-  - libglib=2.80.2=h8a4344b_1
-  - libgomp=13.2.0=h77fa898_10
-  - libgpg-error=1.49=h4f305b6_0
-  - libhwloc=2.10.0=default_h5622ce7_1001
+  - libglib=2.80.3=h8a4344b_1
+  - libgomp=14.1.0=h77fa898_0
+  - libgpg-error=1.50=h4f305b6_0
+  - libhwloc=2.11.1=default_hecaa2ac_1000
   - libiconv=1.17=hd590300_2
   - libidn2=2.3.7=hd590300_0
   - libjpeg-turbo=3.0.0=hd590300_1
-  - libogg=1.3.4=h7f98852_1
-  - libopenvino=2024.1.0=h2da1b83_7
-  - libopenvino-auto-batch-plugin=2024.1.0=hb045406_7
-  - libopenvino-auto-plugin=2024.1.0=hb045406_7
-  - libopenvino-hetero-plugin=2024.1.0=h5c03a75_7
-  - libopenvino-intel-cpu-plugin=2024.1.0=h2da1b83_7
-  - libopenvino-intel-gpu-plugin=2024.1.0=h2da1b83_7
-  - libopenvino-intel-npu-plugin=2024.1.0=he02047a_7
-  - libopenvino-ir-frontend=2024.1.0=h5c03a75_7
-  - libopenvino-onnx-frontend=2024.1.0=h07e8aee_7
-  - libopenvino-paddle-frontend=2024.1.0=h07e8aee_7
-  - libopenvino-pytorch-frontend=2024.1.0=he02047a_7
-  - libopenvino-tensorflow-frontend=2024.1.0=h39126c6_7
-  - libopenvino-tensorflow-lite-frontend=2024.1.0=he02047a_7
+  - libogg=1.3.5=h4ab18f5_0
+  - libopenvino=2024.2.0=h2da1b83_1
+  - libopenvino-auto-batch-plugin=2024.2.0=hb045406_1
+  - libopenvino-auto-plugin=2024.2.0=hb045406_1
+  - libopenvino-hetero-plugin=2024.2.0=h5c03a75_1
+  - libopenvino-intel-cpu-plugin=2024.2.0=h2da1b83_1
+  - libopenvino-intel-gpu-plugin=2024.2.0=h2da1b83_1
+  - libopenvino-intel-npu-plugin=2024.2.0=he02047a_1
+  - libopenvino-ir-frontend=2024.2.0=h5c03a75_1
+  - libopenvino-onnx-frontend=2024.2.0=h07e8aee_1
+  - libopenvino-paddle-frontend=2024.2.0=h07e8aee_1
+  - libopenvino-pytorch-frontend=2024.2.0=he02047a_1
+  - libopenvino-tensorflow-frontend=2024.2.0=h39126c6_1
+  - libopenvino-tensorflow-lite-frontend=2024.2.0=he02047a_1
   - libopus=1.3.1=h7f98852_1
   - libpciaccess=0.18=hd590300_0
   - libpng=1.6.43=h2797004_0
   - libprotobuf=4.25.3=h08a7969_0
   - libsndfile=1.2.2=hc60ed4a_1
-  - libstdcxx-ng=13.2.0=hc0a3c3a_10
+  - libstdcxx-ng=14.1.0=hc0a3c3a_0
   - libsystemd0=255=h3516f8a_1
   - libtasn1=4.19.0=h166bdaf_0
   - libtiff=4.6.0=h1dd3fc0_3
   - libunistring=0.9.10=h7f98852_0
   - libuuid=2.38.1=h0b41bf4_0
-  - libva=2.21.0=h4ab18f5_2
+  - libva=2.22.0=hb711507_0
   - libvorbis=1.3.7=h9c3ff4c_0
   - libvpx=1.14.1=hac33072_0
   - libwebp-base=1.4.0=hd590300_0
-  - libxcb=1.15=h0b41bf4_0
-  - libxkbcommon=1.7.0=h662e7e4_0
-  - libxml2=2.12.7=hc051c1a_1
+  - libxcb=1.16=hd590300_0
+  - libxkbcommon=1.7.0=h2c5496b_1
+  - libxml2=2.12.7=h4c95cb1_3
   - libzlib=1.3.1=h4ab18f5_1
   - lz4-c=1.9.4=hcb278e6_0
   - mpg123=1.32.6=h59595ed_0
@@ -109,7 +109,7 @@ dependencies:
   - nettle=3.9.1=h7ab15ed_0
   - ocl-icd=2.3.2=hd590300_1
   - openh264=2.4.1=h59595ed_0
-  - openssl=3.3.1=h4ab18f5_0
+  - openssl=3.3.1=h4bc722e_2
   - p11-kit=0.24.1=hc5aa10d_0
   - pango=1.54.0=h84a9a3c_0
   - pcre2=10.44=h0f59acf_0
@@ -117,10 +117,11 @@ dependencies:
   - pthread-stubs=0.4=h36c2ea0_1001
   - pugixml=1.14=h59595ed_0
   - pulseaudio-client=17.0=hb77b528_0
-  - snappy=1.2.0=hdb0a2a9_1
+  - snappy=1.2.1=ha2e4443_0
   - svt-av1=2.1.0=hac33072_0
-  - tbb=2021.12.0=h297d8ca_1
+  - tbb=2021.12.0=h434a139_3
   - wayland=1.23.0=h5291e77_0
+  - wayland-protocols=1.36=hd8ed1ab_0
   - x264=1!164.3095=h166bdaf_2
   - x265=3.5=h924138e_3
   - xkeyboard-config=2.42=h4ab18f5_0
@@ -131,7 +132,7 @@ dependencies:
   - xorg-kbproto=1.0.7=h7f98852_1002
   - xorg-libice=1.1.1=hd590300_0
   - xorg-libsm=1.2.4=h7391055_0
-  - xorg-libx11=1.8.9=h8ee46fc_0
+  - xorg-libx11=1.8.9=hb711507_1
   - xorg-libxau=1.0.11=hd590300_0
   - xorg-libxcomposite=0.4.6=h0b41bf4_1
   - xorg-libxcursor=1.2.0=h0b41bf4_1

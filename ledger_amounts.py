@@ -114,17 +114,13 @@ def main():
     """Main."""
     write_balances()
     write_commodity(
-        '--limit "commodity=~/^(SCH|SW[AIT]|GLD|IBKR)/" --limit '
+        '--limit "commodity=~/^(SCH|SW[AIT]|GLD|SGOL|IBKR)/" --limit '
         + '"account=~/^Assets:Investments:(Charles Schwab .*Brokerage|Interactive Brokers)/"',
         "schwab_etfs_amounts",
     )
     write_commodity(
         '--limit "commodity=~/^SWYGX/" ^"Assets:Investments:Retirement:Charles Schwab IRA"',
         "schwab_ira_amounts",
-    )
-    write_commodity(
-        '--limit "commodity=~/^(GOLD|SILVER)/" ^"Assets:Investments:Precious Metals"',
-        "commodities_amounts",
     )
 
 

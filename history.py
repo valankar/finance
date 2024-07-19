@@ -13,7 +13,7 @@ LEDGER_LIQUID_CMD = (
     "-n bal \\(^assets or ^liabilities\\)"
 )
 LEDGER_COMMODITIES_CMD = (
-    f'{common.LEDGER_PREFIX} -J -n --limit "commodity=~/^(GOLD|SILVER|GLD)/" bal '
+    f'{common.LEDGER_PREFIX} -J -n --limit "commodity=~/^(GLD|SGOL)/" bal '
     '^"Assets:Investments"'
 )
 LEDGER_ETFS_CMD = (
