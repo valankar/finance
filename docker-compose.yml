@@ -1,9 +1,9 @@
 services:
   accounts:
-    image: accounts_mambaforge:1.3
+    image: ${IMAGE}
     container_name: accounts
-    user: 1000:1000
-    volumes:
+    user: ${USERID}
+    volumes: &volumes
       - ${HOME}/code/accounts:/home/valankar/code/accounts
       - ${HOME}/code/ledger:/home/valankar/code/ledger
     labels:
@@ -12,8 +12,66 @@ services:
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8050/health" ]
+    networks:
+      - cloudflare
+
+  accounts_hourly:
+    image: ${IMAGE}
+    profiles: [ "scripts" ]
+    container_name: accounts_hourly
+    user: ${USERID}
+    volumes: *volumes
+    labels:
+      com.centurylinklabs.watchtower.no-pull: true
+    command: "mamba run -p /home/valankar/miniforge3/envs/investing --no-capture-output ./finance_hourly.py"
+
+  accounts_daily:
+    image: ${IMAGE}
+    profiles: [ "scripts" ]
+    container_name: accounts_daily
+    user: ${USERID}
+    volumes: *volumes
+    labels:
+      com.centurylinklabs.watchtower.no-pull: true
+    depends_on:
+      selenium:
+        condition: service_healthy
+    command: "mamba run -p /home/valankar/miniforge3/envs/investing --no-capture-output ./finance_daily.py"
+
+  selenium:
+    image: selenium/standalone-chromium
+    profiles: [ "scripts" ]
+    container_name: selenium
+    shm_size: 2g
+    ports:
+      - "7900:7900"
+    healthcheck:
+      test:
+        &selenium-healthcheck [
+          "CMD",
+          "/opt/bin/check-grid.sh",
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "4444"
+        ]
+    labels:
+      com.centurylinklabs.watchtower.no-pull: true
+
+  selenium-dev:
+    image: selenium/standalone-chromium
+    profiles: [ "scripts" ]
+    container_name: selenium-dev
+    shm_size: 2g
+    ports:
+      - "7901:7900"
+      - "4444:4444"
+    healthcheck:
+      test: *selenium-healthcheck
+    labels:
+      com.centurylinklabs.watchtower.no-pull: true
 
 networks:
-  default:
+  cloudflare:
     name: cloudflare
     external: true

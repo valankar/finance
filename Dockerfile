@@ -8,7 +8,6 @@ USER valankar
 WORKDIR /home/valankar/code/accounts
 COPY environment*.yml .
 RUN mamba env create -f environment.yml -p ${HOME}/miniforge3/envs/investing
-RUN mamba env create -f environment-firefox.yml -p ${HOME}/miniforge3/envs/firefox
 RUN mamba env create -f environment-ledger.yml -p ${HOME}/miniforge3/envs/ledger
 RUN mamba clean -a -y
 CMD ["mamba", "run", "-p", "/home/valankar/miniforge3/envs/investing", "--no-capture-output", "gunicorn", "dashboard:server", "-b", "0.0.0.0:8050", "-t", "60"]

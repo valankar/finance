@@ -1,3 +1,3 @@
 #!/bin/bash
 
-flock $HOME/code/accounts -c "docker compose -f $HOME/code/accounts/docker-compose.yml run --rm accounts mamba run -p $HOME/miniforge3/envs/investing --no-capture-output ./finance_hourly.py" &> $HOME/code/accounts/web/hourly.log
+flock $HOME/code/accounts -c "cd $HOME/code/accounts; docker compose up accounts_hourly; docker compose down accounts_hourly" &> $HOME/code/accounts/web/hourly.log

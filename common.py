@@ -7,7 +7,6 @@ import os
 import shutil
 import sqlite3
 import tempfile
-import time
 import warnings
 from contextlib import closing, contextmanager
 from functools import reduce
@@ -18,17 +17,7 @@ import stockquotes
 import yahoofinancials
 import yahooquery
 import yfinance
-from selenium import webdriver
-from selenium.common.exceptions import (
-    ElementNotInteractableException,
-    NoSuchElementException,
-    TimeoutException,
-)
-from selenium.webdriver import FirefoxOptions
-from selenium.webdriver.common.by import By
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.wait import WebDriverWait
+from playwright.sync_api import sync_playwright
 from sqlalchemy import create_engine
 from sqlalchemy import text as sqlalchemy_text
 
@@ -37,15 +26,13 @@ PREFIX = PUBLIC_HTML
 SQLITE_URI = f"sqlite:///{PREFIX}sqlite.db"
 SQLITE_URI_RO = f"sqlite:///file:{PREFIX}sqlite.db?mode=ro&uri=true"
 SQLITE3_URI_RO = f"file:{PREFIX}sqlite.db?mode=ro"
+SELENIUM_REMOTE_URL = "http://selenium:4444"
 LEDGER_BIN = f"{Path.home()}/miniforge3/envs/ledger/bin/ledger"
 LEDGER_DIR = f"{Path.home()}/code/ledger"
 LEDGER_DAT = f"{LEDGER_DIR}/ledger.ledger"
 LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 # pylint: disable-next=line-too-long
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
-GECKODRIVER = f"{Path.home()}/miniforge3/envs/firefox/bin/geckodriver"
-FIREFOX_BIN = f"{Path.home()}/miniforge3/envs/firefox/bin/firefox"
-FIREFOX_LIB = f"{Path.home()}/miniforge3/envs/firefox/lib"
 
 GET_TICKER_TIMEOUT = 30
 
@@ -94,7 +81,6 @@ def get_ticker(ticker):
         get_ticker_yahoofinancials,
         get_ticker_yfinance,
         get_ticker_stockquotes,
-        get_ticker_browser,
     )
     for method in get_ticker_methods:
         name = method.__name__
@@ -110,29 +96,6 @@ def get_ticker(ticker):
             except Exception as ex:
                 log_function_result(name, False, str(ex))
     raise GetTickerError("No more methods to get ticker price")
-
-
-@functools.cache
-def get_ticker_browser(ticker):
-    """Get ticker price from Yahoo via Selenium."""
-
-    def execute_before(browser):
-        # First look for accept cookies dialog.
-        try:
-            browser.find_element(By.XPATH, '//*[@id="scroll-down-btn"]').click()
-            browser.find_element(
-                By.XPATH, "/html/body/div/div/div/div/form/div[2]/div[2]/button[1]"
-            ).click()
-        except NoSuchElementException:
-            pass
-
-    return float(
-        find_xpath_via_browser(
-            f"https://finance.yahoo.com/quote/{ticker}",
-            '//*[@id="quote-header-info"]/div[3]/div[1]/div/fin-streamer[1]',
-            execute_before=execute_before,
-        ).replace(",", "")
-    )
 
 
 @functools.cache
@@ -285,58 +248,39 @@ def temporary_file_move(dest_file):
     shutil.move(write_file.name, dest_file)
 
 
-def schwab_browser_execute_before(browser):
+def schwab_browser_page(page):
     """Click popup that sometimes appears."""
-    try:
-        WebDriverWait(browser, timeout=30).until(
-            EC.element_to_be_clickable(
-                (By.PARTIAL_LINK_TEXT, "Continue with a limited")
-            )
-        ).click()
-        # Accept cookies
-        time.sleep(30)
-        WebDriverWait(browser, timeout=30).until(
-            EC.element_to_be_clickable(
-                (By.XPATH, '//*[@id="onetrust-accept-btn-handler"]')
-            )
-        ).click()
-        time.sleep(30)
-    except (TimeoutException, ElementNotInteractableException):
-        pass
+    page.get_by_text("Continue with a limited experience").click()
+    page.get_by_role("button", name="Accept All Cookies").click()
+    return page
 
 
-@functools.cache
+def run_in_browser_page(url, func):
+    """Run code with a browser."""
+    os.environ["SELENIUM_REMOTE_URL"] = SELENIUM_REMOTE_URL
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(headless=False)
+            page = browser.new_page()
+            page.goto(url)
+            return func(page)
+        finally:
+            browser.close()
+
+
 def find_xpath_via_browser(url, xpath, execute_before=None):
     """Find XPATH via Selenium with retries. Returns text of element.
 
     execute_before is method passed a browser that runs after the get and
     before waiting for xpath.
     """
-    browser = get_browser()
-    try:
-        browser.get(url)
+
+    def browser_func(page):
         if execute_before:
-            execute_before(browser)
-        try:
-            return WebDriverWait(browser, timeout=30).until(
-                lambda d: d.find_element(By.XPATH, xpath).text
-            )
-        except (TimeoutException, ElementNotInteractableException):
-            browser.save_full_page_screenshot(f"{PREFIX}/selenium_screenshot.png")
-            raise
-    finally:
-        browser.quit()
+            execute_before(page)
+        return page.locator(xpath).text_content()
 
-
-def get_browser():
-    """Get a Selenium/Firefox browser."""
-    opts = FirefoxOptions()
-    opts.add_argument("--headless")
-    opts.binary_location = FIREFOX_BIN
-    os.environ["LD_LIBRARY_PATH"] = FIREFOX_LIB
-    service = FirefoxService(log_path=os.path.devnull, executable_path=GECKODRIVER)
-    browser = webdriver.Firefox(options=opts, service=service)
-    return browser
+    return run_in_browser_page(url, browser_func)
 
 
 def reduce_merge_asof(dataframes):

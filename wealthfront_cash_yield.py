@@ -17,7 +17,7 @@ def get_yield():
         common.find_xpath_via_browser(
             # pylint: disable-next=line-too-long
             "https://support.wealthfront.com/hc/en-us/articles/360043680212-Interest-rate-for-Cash-Accounts",
-            "/html/body/main/div[1]/article/div[1]/p[1]/strong[1]",
+            "//html/body/main/div[1]/article/div[1]/p[1]/strong[1]",
         ).replace("%", "")
     )
 

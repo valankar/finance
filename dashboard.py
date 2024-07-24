@@ -19,7 +19,6 @@ from dash import (
     register_page,
 )
 
-import amortize_pal
 import common
 import i_and_e
 import plot
@@ -246,29 +245,10 @@ def make_interest_rate_section(selected_range):
     )
 
 
-def make_ibkr_margin_loan_section(selected_range):
+def make_margin_loan_section(selected_range):
     """Make Interactive Brokers margin loan section."""
-    balance_df = plot.load_margin_loan_df(
-        ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_IBKR,
-        ledger_balance_cmd=amortize_pal.LEDGER_BALANCE_HISTORY_IBKR,
-    )
-    start, end = get_xrange(balance_df, selected_range)
-    return plot.make_margin_loan_section(
-        balance_df[start:end],
-        "Interactive Brokers Margin/Box Loan",
-    ).update_layout(margin=SUBPLOT_MARGIN)
-
-
-def make_schwab_margin_loan_section(selected_range):
-    """Make Charles Schwab box spread section."""
-    balance_df = plot.load_margin_loan_df(
-        ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL,
-        ledger_balance_cmd=amortize_pal.LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL,
-    )
-    start, end = get_xrange(balance_df, selected_range)
-    return plot.make_margin_loan_section(
-        balance_df[start:end],
-        "Charles Schwab Margin/Box Loan",
+    return plot.make_loan_section(
+        lambda df: get_xrange(df, selected_range)
     ).update_layout(margin=SUBPLOT_MARGIN)
 
 
@@ -360,16 +340,8 @@ def home_layout():
             ),
             make_range_buttons("timerange_prices"),
             dcc.Graph(
-                id="ibkr_margin_loan",
+                id="margin_loan",
                 style={**graph_style_width, **{"height": "40vh"}},
-            ),
-            dcc.Graph(
-                id="schwab_margin_loan",
-                style={**graph_style_width, **{"height": "40vh"}},
-            ),
-            dcc.Graph(
-                id="margin_comparison",
-                style=graph_style_half,
             ),
             dcc.Graph(
                 id="short_calls",
@@ -392,9 +364,7 @@ def home_layout():
     Output("investing_allocation", "figure"),
     Output("prices", "figure"),
     Output("yield", "figure"),
-    Output("ibkr_margin_loan", "figure"),
-    Output("schwab_margin_loan", "figure"),
-    Output("margin_comparison", "figure"),
+    Output("margin_loan", "figure"),
     Output("short_calls", "figure"),
     Output("maindiv", "style"),
     Output("timerange_assets", "value"),
@@ -436,9 +406,7 @@ def update_xrange(assets_value, invret_value, real_estate_value, prices_value, _
         (plot.make_investing_allocation_section,),
         (make_prices_section, selected_range),
         (make_interest_rate_section, selected_range),
-        (make_ibkr_margin_loan_section, selected_range),
-        (make_schwab_margin_loan_section, selected_range),
-        (plot.make_margin_comparison_chart,),
+        (make_margin_loan_section, selected_range),
         (plot.make_short_call_chart,),
     )
 

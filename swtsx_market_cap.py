@@ -3,24 +3,7 @@
 
 import pandas as pd
 
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.wait import WebDriverWait
-
 import common
-
-
-def browser_execute_before(browser):
-    """Click into portfolio section to get market cap weightings."""
-    # Click popup that sometimes appears
-    common.schwab_browser_execute_before(browser)
-    try:
-        WebDriverWait(browser, timeout=30).until(
-            EC.element_to_be_clickable((By.XPATH, '//*[@id="portfolio"]/h2'))
-        ).click()
-    except TimeoutException:
-        pass
 
 
 def reduce_sum_percents(string_values):
@@ -28,18 +11,23 @@ def reduce_sum_percents(string_values):
     return sum(map(lambda x: float(x.strip("%")), string_values))
 
 
+def browser_func(page):
+    """Get market cap data from Schwab."""
+    table_dict = {}
+    common.schwab_browser_page(page)
+    page.get_by_role("heading", name="Portfolio", exact=True).click()
+    table = page.locator('//*[@id="marketcap"]').get_by_role("row").all()
+    for row in table[1:]:
+        market_cap, percent = row.inner_text().split("\t\n")
+        table_dict[market_cap] = percent
+    return table_dict
+
+
 def save_market_cap():
     """Writes SWTSX market cap weightings to swtsx_market_cap DB table."""
-    table_list = common.find_xpath_via_browser(
-        "https://www.schwabassetmanagement.com/products/swtsx",
-        '//*[@id="marketcap"]',
-        execute_before=browser_execute_before,
-    ).split("\n")
-    # Example:
-    # pylint: disable=line-too-long
-    # ['Market Cap', '03/31/2024', 'Market Cap Percent of Portfolio (%)', '<$1,000 M', '0.78%', '$1,000-$3,000 M', '1.95%', '$3,000-$15,000 M', '9.15%', '$15,000-$70,000 M', '20.83%', '> $70,000 M', '67.28%', '[N/A]', '0.01%']
-    table_dict = dict(zip(table_list[1::2], table_list[2::2]))
-    # {'03/31/2024': 'Market Cap Percent of Portfolio (%)', '<$1,000 M': '0.78%', '$1,000-$3,000 M': '1.95%', '$3,000-$15,000 M': '9.15%', '$15,000-$70,000 M': '20.83%', '> $70,000 M': '67.28%', '[N/A]': '0.01%'}
+    table_dict = common.run_in_browser_page(
+        "https://www.schwabassetmanagement.com/products/swtsx", browser_func
+    )
     market_cap_dict = {}
     # For determining large vs small cap, compare:
     # https://www.schwabassetmanagement.com/products/scha

@@ -1,5 +1,6 @@
 name: investing
 channels:
+  - microsoft
   - conda-forge
 dependencies:
   - _libgcc_mutex=0.1=conda_forge
@@ -151,6 +152,7 @@ dependencies:
   - pickleshare=0.7.5=py_1003
   - pip=24.0=pyhd8ed1ab_0
   - platformdirs=4.2.2=pyhd8ed1ab_0
+  - playwright=1.45.1=py312_0
   - plotly=5.22.0=pyhd8ed1ab_0
   - pluggy=1.5.0=pyhd8ed1ab_0
   - prefixed=0.7.1=pyhd8ed1ab_0
@@ -162,6 +164,7 @@ dependencies:
   - pyarrow=16.1.0=py312h9cebb41_4
   - pyarrow-core=16.1.0=py312h70856f0_4_cpu
   - pycparser=2.22=pyhd8ed1ab_0
+  - pyee=11.1.0=pyhd8ed1ab_0
   - pygments=2.18.0=pyhd8ed1ab_0
   - pyinstaller=6.9.0=py312hed7b099_0
   - pyinstaller-hooks-contrib=2024.7=pyhd8ed1ab_0
@@ -181,8 +184,6 @@ dependencies:
   - retrying=1.3.3=py_2
   - s2n=1.4.17=he19d79f_0
   - scipy=1.14.0=py312hc2bc53b_1
-  - selenium=4.22.0=pyhd8ed1ab_1
-  - selenium-manager=4.22.0=he9194b0_0
   - setuptools=70.3.0=pyhd8ed1ab_0
   - six=1.16.0=pyh6c4a22f_0
   - snappy=1.2.1=ha2e4443_0

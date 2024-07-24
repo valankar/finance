@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from prefixed import Float
 
+import amortize_pal
 import common
 import find_collar_options
 import i_and_e
@@ -321,15 +322,25 @@ def make_prices_section(prices_df):
 
 def make_interest_rate_section(interest_df):
     """Make interest rate section."""
-    fig = px.line(
+    section = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=(
+            "Interest Rates",
+            "IBKR Forex Margin Interest Comparison",
+        ),
+    )
+    for trace in px.line(
         interest_df,
         x=interest_df.index,
         y=interest_df.columns,
-        title="Interest Rates",
-    )
-    fig.update_yaxes(title_text="Percent")
-    fig.update_xaxes(title_text="")
-    return fig
+    ).data:
+        section.add_trace(trace, row=1, col=1)
+    for trace in make_margin_comparison_chart().data:
+        section.add_trace(trace, row=1, col=2)
+    section.update_yaxes(title_text="Percent", col=1)
+    section.update_xaxes(title_text="")
+    return section
 
 
 def load_ledger_equity_balance_df(ledger_balance_cmd):
@@ -398,20 +409,50 @@ def load_margin_loan_df(ledger_loan_balance_cmd, ledger_balance_cmd):
             right_index=True,
             how="outer",
         )
-    return combined_df.resample("D").last().interpolate().fillna(0)
+    return combined_df.resample("D").last().interpolate().fillna(0).clip(lower=0)
 
 
-def make_margin_loan_section(balance_df, title):
-    """Make margin loan section."""
-    fig = px.line(
+def make_loan_section(range_func):
+    """Make section with margin loans."""
+    section = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=(
+            "Interactive Brokers",
+            "Charles Schwab",
+        ),
+        vertical_spacing=0.07,
+        horizontal_spacing=0.05,
+    )
+    balance_df = load_margin_loan_df(
+        ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_IBKR,
+        ledger_balance_cmd=amortize_pal.LEDGER_BALANCE_HISTORY_IBKR,
+    )
+    start, end = range_func(balance_df)
+    balance_df = balance_df[start:end]
+    for trace in px.line(
         balance_df,
         x=balance_df.index,
         y=balance_df.columns,
-        title=title,
+    ).data:
+        section.add_trace(trace, row=1, col=1)
+    balance_df = load_margin_loan_df(
+        ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL,
+        ledger_balance_cmd=amortize_pal.LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL,
     )
-    fig.update_yaxes(title_text="USD")
-    fig.update_xaxes(title_text="")
-    return fig
+    start, end = range_func(balance_df)
+    balance_df = balance_df[start:end]
+    for trace in px.line(
+        balance_df,
+        x=balance_df.index,
+        y=balance_df.columns,
+    ).data:
+        section.add_trace(trace, row=1, col=2)
+    section.update_yaxes(title_text="USD", col=1)
+    section.update_traces(row=1, col=2, showlegend=False)
+    section.update_xaxes(title_text="")
+    section.update_layout(title="Margin/Box Loans")
+    return section
 
 
 def make_change_section(daily_df, column, title):
@@ -471,17 +512,45 @@ def make_margin_comparison_chart():
 
 def make_short_call_chart():
     """Make short call moneyness/loss bar chart."""
-    dataframe = find_collar_options.short_calls_df()[
-        ["name", "current_price_minus_strike"]
-    ]
+    section = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=(
+            "Short call option values (red = ITM)",
+            "ITM exercise values",
+        ),
+        vertical_spacing=0.07,
+        horizontal_spacing=0.05,
+    )
+    dataframe = find_collar_options.options_df()
+    short_calls_df = dataframe[(dataframe["type"] == "CALL") & (dataframe["count"] < 0)]
     chart = px.bar(
-        dataframe, x="name", y="current_price_minus_strike", title="Short call losses"
+        short_calls_df,
+        x=short_calls_df.index,
+        y=["current_price_minus_strike"],
     )
     for trace in chart.data:
         trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
-    chart.update_yaxes(title_text="USD")
-    chart.update_xaxes(title_text="")
-    return chart
+        section.add_trace(trace, row=1, col=1)
+    itm_df = (
+        dataframe[dataframe["in_the_money"]].sort_values("exercise_value").reset_index()
+    )
+    itm_df.loc[itm_df["count"] < 0, "name"] = itm_df["name"].astype(str) + " (SHORT)"
+    itm_df.loc[itm_df["count"] > 0, "name"] = itm_df["name"].astype(str) + " (LONG)"
+    itm_df = itm_df.set_index("name")
+    chart = px.bar(
+        itm_df,
+        x=itm_df.index,
+        y=["exercise_value"],
+    )
+    for trace in chart.data:
+        trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
+        section.add_trace(trace, row=1, col=2)
+    section.update_yaxes(title_text="USD", col=1)
+    section.update_xaxes(title_text="")
+    section.update_layout(title="Options")
+    section.update_traces(showlegend=False)
+    return section
 
 
 def get_interest_rate_df(frequency):

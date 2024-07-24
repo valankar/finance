@@ -10,18 +10,26 @@ class GetHoldingsError(Exception):
     """Error getting holdings."""
 
 
+def browser_func(page):
+    """Get market cap data from Schwab."""
+    table_dict = {}
+    common.schwab_browser_page(page)
+    table = (
+        page.locator('//*[@id="block-sch-beacon-csim-content"]/div/div/div/div/table')
+        .get_by_role("row")
+        .all()
+    )
+    for row in table[1:]:
+        _, etf, percent, _ = row.inner_text().split("\t")
+        table_dict[etf] = float(percent.strip("%"))
+    return table_dict
+
+
 def save_holdings():
     """Writes SWYGX holdings to swygx_holdings DB table."""
-    table = common.find_xpath_via_browser(
-        "https://www.schwabassetmanagement.com/allholdings/SWYGX",
-        '//*[@id="block-sch-beacon-csim-content"]/div/div/div/div',
-        execute_before=common.schwab_browser_execute_before,
-    ).split("\n")
-    holdings = {}
-    for line in table:
-        line_split = line.split()
-        if "%" in line_split[-2]:
-            holdings[line_split[-3]] = float(line_split[-2].strip("%"))
+    holdings = common.run_in_browser_page(
+        "https://www.schwabassetmanagement.com/allholdings/SWYGX", browser_func
+    )
     if len(holdings) != 9:
         print(f"Failed to get SWYGX holdings: only {len(holdings)} found")
         raise GetHoldingsError

@@ -12,7 +12,7 @@ def get_yield():
         common.find_xpath_via_browser(
             "https://www.schwabassetmanagement.com/products/swvxx",
             '//*[@id="sfm-table--yields"]/table/tbody/tr[1]/td[2]',
-            execute_before=common.schwab_browser_execute_before,
+            execute_before=common.schwab_browser_page,
         ).strip("%")
     )
 

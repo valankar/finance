@@ -11,14 +11,15 @@ import pandas as pd
 import yahooquery
 
 import amortize_pal
+import balance_etfs
 import common
 import etfs
 import plot
 
 
-def short_calls_df():
-    """Get short call dataframe."""
-    cmd = f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/ CALL/' bal -n"
+def options_df():
+    """Get call and put dataframe."""
+    cmd = f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/ (CALL|PUT)/' bal -n"
     entries = []
     for line in io.StringIO(subprocess.check_output(cmd, shell=True, text=True)):
         count = line.split(maxsplit=1)[0]
@@ -26,10 +27,12 @@ def short_calls_df():
             line.split(maxsplit=1)[1].split("\n")[0].strip("Assets").strip().strip('"')
         )
         ticker = call_name.split()[0]
+        option_type = call_name.split()[-1]
         strike = call_name.split()[-2]
         entries.append(
             {
                 "name": call_name,
+                "type": option_type,
                 "ticker": ticker,
                 "count": int(count),
                 "strike": int(strike),
@@ -39,20 +42,25 @@ def short_calls_df():
     etfs_df = pd.read_csv(
         etfs.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "current_price"]
     ).fillna(0)
-    joined_df = pd.merge(calls_df, etfs_df, on="ticker")
+    joined_df = pd.merge(calls_df, etfs_df, on="ticker").set_index("name")
     joined_df["current_price_minus_strike"] = (
         joined_df["current_price"] * joined_df["count"] * 100
     ) - (joined_df["strike"] * joined_df["count"] * 100)
+    joined_df["in_the_money"] = joined_df["current_price_minus_strike"] < 0
+    joined_df["exercise_value"] = abs(joined_df["strike"] * joined_df["count"] * 100)
     return joined_df.sort_values("current_price_minus_strike")
 
 
 def collars_needed(brokerage):
     """Find out which tickers need collars."""
+    # pylint: disable=line-too-long
     cmd = f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/(^SCH|SGOL| PUT| CALL)/' bal '{brokerage}'"
     ticker_values = defaultdict(list)
     call_amount = 0
     for line in io.StringIO(subprocess.check_output(cmd, shell=True, text=True)):
         amount, ticker = line.strip().split(maxsplit=1)
+        if ticker in balance_etfs.ETF_TYPE_MAP["US_BONDS"]:
+            continue
         if " PUT" in ticker:
             continue
         if " CALL" in ticker:
@@ -93,28 +101,13 @@ def find_collar_options(ticker):
     price = t.price[ticker]["regularMarketPrice"]
     print(f"\nTicker: {ticker}\nPrice: {price}")
     df["midpoint"] = (df["bid"] + df["ask"]) / 2
-    otm = df[(df["inTheMoney"] == False) & (df["midpoint"] > 0)]
+    otm = df[~df["inTheMoney"] & (df["bid"] > 0) & (df["ask"] > 0)]
     try:
         calls = otm.xs("calls", level=2)
         calls = calls[calls["strike"] > price]
-        puts = otm.xs("puts", level=2)
-        puts = puts[puts["strike"] < price]
     except KeyError:
         return
-    for call_date_index in calls.index.drop_duplicates():
-        for call in calls.loc[[call_date_index]].itertuples():
-            try:
-                puts_at_date = puts.loc[[call_date_index]]
-            except KeyError:
-                continue
-            possible_puts = puts_at_date[(call.midpoint - puts_at_date["midpoint"]) > 0]
-            if len(possible_puts):
-                print(f"\n{call.Index[1]}")
-                print(f"CALL {call.strike}")
-                for put in possible_puts.itertuples():
-                    print(
-                        f"  PUT {put.strike} with midpoint limit credit {call.midpoint - put.midpoint:.2f}"
-                    )
+    print(calls)
 
 
 def main():
@@ -125,7 +118,8 @@ def main():
         needed_tickers = collars_needed("Interactive Brokers") | collars_needed(
             "Schwab Brokerage"
         )
-    print(short_calls_df())
+    options = options_df()
+    print(options[options["in_the_money"]])
     for ticker in sorted(needed_tickers):
         find_collar_options(ticker)
 
