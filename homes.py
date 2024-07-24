@@ -4,7 +4,6 @@
 import statistics
 
 import pandas as pd
-from retry import retry
 
 import common
 
@@ -20,42 +19,34 @@ FILE_TO_NAME = {
     "prop1.txt": "Property Name",
 }
 
+# pylint: disable=line-too-long
 
-# Retry a few times to avoid captcha.
-@retry(delay=30, tries=4)
-def get_site_estimate(url, xpath):
-    """Get home value from either Redfin or Zillow."""
-    return int(
-        common.find_xpath_via_browser(
-            url,
-            xpath,
-        ).translate(str.maketrans("", "", "$,"))
-    )
+
+def integerize_value(value):
+    """Removes $ and , from value."""
+    return int(value.translate(str.maketrans("", "", "$,")))
 
 
 def get_redfin_estimate(url_path):
     """Get home value from Redfin."""
-    return get_site_estimate(
-        f"https://www.redfin.com{url_path}",
-        # pylint: disable-next=line-too-long
-        '//*[@id="content"]/div[11]/div[2]/div[1]/div/div/div/div[1]/div[2]/div/div/div/div/div[1]/div/span',
+    return integerize_value(
+        common.find_xpath_via_browser(
+            f"https://www.redfin.com{url_path}",
+            '//*[@id="content"]/div[12]/div[2]/div[1]/div/div/div/div[1]/div[2]/div/div/div/div/div[1]/div/span',
+        )
     )
 
 
-def get_zillow_estimate(url_path):
-    """Get home value from Zillow."""
-    return get_site_estimate(
+def get_zillow_estimates(url_path):
+    """Get home and rent value from Zillow."""
+    values = common.find_xpaths_via_browser(
         f"https://www.zillow.com{url_path}",
-        '//*[@id="home-details-home-values"]/div/div[1]/div/div/div[1]/div/p/h3',
+        [
+            '//*[@id="search-detail-lightbox"]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div/div[1]/span/span[2]/span/span',
+            '//*[@id="search-detail-lightbox"]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div/div[1]/span/span[4]/span/span',
+        ],
     )
-
-
-def get_zillow_rent_estimate(url_path):
-    """Get rent estimate from Zillow."""
-    return get_site_estimate(
-        f"https://www.zillow.com{url_path}",
-        '//*[@id="__next"]/div/div/div[1]/div[2]/div[2]/div[2]/div/div[1]/span/span[4]/span/span',
-    )
+    return [integerize_value(x) for x in values]
 
 
 def write_prices_table(name, redfin, zillow):
@@ -78,7 +69,7 @@ def main():
     for filename, redfin_url in REDFIN_URLS.items():
         # Home value
         redfin = get_redfin_estimate(redfin_url)
-        zillow = get_zillow_estimate(ZILLOW_URLS[filename])
+        zillow, zillow_rent = get_zillow_estimates(ZILLOW_URLS[filename])
         average = round(statistics.mean([redfin, zillow]))
         if not average:
             continue
@@ -89,7 +80,7 @@ def main():
         # Home rent estimate
         write_rents_table(
             FILE_TO_NAME[filename],
-            get_zillow_rent_estimate(ZILLOW_URLS[filename]),
+            zillow_rent,
         )
 
 

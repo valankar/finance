@@ -268,8 +268,17 @@ def run_in_browser_page(url, func):
             browser.close()
 
 
+def find_xpaths_via_browser(url, xpaths):
+    """Find multiple xpaths. Returns list of text of element."""
+
+    def browser_func(page):
+        return [page.locator(x).text_content() for x in xpaths]
+
+    return run_in_browser_page(url, browser_func)
+
+
 def find_xpath_via_browser(url, xpath, execute_before=None):
-    """Find XPATH via Selenium with retries. Returns text of element.
+    """Find XPATH via browser. Returns text of element.
 
     execute_before is method passed a browser that runs after the get and
     before waiting for xpath.
