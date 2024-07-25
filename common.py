@@ -125,12 +125,6 @@ def get_ticker_yfinance(ticker):
         return yfinance.Ticker(ticker).history(period="5d")["Close"].iloc[-1]
 
 
-def load_float_from_text_file(filename):
-    """Get float value from a text file."""
-    with open(filename, encoding="utf-8") as input_file:
-        return float(input_file.read())
-
-
 def read_sql_table(table, index_col="date"):
     """Load table from sqlite."""
     with create_engine(SQLITE_URI_RO).connect() as conn:
@@ -255,41 +249,19 @@ def schwab_browser_page(page):
     return page
 
 
-def run_in_browser_page(url, func):
-    """Run code with a browser."""
-    os.environ["SELENIUM_REMOTE_URL"] = SELENIUM_REMOTE_URL
+@contextmanager
+def run_with_browser_page(url):
+    """Run code with a Chromium browser page."""
+    if not os.environ.get("SELENIUM_REMOTE_URL"):
+        os.environ["SELENIUM_REMOTE_URL"] = SELENIUM_REMOTE_URL
     with sync_playwright() as p:
         try:
             browser = p.chromium.launch(headless=False)
             page = browser.new_page()
             page.goto(url)
-            return func(page)
+            yield page
         finally:
             browser.close()
-
-
-def find_xpaths_via_browser(url, xpaths):
-    """Find multiple xpaths. Returns list of text of element."""
-
-    def browser_func(page):
-        return [page.locator(x).text_content() for x in xpaths]
-
-    return run_in_browser_page(url, browser_func)
-
-
-def find_xpath_via_browser(url, xpath, execute_before=None):
-    """Find XPATH via browser. Returns text of element.
-
-    execute_before is method passed a browser that runs after the get and
-    before waiting for xpath.
-    """
-
-    def browser_func(page):
-        if execute_before:
-            execute_before(page)
-        return page.locator(xpath).text_content()
-
-    return run_in_browser_page(url, browser_func)
 
 
 def reduce_merge_asof(dataframes):

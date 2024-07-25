@@ -5,21 +5,30 @@ import pandas as pd
 
 import common
 
-# pylint: disable=line-too-long
+
+def get_interest_rates(page):
+    """Get interest rate list as [USD, CHF]."""
+    page.get_by_role("link", name=" Accept Cookies").click()
+
+    def get_percent(currency):
+        return float(
+            page.get_by_role("row", name=currency)
+            .get_by_role("cell")
+            .nth(2)
+            .inner_text()
+            .split()[0]
+            .strip("%")
+        )
+
+    return [get_percent("USD"), get_percent("CHF")]
 
 
 def main():
     """Writes IB margin rates to DB."""
-    usd, chf = [
-        float(x.strip("%"))
-        for x in common.find_xpaths_via_browser(
-            "https://www.interactivebrokers.com/en/trading/margin-rates.php",
-            [
-                '//*[@id="interest-schedule"]/div/div[3]/div/div/table/tbody/tr[1]/td[3]/span/span[1]',
-                '//*[@id="interest-schedule"]/div/div[3]/div/div/table/tbody/tr[20]/td[3]/span/span[1]',
-            ],
-        )
-    ]
+    with common.run_with_browser_page(
+        "https://www.interactivebrokers.com/en/trading/margin-rates.php"
+    ) as page:
+        usd, chf = get_interest_rates(page)
     new_df = pd.DataFrame({"USD": usd, "CHF": chf}, index=[pd.Timestamp.now()])
     common.to_sql(new_df, "interactive_brokers_margin_rates")
 

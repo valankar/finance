@@ -1,47 +1,52 @@
 #!/usr/bin/env python3
 """Get market caps of SWTSX."""
 
+import math
+
 import pandas as pd
 
 import common
 
+CAP_MAP = {
+    "US_LARGE_CAP": ["> $70,000 M", "$15,000-$70,000 M"],
+    "US_SMALL_CAP": ["<$1,000 M", "$1,000-$3,000 M", "$3,000-$15,000 M"],
+}
 
-def reduce_sum_percents(string_values):
-    """Sum values in list of percentage strings."""
-    return sum(map(lambda x: float(x.strip("%")), string_values))
+
+class ToleranceError(Exception):
+    """Percents do not add up close to 100."""
 
 
-def browser_func(page):
+def get_market_cap(page):
     """Get market cap data from Schwab."""
     table_dict = {}
     common.schwab_browser_page(page)
     page.get_by_role("heading", name="Portfolio", exact=True).click()
-    table = page.locator('//*[@id="marketcap"]').get_by_role("row").all()
-    for row in table[1:]:
-        market_cap, percent = row.inner_text().split("\t\n")
-        table_dict[market_cap] = percent
+    for _, keys in CAP_MAP.items():
+        for cap in keys:
+            table_dict[cap] = float(
+                page.locator(f'tr:has-text("{cap}")')
+                .inner_text()
+                .split("\t\n")[1]
+                .strip("%")
+            )
     return table_dict
 
 
 def save_market_cap():
     """Writes SWTSX market cap weightings to swtsx_market_cap DB table."""
-    table_dict = common.run_in_browser_page(
-        "https://www.schwabassetmanagement.com/products/swtsx", browser_func
-    )
+    with common.run_with_browser_page(
+        "https://www.schwabassetmanagement.com/products/swtsx"
+    ) as page:
+        table_dict = get_market_cap(page)
+    if not math.isclose(sum(table_dict.values()), 100, rel_tol=0.01):
+        raise ToleranceError()
     market_cap_dict = {}
     # For determining large vs small cap, compare:
     # https://www.schwabassetmanagement.com/products/scha
     # https://www.schwabassetmanagement.com/products/swtsx
-    market_cap_dict["US_LARGE_CAP"] = reduce_sum_percents(
-        [table_dict["> $70,000 M"], table_dict["$15,000-$70,000 M"]]
-    )
-    market_cap_dict["US_SMALL_CAP"] = reduce_sum_percents(
-        [
-            table_dict["<$1,000 M"],
-            table_dict["$1,000-$3,000 M"],
-            table_dict["$3,000-$15,000 M"],
-        ]
-    )
+    for cap, keys in CAP_MAP.items():
+        market_cap_dict[cap] = sum(table_dict[x] for x in keys)
     market_cap_df = pd.DataFrame(
         market_cap_dict,
         index=[pd.Timestamp.now()],

@@ -8,13 +8,16 @@ import common
 
 def get_yield():
     """Get 7 day yield with Selenium."""
-    return float(
-        common.find_xpath_via_browser(
-            "https://www.schwabassetmanagement.com/products/swvxx",
-            '//*[@id="sfm-table--yields"]/table/tbody/tr[1]/td[2]',
-            execute_before=common.schwab_browser_page,
-        ).strip("%")
-    )
+    with common.run_with_browser_page(
+        "https://www.schwabassetmanagement.com/products/swvxx"
+    ) as page:
+        common.schwab_browser_page(page)
+        return float(
+            page.get_by_role("row", name="7-Day Yield (with waivers) As")
+            .get_by_role("cell")
+            .inner_text()
+            .strip("%")
+        )
 
 
 def main():

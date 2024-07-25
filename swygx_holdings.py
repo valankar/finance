@@ -10,28 +10,20 @@ class GetHoldingsError(Exception):
     """Error getting holdings."""
 
 
-def browser_func(page):
-    """Get market cap data from Schwab."""
-    table_dict = {}
-    common.schwab_browser_page(page)
-    table = (
-        page.locator('//*[@id="block-sch-beacon-csim-content"]/div/div/div/div/table')
-        .get_by_role("row")
-        .all()
-    )
-    for row in table[1:]:
-        _, etf, percent, _ = row.inner_text().split("\t")
-        table_dict[etf] = float(percent.strip("%"))
-    return table_dict
-
-
 def save_holdings():
     """Writes SWYGX holdings to swygx_holdings DB table."""
-    holdings = common.run_in_browser_page(
-        "https://www.schwabassetmanagement.com/allholdings/SWYGX", browser_func
-    )
+    with common.run_with_browser_page(
+        "https://www.schwabassetmanagement.com/allholdings/SWYGX"
+    ) as page:
+        holdings = {}
+        common.schwab_browser_page(page)
+        for row in page.get_by_role("table").get_by_role("row").all()[1:]:
+            holdings[row.get_by_role("cell").nth(1).inner_text()] = float(
+                row.get_by_role("cell").nth(2).inner_text().strip("%")
+            )
+
     if len(holdings) != 9:
-        print(f"Failed to get SWYGX holdings: only {len(holdings)} found")
+        print(f"Failed to get SWYGX holdings: only {len(holdings)} found: {holdings}")
         raise GetHoldingsError
     holdings_df = pd.DataFrame(
         holdings,
