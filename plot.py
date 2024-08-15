@@ -13,9 +13,9 @@ from prefixed import Float
 
 import amortize_pal
 import common
-import find_collar_options
 import i_and_e
 import margin_interest
+import stock_options
 from balance_etfs import get_desired_df
 
 COLOR_GREEN = "DarkGreen"
@@ -336,8 +336,20 @@ def make_interest_rate_section(interest_df):
         y=interest_df.columns,
     ).data:
         section.add_trace(trace, row=1, col=1)
-    for trace in make_margin_comparison_chart().data:
+    margin_df, margin_chart = make_margin_comparison_chart()
+    for trace in margin_chart.data:
         section.add_trace(trace, row=1, col=2)
+    section.add_annotation(
+        text=(
+            "Cost of CHF loan as percentage of USD loan: "
+            + f"{margin_interest.chf_interest_as_percentage_of_usd()*100:.2f}%"
+        ),
+        x=str(margin_df.index[len(margin_df.index) // 3]),
+        y=margin_df.max(axis=None),
+        showarrow=False,
+        row=1,
+        col=2,
+    )
     section.update_yaxes(title_text="Percent", col=1)
     section.update_xaxes(title_text="")
     return section
@@ -414,6 +426,7 @@ def load_margin_loan_df(ledger_loan_balance_cmd, ledger_balance_cmd):
 
 def make_loan_section(range_func):
     """Make section with margin loans."""
+
     section = make_subplots(
         rows=1,
         cols=2,
@@ -424,30 +437,63 @@ def make_loan_section(range_func):
         vertical_spacing=0.07,
         horizontal_spacing=0.05,
     )
-    balance_df = load_margin_loan_df(
-        ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_IBKR,
-        ledger_balance_cmd=amortize_pal.LEDGER_BALANCE_HISTORY_IBKR,
+
+    def add_remaining_annotation(dataframe, row, col, adjustment, percent):
+        loan_remaining_with_exposure = (
+            (dataframe["Equity Balance"].iloc[-1] - adjustment) * (percent / 100)
+            - dataframe["Loan Balance"].iloc[-1]
+            + adjustment
+        )
+        loan_remaining = (
+            dataframe["Equity Balance"].iloc[-1] * (percent / 100)
+            - dataframe["Loan Balance"].iloc[-1]
+        )
+        section.add_annotation(
+            # pylint: disable-next=line-too-long
+            text=f"Distance to {percent}%: {loan_remaining:,.0f}, w/ short put exposure ({adjustment}) = {loan_remaining_with_exposure:,.0f}",
+            x=str(dataframe.index[len(dataframe.index) // 2]),
+            y=dataframe.max(axis=None),
+            showarrow=False,
+            row=row,
+            col=col,
+        )
+
+    def add_loan_graph(
+        ledger_loan_balance_cmd, ledger_balance_cmd, col, adjustment, percent
+    ):
+        balance_df = load_margin_loan_df(
+            ledger_loan_balance_cmd=ledger_loan_balance_cmd,
+            ledger_balance_cmd=ledger_balance_cmd,
+        )
+        start, end = range_func(balance_df)
+        balance_df = balance_df[start:end]
+        for trace in px.line(
+            balance_df,
+            x=balance_df.index,
+            y=balance_df.columns,
+        ).data:
+            section.add_trace(trace, row=1, col=col)
+        add_remaining_annotation(balance_df, 1, col, adjustment, percent)
+
+    add_loan_graph(
+        amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_IBKR,
+        amortize_pal.LEDGER_BALANCE_HISTORY_IBKR,
+        1,
+        stock_options.short_put_exposure(
+            stock_options.options_df(), "Interactive Brokers"
+        ),
+        85,
     )
-    start, end = range_func(balance_df)
-    balance_df = balance_df[start:end]
-    for trace in px.line(
-        balance_df,
-        x=balance_df.index,
-        y=balance_df.columns,
-    ).data:
-        section.add_trace(trace, row=1, col=1)
-    balance_df = load_margin_loan_df(
-        ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL,
-        ledger_balance_cmd=amortize_pal.LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL,
+    add_loan_graph(
+        amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL,
+        amortize_pal.LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL,
+        2,
+        stock_options.short_put_exposure(
+            stock_options.options_df(), "Charles Schwab Brokerage"
+        ),
+        50,
     )
-    start, end = range_func(balance_df)
-    balance_df = balance_df[start:end]
-    for trace in px.line(
-        balance_df,
-        x=balance_df.index,
-        y=balance_df.columns,
-    ).data:
-        section.add_trace(trace, row=1, col=2)
+
     section.update_yaxes(title_text="USD", col=1)
     section.update_traces(row=1, col=2, showlegend=False)
     section.update_xaxes(title_text="")
@@ -507,45 +553,43 @@ def make_margin_comparison_chart():
         title="IBKR Forex Margin Interest Comparison",
     )
     i_and_e.configure_monthly_chart(chart)
-    return chart
+    return dataframe, chart
 
 
-def make_short_call_chart():
-    """Make short call moneyness/loss bar chart."""
+def make_short_options_section():
+    """Make short options moneyness/loss bar chart."""
     section = make_subplots(
         rows=1,
         cols=2,
         subplot_titles=(
-            "Short call option values (red = ITM)",
+            "OTM exercise values",
             "ITM exercise values",
         ),
         vertical_spacing=0.07,
         horizontal_spacing=0.05,
     )
-    dataframe = find_collar_options.options_df()
-    short_calls_df = dataframe[(dataframe["type"] == "CALL") & (dataframe["count"] < 0)]
-    chart = px.bar(
-        short_calls_df,
-        x=short_calls_df.index,
-        y=["current_price_minus_strike"],
+
+    def make_options_graph(df, col):
+        df.loc[:, "name"] = df["count"].astype(str) + " " + df["name"].astype(str)
+        df = df.set_index("name").sort_values("exercise_value")
+        chart = px.bar(
+            df,
+            x=df.index,
+            y=["exercise_value"],
+        )
+        for trace in chart.data:
+            trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
+            section.add_trace(trace, row=1, col=col)
+
+    dataframe = (
+        stock_options.options_df()
+        .groupby(level="name")
+        .agg({"exercise_value": "sum", "count": "sum", "in_the_money": "first"})
+        .reset_index()
     )
-    for trace in chart.data:
-        trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
-        section.add_trace(trace, row=1, col=1)
-    itm_df = (
-        dataframe[dataframe["in_the_money"]].sort_values("exercise_value").reset_index()
-    )
-    itm_df.loc[itm_df["count"] < 0, "name"] = itm_df["name"].astype(str) + " (SHORT)"
-    itm_df.loc[itm_df["count"] > 0, "name"] = itm_df["name"].astype(str) + " (LONG)"
-    itm_df = itm_df.set_index("name")
-    chart = px.bar(
-        itm_df,
-        x=itm_df.index,
-        y=["exercise_value"],
-    )
-    for trace in chart.data:
-        trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
-        section.add_trace(trace, row=1, col=2)
+    # pylint: disable-next=singleton-comparison
+    make_options_graph(dataframe[dataframe["in_the_money"] != True], 1)
+    make_options_graph(dataframe[dataframe["in_the_money"]], 2)
     section.update_yaxes(title_text="USD", col=1)
     section.update_xaxes(title_text="")
     section.update_layout(title="Options")

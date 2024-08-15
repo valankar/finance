@@ -23,11 +23,14 @@ from sqlalchemy import text as sqlalchemy_text
 
 PUBLIC_HTML = f"{Path.home()}/code/accounts/web/"
 PREFIX = PUBLIC_HTML
+LOCKFILE = f"{PREFIX}/run.lock"
+LOCKFILE_TIMEOUT = 10 * 60
+DEV_USER = "valankar-dev"
 SQLITE_URI = f"sqlite:///{PREFIX}sqlite.db"
 SQLITE_URI_RO = f"sqlite:///file:{PREFIX}sqlite.db?mode=ro&uri=true"
 SQLITE3_URI_RO = f"file:{PREFIX}sqlite.db?mode=ro"
 SELENIUM_REMOTE_URL = "http://selenium:4444"
-LEDGER_BIN = f"{Path.home()}/miniforge3/envs/ledger/bin/ledger"
+LEDGER_BIN = "ledger"
 LEDGER_DIR = f"{Path.home()}/code/ledger"
 LEDGER_DAT = f"{LEDGER_DIR}/ledger.ledger"
 LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
@@ -39,6 +42,11 @@ GET_TICKER_TIMEOUT = 30
 
 class GetTickerError(Exception):
     """Error getting ticker."""
+
+
+def running_as_dev():
+    """Determine if running as dev user."""
+    return os.getenv("USER") == DEV_USER
 
 
 def get_tickers(tickers: list) -> dict:
@@ -255,8 +263,8 @@ def run_with_browser_page(url):
     if not os.environ.get("SELENIUM_REMOTE_URL"):
         os.environ["SELENIUM_REMOTE_URL"] = SELENIUM_REMOTE_URL
     with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False)
         try:
-            browser = p.chromium.launch(headless=False)
             page = browser.new_page()
             page.goto(url)
             yield page

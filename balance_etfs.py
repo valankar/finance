@@ -145,17 +145,26 @@ def get_sell_only_df(allocation_df, amount):
     )
 
 
-def main():
-    """Main."""
-    amount = 0
-    if len(sys.argv) > 1:
-        amount = float(sys.argv[1])
+def get_rebalancing_df(amount):
+    """Get rebalancing dataframe."""
+    try:
+        amount = float(amount)
+    except ValueError:
+        amount = 0
     allocation_df = get_desired_df(amount)
     if amount > 0:
         allocation_df = get_buy_only_df(allocation_df, amount)
     elif amount < 0:
         allocation_df = get_sell_only_df(allocation_df, amount)
-    print(allocation_df)
+    return allocation_df
+
+
+def main():
+    """Main."""
+    amount = 0
+    if len(sys.argv) > 1:
+        amount = sys.argv[1]
+    print(get_rebalancing_df(amount))
 
 
 if __name__ == "__main__":

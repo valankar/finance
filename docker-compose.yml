@@ -4,14 +4,20 @@ services:
     container_name: accounts
     user: ${USERID}
     volumes: &volumes
-      - ${HOME}/code/accounts:/home/valankar/code/accounts
-      - ${HOME}/code/ledger:/home/valankar/code/ledger
+      - ${HOME}/code/accounts:/home/mambauser/code/accounts
+      - ${HOME}/code/ledger:/home/mambauser/code/ledger
     labels:
       com.centurylinklabs.watchtower.no-pull: true
       sablier.enable: true
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8050/health" ]
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:8080/healthcheck"
+        ]
     networks:
       - cloudflare
 
@@ -23,7 +29,7 @@ services:
     volumes: *volumes
     labels:
       com.centurylinklabs.watchtower.no-pull: true
-    command: "mamba run -p /home/valankar/miniforge3/envs/investing --no-capture-output ./finance_hourly.py"
+    command: "/home/mambauser/code/accounts/finance_hourly.py"
 
   accounts_daily:
     image: ${IMAGE}
@@ -36,7 +42,20 @@ services:
     depends_on:
       selenium:
         condition: service_healthy
-    command: "mamba run -p /home/valankar/miniforge3/envs/investing --no-capture-output ./finance_daily.py"
+    command: "/home/mambauser/code/accounts/finance_daily.py"
+
+  accounts_daily_script:
+    image: ${IMAGE}
+    profiles: [ "scripts" ]
+    container_name: accounts_daily_script
+    user: ${USERID}
+    volumes: *volumes
+    labels:
+      com.centurylinklabs.watchtower.no-pull: true
+    depends_on:
+      selenium:
+        condition: service_healthy
+    command: "/home/mambauser/code/accounts/${SCRIPT}"
 
   selenium:
     image: selenium/standalone-chromium

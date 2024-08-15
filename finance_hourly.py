@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Run hourly finance functions."""
 
+import portalocker
+
+import common
 import etfs
 import forex
 import history
@@ -12,13 +15,14 @@ import schwab_ira
 
 def main():
     """Main."""
-    ledger_amounts.main()
-    etfs.main()
-    forex.main()
-    schwab_ira.main()
-    ledger_prices_db.main()
-    history.main()
-    push_web.main()
+    with portalocker.Lock(common.LOCKFILE, timeout=common.LOCKFILE_TIMEOUT):
+        ledger_amounts.main()
+        etfs.main()
+        forex.main()
+        schwab_ira.main()
+        ledger_prices_db.main()
+        history.main()
+        push_web.main()
 
 
 if __name__ == "__main__":

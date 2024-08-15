@@ -1,11 +1,7 @@
 #!/bin/bash
 
-mamba update --all -n base
-mamba update --all -n ledger
-mamba update --all -n weight
-mamba update --all -n investing
+mamba update --all -y -n base
+mamba update --all -y -n investing
 mamba clean -a -y
 
-mamba env export -n ledger >environment-ledger.yml
-mamba env export -n weight > ~/code/weight/environment.yml
-mamba env export -n investing >environment.yml
+mamba env export -n investing --no-builds >environment.yml

@@ -1,14 +1,14 @@
-FROM condaforge/mambaforge
-RUN groupadd -g 1000 valankar
-RUN useradd -u 1000 -g 1000 -d /home/valankar valankar
-RUN apt-get update
-RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get -y install tzdata curl
-RUN mamba update -n base --all -y
-USER valankar
-WORKDIR /home/valankar/code/accounts
-COPY environment*.yml .
-RUN mamba env create -f environment.yml -p ${HOME}/miniforge3/envs/investing
-RUN mamba env create -f environment-ledger.yml -p ${HOME}/miniforge3/envs/ledger
-RUN mamba clean -a -y
-CMD ["mamba", "run", "-p", "/home/valankar/miniforge3/envs/investing", "--no-capture-output", "gunicorn", "dashboard:server", "-b", "0.0.0.0:8050", "-t", "60"]
-EXPOSE 8050/tcp
+FROM mambaorg/micromamba
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl \
+    && rm -rf /var/lib/apt/lists/*
+USER $MAMBA_USER
+
+COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/env.yaml
+RUN micromamba install -y -n base -f /tmp/env.yaml && \
+    micromamba clean --all --yes
+
+CMD $HOME/code/accounts/app.py
+EXPOSE 8080/tcp
