@@ -94,6 +94,7 @@ dependencies:
   - libxcrypt=4.4.36
   - libxml2=2.12.7
   - libzlib=1.3.1
+  - loguru=0.7.2
   - markdown2=2.5.0
   - markupsafe=2.1.5
   - mpfr=4.2.1
@@ -193,4 +194,4 @@ dependencies:
       - yahoofinancials==1.20
       - yahooquery==2.3.7
       - yfinance==0.2.41
-prefix: /home/valankar-dev/miniforge3/envs/investing-dev
+prefix: /home/valankar-dev/miniforge3/envs/investing

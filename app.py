@@ -9,6 +9,7 @@ from datetime import datetime
 import pandas as pd
 import plotly.io as pio
 from dateutil.relativedelta import relativedelta
+from loguru import logger
 from nicegui import run, ui
 
 import balance_etfs
@@ -245,6 +246,13 @@ class IncomeExpenseGraphs:
 @ui.page("/")
 async def main_page():
     """Generate main UI."""
+    headers = ui.context.client.request.headers
+    logger.info(
+        "User: {user}, IP: {ip}, Country: {country}",
+        user=headers.get("cf-access-authenticated-user-email", "unknown"),
+        ip=headers.get("cf-connecting-ip", "unknown"),
+        country=headers.get("cf-ipcountry", "unknown"),
+    )
     with ui.footer().classes("transparent q-py-none"):
         with ui.tabs().classes("w-full") as tabs:
             for timerange in ["All", "2y", "1y", "YTD", "6m", "3m", "1m"]:

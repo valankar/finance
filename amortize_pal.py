@@ -36,11 +36,11 @@ LEDGER_BALANCE_HISTORY_IBKR = (
 )
 LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL = (
     f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^(\\$|SCH|SW|GLD|SGOL)/' -J -E reg ^Assets:Investments:'Charles Schwab Brokerage'"""
+    + r"""--limit 'commodity=~/^(SCH|SW|GLD|SGOL)/' -J -E reg ^Assets:Investments:'Charles Schwab Brokerage'"""
 )
 LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL = (
     f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^"SPX/' -J -E -b 2024-03-26 reg ^Assets:Investments:'Charles Schwab Brokerage'"""
+    + r"""--limit 'commodity=~/^(\\$|"SPX)/' -J -E -b 2024-03-26 reg ^Assets:Investments:'Charles Schwab Brokerage'"""
 )
 
 
