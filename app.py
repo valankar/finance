@@ -15,7 +15,7 @@ import portalocker
 import schedule
 from dateutil.relativedelta import relativedelta
 from loguru import logger
-from nicegui import app, run, ui
+from nicegui import app, background_tasks, run, ui
 
 import balance_etfs
 import common
@@ -404,6 +404,12 @@ def healthcheck_page():
     ui.html("<PRE>ok</PRE>")
 
 
+@app.get("/generate_graphs")
+def generate_graphs_page():
+    background_tasks.create(run.io_bound(schedule.run_all))
+    return {"message": "ok"}
+
+
 async def update_graphs_loop():
     # Kick off run of everything before loop.
     await run.io_bound(schedule.run_all)
@@ -422,6 +428,6 @@ def lock_and_generate_graphs():
 
 if __name__ in {"__main__", "__mp_main__"}:
     pio.templates.default = "plotly_dark"
-    schedule.every(30).minutes.do(lock_and_generate_graphs)
+    schedule.every().hour.at(":05").do(lock_and_generate_graphs)
     app.on_startup(update_graphs_loop)
     ui.run(title="Accounts", dark=True)
