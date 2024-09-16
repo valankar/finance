@@ -90,13 +90,6 @@ def make_assets_breakdown_section(daily_df):
     return section
 
 
-def get_investing_retirement_df(daily_df):
-    """Get merged df with other investment accounts."""
-    invret_cols = ["pillar2", "ira", "commodities", "etfs"]
-    invret_df = daily_df[invret_cols]
-    return invret_df
-
-
 def make_investing_retirement_section(invret_df):
     """Make investing and retirement section."""
     section = px.line(
@@ -248,6 +241,7 @@ def make_investing_allocation_section():
 
 def make_allocation_profit_section(daily_df, real_estate_df):
     """Make asset allocation and day changes section."""
+    real_estate_df = real_estate_df.copy()
     changes_section = make_subplots(
         rows=2,
         cols=2,
@@ -299,24 +293,16 @@ def make_allocation_profit_section(daily_df, real_estate_df):
     return changes_section
 
 
-def make_prices_section(prices_df):
+def make_prices_section(prices_df, title):
     """Make section with prices graphs."""
     fig = px.line(
         prices_df,
         x=prices_df.index,
         y=prices_df.columns,
-        facet_col="variable",
-        facet_col_wrap=2,
-        facet_col_spacing=0.04,
-        title="Prices",
+        title=title,
     )
-    fig.update_yaxes(matches=None, title_text="")
-    fig.update_yaxes(col=2, showticklabels=True)
-    fig.update_yaxes(col=1, title_text="USD")
-    fig.update_xaxes(title_text="", matches="x", showticklabels=True)
-    fig.update_traces(showlegend=False)
-    add_hline_current(fig, prices_df, "CHFUSD", 0, 1, precision=2)
-    add_hline_current(fig, prices_df, "SGDUSD", 0, 2, precision=2)
+    fig.update_yaxes(title_text="USD")
+    fig.update_xaxes(title_text="")
     return fig
 
 
@@ -587,8 +573,7 @@ def make_short_options_section():
         .agg({"exercise_value": "sum", "count": "sum", "in_the_money": "first"})
         .reset_index()
     )
-    # pylint: disable-next=singleton-comparison
-    make_options_graph(dataframe[dataframe["in_the_money"] != True], 1)
+    make_options_graph(dataframe[dataframe["in_the_money"] != True], 1)  # noqa: E712
     make_options_graph(dataframe[dataframe["in_the_money"]], 2)
     section.update_yaxes(title_text="USD", col=1)
     section.update_xaxes(title_text="")
@@ -597,29 +582,26 @@ def make_short_options_section():
     return section
 
 
-def get_interest_rate_df(frequency):
+def get_interest_rate_df():
     """Merge interest rate data."""
     fedfunds_df = common.load_sqlite_and_rename_col(
-        "fedfunds", rename_cols={"percent": "Fed Funds"}, frequency=frequency
+        "fedfunds", rename_cols={"percent": "Fed Funds"}
     )["2019":]
     sofr_df = common.load_sqlite_and_rename_col(
-        "sofr", rename_cols={"percent": "SOFR"}, frequency=frequency
+        "sofr", rename_cols={"percent": "SOFR"}
     )["2019":]
     swvxx_df = common.load_sqlite_and_rename_col(
-        "swvxx_yield", rename_cols={"percent": "Schwab SWVXX"}, frequency=frequency
+        "swvxx_yield", rename_cols={"percent": "Schwab SWVXX"}
     )
     wealthfront_df = common.load_sqlite_and_rename_col(
-        "wealthfront_cash_yield",
-        rename_cols={"percent": "Wealthfront Cash"},
-        frequency=frequency,
+        "wealthfront_cash_yield", rename_cols={"percent": "Wealthfront Cash"}
     )
     ibkr_df = common.load_sqlite_and_rename_col(
         "interactive_brokers_margin_rates",
         rename_cols={"USD": "USD IBKR Margin", "CHF": "CHF IBKR Margin"},
-        frequency=frequency,
     )
     merged = reduce(
-        lambda l, r: pd.merge(l, r, left_index=True, right_index=True, how="outer"),
+        lambda L, r: pd.merge(L, r, left_index=True, right_index=True, how="outer"),
         [
             fedfunds_df,
             sofr_df,
@@ -628,4 +610,4 @@ def get_interest_rate_df(frequency):
             ibkr_df,
         ],
     )
-    return merged.interpolate()
+    return merged.ffill()

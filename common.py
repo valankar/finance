@@ -5,15 +5,13 @@ import functools
 import multiprocessing
 import os
 import shutil
-import sqlite3
 import tempfile
 import warnings
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from functools import reduce
 from pathlib import Path
 
 import pandas as pd
-import stockquotes
 import yahoofinancials
 import yahooquery
 import yfinance
@@ -25,7 +23,6 @@ PUBLIC_HTML = f"{Path.home()}/code/accounts/web/"
 PREFIX = PUBLIC_HTML
 LOCKFILE = f"{PREFIX}/run.lock"
 LOCKFILE_TIMEOUT = 10 * 60
-DEV_USER = "valankar-dev"
 SQLITE_URI = f"sqlite:///{PREFIX}sqlite.db"
 SQLITE_URI_RO = f"sqlite:///file:{PREFIX}sqlite.db?mode=ro&uri=true"
 SQLITE3_URI_RO = f"file:{PREFIX}sqlite.db?mode=ro"
@@ -36,17 +33,11 @@ LEDGER_DAT = f"{LEDGER_DIR}/ledger.ledger"
 LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 # pylint: disable-next=line-too-long
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
-
 GET_TICKER_TIMEOUT = 30
 
 
 class GetTickerError(Exception):
     """Error getting ticker."""
-
-
-def running_as_dev():
-    """Determine if running as dev user."""
-    return os.getenv("USER") == DEV_USER
 
 
 def get_tickers(tickers: list) -> dict:
@@ -68,32 +59,16 @@ def log_function_result(name, success, error_string=None):
     )
 
 
-def function_failed_last_day(name):
-    """Determine whether function has failed in the last day."""
-    with closing(sqlite3.connect(SQLITE3_URI_RO, uri=True)) as con:
-        res = con.execute(
-            "select count(*) from function_result where success=False and "
-            f"date > datetime('now', '-1 day') and name='{name}'"
-        )
-        return res.fetchone()[0] != 0
-
-
 @functools.cache
 def get_ticker(ticker):
-    """Get ticker prices by trying various methods.
-
-    Failed methods are not retried until 1 day has passed.
-    """
+    """Get ticker prices by trying various methods."""
     get_ticker_methods = (
         get_ticker_yahooquery,
         get_ticker_yahoofinancials,
         get_ticker_yfinance,
-        get_ticker_stockquotes,
     )
     for method in get_ticker_methods:
         name = method.__name__
-        if function_failed_last_day(name):
-            continue
         with multiprocessing.Pool(processes=1) as pool:
             async_result = pool.apply_async(method, (ticker,))
             try:
@@ -104,12 +79,6 @@ def get_ticker(ticker):
             except Exception as ex:
                 log_function_result(name, False, str(ex))
     raise GetTickerError("No more methods to get ticker price")
-
-
-@functools.cache
-def get_ticker_stockquotes(ticker):
-    """Get ticker price via stockquotes library."""
-    return stockquotes.Stock(ticker).current_price
 
 
 @functools.cache
@@ -148,46 +117,6 @@ def read_sql_query(query):
             index_col="date",
             parse_dates=["date"],
         )
-
-
-def read_sql_table_resampled_last(
-    table, frequency="daily", extra_cols=None, other_group=None
-):
-    """Load table from sqlite resampling daily before loading.
-
-    extra_cols is a list of columns auto-generated in sqlite to include.
-    other_group is another group to partition by other than date.
-    """
-    append_sql = []
-    match frequency:
-        case "daily":
-            partition_by = ["DATE(date)"]
-        case "weekly":
-            partition_by = ["DATE(date, 'weekday 5')"]
-        case "hourly":
-            partition_by = ["STRFTIME('%Y-%m-%d %H:00:00', date)"]
-    with closing(sqlite3.connect(SQLITE3_URI_RO, uri=True)) as con:
-        cols = [
-            fields[1]
-            for fields in con.execute(f"PRAGMA table_info({table})").fetchall()
-        ]
-        if extra_cols:
-            cols.extend(extra_cols)
-        for col in cols:
-            if col == "date":
-                continue
-            if other_group and col == other_group:
-                append_sql.append(other_group)
-                partition_by.append(other_group)
-                continue
-            append_sql.append(f'last_value("{col}") OVER win AS "{col}"')
-    sql = (
-        f"SELECT DISTINCT {partition_by[0]} AS date, {', '.join(append_sql)} FROM "
-        + f"{table} WINDOW win AS (PARTITION BY {', '.join(partition_by)} ORDER "
-        + "BY date ASC RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) "
-        + "ORDER BY date ASC"
-    )
-    return read_sql_query(sql)
 
 
 def to_sql(dataframe, table, if_exists="append", index_label="date", foreign_key=False):
@@ -275,31 +204,24 @@ def run_with_browser_page(url):
 def reduce_merge_asof(dataframes):
     """Reduce and merge date tables."""
     return reduce(
-        lambda l, r: pd.merge_asof(l, r, left_index=True, right_index=True),
+        lambda L, r: pd.merge_asof(L, r, left_index=True, right_index=True),
         dataframes,
     )
 
 
-def load_sqlite_and_rename_col(
-    table, frequency="daily", rename_cols=None, extra_cols=None, other_group=None
-):
+def load_sqlite_and_rename_col(table, rename_cols=None):
     """Load resampled table from sqlite and rename columns."""
-    dataframe = read_sql_table_resampled_last(
-        table, frequency=frequency, extra_cols=extra_cols, other_group=other_group
-    )
+    dataframe = read_sql_table(table)
     if rename_cols:
         dataframe = dataframe.rename(columns=rename_cols)
     return dataframe
 
 
-def get_real_estate_df(frequency="daily"):
+def get_real_estate_df():
     """Get real estate price and rent data from sqlite."""
     price_df = (
-        read_sql_table_resampled_last(
+        read_sql_table(
             "real_estate_prices",
-            frequency=frequency,
-            extra_cols=["value"],
-            other_group="name",
         )[["name", "value"]]
         .groupby(["date", "name"])
         .mean()
@@ -308,16 +230,20 @@ def get_real_estate_df(frequency="daily"):
     price_df.columns = price_df.columns.get_level_values(1) + " Price"
     price_df.columns.name = "variable"
     rent_df = (
-        read_sql_table_resampled_last(
-            "real_estate_rents", frequency=frequency, other_group="name"
-        )
+        read_sql_table("real_estate_rents")
         .groupby(["date", "name"])
         .mean()
         .unstack("name")
     )
     rent_df.columns = rent_df.columns.get_level_values(1) + " Rent"
     rent_df.columns.name = "variable"
-    return reduce_merge_asof([price_df, rent_df]).sort_index(axis=1).interpolate()
+    return (
+        reduce_merge_asof([price_df, rent_df])
+        .sort_index(axis=1)
+        .resample("D")
+        .mean()
+        .interpolate()
+    )
 
 
 if __name__ == "__main__":

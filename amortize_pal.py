@@ -5,8 +5,8 @@ import argparse
 import io
 import subprocess
 
-from amortization.schedule import amortization_schedule
 import numpy_financial as npf
+from amortization.schedule import amortization_schedule
 from tabulate import tabulate
 
 import common
@@ -32,11 +32,11 @@ LEDGER_LOAN_BALANCE_HISTORY_IBKR = (
 )
 LEDGER_BALANCE_HISTORY_IBKR = (
     f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^(IB|SCH|GLD|SGOL)/' -J -E reg ^Assets:Investments:'Interactive Brokers'"""
+    + r"""--limit 'commodity=~/^(IB|SCH|GLD|SGOL|SIVR)/' -J -E reg ^Assets:Investments:'Interactive Brokers'"""
 )
 LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL = (
     f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^(SCH|SW|GLD|SGOL)/' -J -E reg ^Assets:Investments:'Charles Schwab Brokerage'"""
+    + r"""--limit 'commodity=~/^(SCH|SW|GLD|SGOL|SIVR)/' -J -E reg ^Assets:Investments:'Charles Schwab Brokerage'"""
 )
 LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL = (
     f"{common.LEDGER_PREFIX} "

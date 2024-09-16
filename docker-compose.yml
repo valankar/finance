@@ -2,22 +2,15 @@ services:
   accounts:
     image: ${IMAGE}
     container_name: accounts
-    user: ${USERID}
     volumes: &volumes
-      - ${HOME}/code/accounts:/home/mambauser/code/accounts
-      - ${HOME}/code/ledger:/home/mambauser/code/ledger
+      - ${HOME}/code/accounts:/app/code/accounts
+      - ${HOME}/code/ledger:/app/code/ledger
     labels:
       com.centurylinklabs.watchtower.no-pull: true
       sablier.enable: true
     restart: unless-stopped
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-f",
-          "http://localhost:8080/healthcheck"
-        ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/healthcheck" ]
     networks:
       - cloudflare
 
@@ -25,37 +18,34 @@ services:
     image: ${IMAGE}
     profiles: [ "scripts" ]
     container_name: accounts_hourly
-    user: ${USERID}
     volumes: *volumes
     labels:
       com.centurylinklabs.watchtower.no-pull: true
-    command: "/home/mambauser/code/accounts/finance_hourly.py"
+    command: "/app/code/accounts/finance_hourly.py"
 
   accounts_daily:
     image: ${IMAGE}
     profiles: [ "scripts" ]
     container_name: accounts_daily
-    user: ${USERID}
     volumes: *volumes
     labels:
       com.centurylinklabs.watchtower.no-pull: true
     depends_on:
       selenium:
         condition: service_healthy
-    command: "/home/mambauser/code/accounts/finance_daily.py"
+    command: "/app/code/accounts/finance_daily.py"
 
   accounts_daily_script:
     image: ${IMAGE}
     profiles: [ "scripts" ]
     container_name: accounts_daily_script
-    user: ${USERID}
     volumes: *volumes
     labels:
       com.centurylinklabs.watchtower.no-pull: true
     depends_on:
       selenium:
         condition: service_healthy
-    command: "/home/mambauser/code/accounts/${SCRIPT}"
+    command: "/app/code/accounts/${SCRIPT}"
 
   selenium:
     image: selenium/standalone-chromium
@@ -65,15 +55,7 @@ services:
     ports:
       - "7900:7900"
     healthcheck:
-      test:
-        &selenium-healthcheck [
-          "CMD",
-          "/opt/bin/check-grid.sh",
-          "--host",
-          "0.0.0.0",
-          "--port",
-          "4444"
-        ]
+      test: &selenium-healthcheck [ "CMD", "/opt/bin/check-grid.sh", "--host", "0.0.0.0", "--port", "4444" ]
     labels:
       com.centurylinklabs.watchtower.no-pull: true
 

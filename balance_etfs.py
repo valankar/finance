@@ -21,7 +21,7 @@ DESIRED_ALLOCATION = {
     "COMMODITIES": 7,  # Bonds are further reduced by this to make room
 }
 ETF_TYPE_MAP = {
-    "COMMODITIES": ["GLDM", "SGOL"],
+    "COMMODITIES": ["GLDM", "SGOL", "SIVR"],
     "US_SMALL_CAP": ["SCHA"],
     "US_LARGE_CAP": ["SCHX"],
     "US_BONDS": ["SCHO", "SCHR", "SCHZ", "SWAGX"],
@@ -44,7 +44,7 @@ def reconcile(etfs_df, amount, total):
 @functools.cache
 def get_swtsx_market_cap():
     """Get market cap distribution from swtsx_market_cap DB table."""
-    return common.read_sql_table_resampled_last("swtsx_market_cap").iloc[-1]
+    return common.read_sql_table("swtsx_market_cap").iloc[-1]
 
 
 def age_adjustment(allocation):
@@ -65,7 +65,7 @@ def age_adjustment(allocation):
 
 def convert_ira_to_types(ira_df):
     """Convert SWYGX to types/categories."""
-    holdings = common.read_sql_table_resampled_last("swygx_holdings").iloc[-1]
+    holdings = common.read_sql_table("swygx_holdings").iloc[-1]
     for etf_type, etfs_list in ETF_TYPE_MAP.items():
         ira_df.loc[etf_type] = (
             ira_df.loc["SWYGX"].value
