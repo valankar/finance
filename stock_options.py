@@ -82,9 +82,12 @@ def options_df():
 
 def short_put_exposure(dataframe, broker):
     """Get exposure of short puts along with long puts."""
-    broker_puts = dataframe.xs(broker, level="account").loc[
-        lambda df: df["type"] == "PUT"
-    ]
+    try:
+        broker_puts = dataframe.xs(broker, level="account").loc[
+            lambda df: df["type"] == "PUT"
+        ]
+    except KeyError:
+        return 0
     broker_short_puts = broker_puts[broker_puts["count"] < 0]
     total = 0
     for index, _ in broker_short_puts.iterrows():
@@ -156,21 +159,24 @@ def after_assignment(itm_df):
 def main():
     """Main."""
     options = options_df()
-    print("Out of the money")
-    print(
-        options[options["in_the_money"] == False].drop(  # noqa: E712
-            columns=["intrinsic_value", "min_contract_price"]
+    try:
+        print("Out of the money")
+        print(
+            options[options["in_the_money"] == False].drop(  # noqa: E712
+                columns=["intrinsic_value", "min_contract_price"]
+            )
         )
-    )
-    print("\nIn the money")
-    print(options[options["in_the_money"]], "\n")
-    print("Balances after in the money options assigned")
-    after_assignment(options[options["in_the_money"]])
-    for broker in ["Charles Schwab Brokerage", "Interactive Brokers"]:
-        print(f"{broker}")
-        print(f"  Short put exposure: {short_put_exposure(options, broker)}")
-        print(options.xs(broker, level="account"))
-        print("\n")
+        print("\nIn the money")
+        print(options[options["in_the_money"]], "\n")
+        print("Balances after in the money options assigned")
+        after_assignment(options[options["in_the_money"]])
+        for broker in ["Charles Schwab Brokerage", "Interactive Brokers"]:
+            print(f"{broker}")
+            print(f"  Short put exposure: {short_put_exposure(options, broker)}")
+            print(options.xs(broker, level="account"))
+            print("\n")
+    except KeyError:
+        pass
 
 
 if __name__ == "__main__":

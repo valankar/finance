@@ -5,9 +5,9 @@ import asyncio
 import contextlib
 import io
 import subprocess
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from threading import Lock
 
 import pandas as pd
 import plotly.io as pio
@@ -16,6 +16,7 @@ import schedule
 from dateutil.relativedelta import relativedelta
 from loguru import logger
 from nicegui import app, background_tasks, run, ui
+from zoneinfo import ZoneInfo
 
 import balance_etfs
 import common
@@ -26,7 +27,7 @@ import stock_options
 SUBPLOT_MARGIN = {"l": 0, "r": 50, "b": 0, "t": 50}
 
 RANGES = ["All", "2y", "1y", "YTD", "6m", "3m", "1m"]
-SELECTED_RANGE = "1y"
+DEFAULT_RANGE = "1y"
 
 
 @contextlib.contextmanager
@@ -41,19 +42,34 @@ def pandas_options():
 class MainGraphs:
     """Collection of all main graphs."""
 
-    cached_graphs_lock = Lock()
     cached_graphs = {}
     last_updated_time = None
     last_generation_duration = None
     latest_datapoint_time = None
+    LAYOUT = (
+        ("assets_breakdown", "96vh"),
+        ("investing_retirement", "75vh"),
+        ("real_estate", "96vh"),
+        ("allocation_profit", "75vh"),
+        ("change_section", "50vh"),
+        ("change_section_no_homes", "50vh"),
+        ("investing_allocation_section", "50vh"),
+        ("prices", "45vh"),
+        ("forex", "45vh"),
+        ("interest_rate", "45vh"),
+        ("loan", "45vh"),
+        ("short_options_section", "50vh"),
+    )
 
     @classmethod
     def all_graphs_populated(cls):
-        with cls.cached_graphs_lock:
-            for r in RANGES:
-                if r not in cls.cached_graphs:
-                    return False
-        return True
+        found_graphs = set()
+        required_graphs = set([name for name, _ in cls.LAYOUT]) - set(
+            ["short_options_section"]
+        )
+        for graph_type in ["ranged", "nonranged"]:
+            found_graphs.update(cls.cached_graphs.get(graph_type, {}).keys())
+        return len(required_graphs - found_graphs) == 0
 
     @classmethod
     def generate_all_graphs(cls):
@@ -63,123 +79,125 @@ class MainGraphs:
         dataframes = {
             "all": common.read_sql_table("history").sort_index(),
             "real_estate": common.get_real_estate_df(),
-            "prices": (
-                common.read_sql_table("schwab_etfs_prices")
-                .drop(columns="IBKR", errors="ignore")
-                .sort_index()
-            ),
-            "forex": (
-                common.read_sql_table("forex")
-                .drop(columns="SGDUSD", errors="ignore")
-                .sort_index()
-            ),
+            "prices": (common.read_sql_table("schwab_etfs_prices").sort_index()),
+            "forex": common.read_sql_table("forex").sort_index(),
             "interest_rate": plot.get_interest_rate_df(),
+            "options": stock_options.options_df(),
         }
         with ThreadPoolExecutor() as executor:
-            norange_graphs = {
+            nonranged_graphs = {
                 "allocation_profit": executor.submit(
-                    plot.make_allocation_profit_section,
-                    dataframes["all"],
-                    dataframes["real_estate"],
+                    lambda: plot.make_allocation_profit_section(
+                        dataframes["all"],
+                        dataframes["real_estate"],
+                    )
+                    .update_layout(margin=SUBPLOT_MARGIN)
+                    .to_plotly_json()
                 ),
                 "change_section": executor.submit(
-                    plot.make_change_section,
-                    dataframes["all"],
-                    "total",
-                    "Total Net Worth Change",
+                    lambda: plot.make_change_section(
+                        dataframes["all"],
+                        "total",
+                        "Total Net Worth Change",
+                    ).to_plotly_json()
                 ),
                 "change_section_no_homes": executor.submit(
-                    plot.make_change_section,
-                    dataframes["all"],
-                    "total_no_homes",
-                    "Total Net Worth Change w/o Real Estate",
+                    lambda: plot.make_change_section(
+                        dataframes["all"],
+                        "total_no_homes",
+                        "Total Net Worth Change w/o Real Estate",
+                    ).to_plotly_json()
                 ),
                 "investing_allocation_section": executor.submit(
-                    plot.make_investing_allocation_section
-                ),
-                "short_options_section": executor.submit(
-                    plot.make_short_options_section
+                    lambda: plot.make_investing_allocation_section().to_plotly_json()
                 ),
             }
-            ranged_graphs = {}
-            for r in RANGES:
-                ranged_graphs[r] = {
-                    "assets_breakdown": executor.submit(
-                        lambda range: plot.make_assets_breakdown_section(
-                            cls.limit_and_resample_df(dataframes["all"], range)
-                        ).update_layout(margin=SUBPLOT_MARGIN),
-                        r,
-                    ),
-                    "investing_retirement": executor.submit(
-                        lambda range: plot.make_investing_retirement_section(
-                            cls.limit_and_resample_df(
-                                dataframes["all"][
-                                    ["pillar2", "ira", "commodities", "etfs"]
-                                ],
-                                range,
-                            )
-                        ).update_layout(margin=SUBPLOT_MARGIN),
-                        r,
-                    ),
-                    "real_estate": executor.submit(
-                        lambda range: plot.make_real_estate_section(
-                            cls.limit_and_resample_df(
-                                dataframes["real_estate"],
-                                range,
-                            )
-                        ).update_layout(margin=SUBPLOT_MARGIN),
-                        r,
-                    ),
-                    "prices": executor.submit(
-                        lambda range: plot.make_prices_section(
-                            cls.limit_and_resample_df(dataframes["prices"], range),
-                            "Prices",
-                        ),
-                        r,
-                    ),
-                    "forex": executor.submit(
-                        lambda range: plot.make_prices_section(
-                            cls.limit_and_resample_df(dataframes["forex"], range),
-                            "Forex",
-                        ),
-                        r,
-                    ),
-                    "interest_rate": executor.submit(
-                        lambda range: plot.make_interest_rate_section(
-                            cls.limit_and_resample_df(
-                                dataframes["interest_rate"], range
-                            )
-                        ).update_layout(margin=SUBPLOT_MARGIN),
-                        r,
-                    ),
-                    "loan": executor.submit(
-                        lambda range: plot.make_loan_section(
-                            lambda df: cls.get_xrange(df, range)
-                        ).update_layout(margin=SUBPLOT_MARGIN),
-                        r,
-                    ),
-                }
-            new_graphs = {}
-            for r in RANGES:
-                new_graphs[r] = (
-                    (ranged_graphs[r]["assets_breakdown"].result(), "96vh"),
-                    (ranged_graphs[r]["investing_retirement"].result(), "75vh"),
-                    (ranged_graphs[r]["real_estate"].result(), "96vh"),
-                    (norange_graphs["allocation_profit"].result(), "75vh"),
-                    (norange_graphs["change_section"].result(), "50vh"),
-                    (norange_graphs["change_section_no_homes"].result(), "50vh"),
-                    (norange_graphs["investing_allocation_section"].result(), "50vh"),
-                    (ranged_graphs[r]["prices"].result(), "50vh"),
-                    (ranged_graphs[r]["interest_rate"].result(), "40vh"),
-                    (ranged_graphs[r]["loan"].result(), "40vh"),
-                    (norange_graphs["short_options_section"].result(), "50vh"),
+            if len(dataframes["options"]):
+                nonranged_graphs["short_options_section"] = executor.submit(
+                    lambda: plot.make_short_options_section(dataframes["options"])
+                    .update_layout(margin=SUBPLOT_MARGIN)
+                    .to_plotly_json()
                 )
+            ranged_graphs = defaultdict(dict)
+            for r in RANGES:
+                ranged_graphs["assets_breakdown"][r] = executor.submit(
+                    lambda range: plot.make_assets_breakdown_section(
+                        cls.limit_and_resample_df(dataframes["all"], range)
+                    )
+                    .update_layout(margin=SUBPLOT_MARGIN)
+                    .to_plotly_json(),
+                    r,
+                )
+                ranged_graphs["investing_retirement"][r] = executor.submit(
+                    lambda range: plot.make_investing_retirement_section(
+                        cls.limit_and_resample_df(
+                            dataframes["all"][
+                                ["pillar2", "ira", "commodities", "etfs"]
+                            ],
+                            range,
+                        )
+                    )
+                    .update_layout(margin=SUBPLOT_MARGIN)
+                    .to_plotly_json(),
+                    r,
+                )
+                ranged_graphs["real_estate"][r] = executor.submit(
+                    lambda range: plot.make_real_estate_section(
+                        cls.limit_and_resample_df(
+                            dataframes["real_estate"],
+                            range,
+                        )
+                    )
+                    .update_layout(margin=SUBPLOT_MARGIN)
+                    .to_plotly_json(),
+                    r,
+                )
+                ranged_graphs["prices"][r] = executor.submit(
+                    lambda range: plot.make_prices_section(
+                        cls.limit_and_resample_df(dataframes["prices"], range),
+                        "Prices",
+                    )
+                    .update_layout(margin=SUBPLOT_MARGIN)
+                    .to_plotly_json(),
+                    r,
+                )
+                ranged_graphs["forex"][r] = executor.submit(
+                    lambda range: plot.make_forex_section(
+                        cls.limit_and_resample_df(dataframes["forex"], range),
+                        "Forex",
+                    )
+                    .update_layout(margin=SUBPLOT_MARGIN)
+                    .to_plotly_json(),
+                    r,
+                )
+                ranged_graphs["interest_rate"][r] = executor.submit(
+                    lambda range: plot.make_interest_rate_section(
+                        cls.limit_and_resample_df(dataframes["interest_rate"], range)
+                    )
+                    .update_layout(margin=SUBPLOT_MARGIN)
+                    .to_plotly_json(),
+                    r,
+                )
+                ranged_graphs["loan"][r] = executor.submit(
+                    lambda range: plot.make_loan_section(
+                        lambda df: cls.get_xrange(df, range)
+                    )
+                    .update_layout(margin=SUBPLOT_MARGIN)
+                    .to_plotly_json(),
+                    r,
+                )
+
+            new_graphs = {"ranged": defaultdict(dict), "nonranged": {}}
+            for name, future in nonranged_graphs.items():
+                new_graphs["nonranged"][name] = future.result()
+            for name, ranged in ranged_graphs.items():
+                for r, future in ranged.items():
+                    new_graphs["ranged"][name][r] = future.result()
         end_time = datetime.now()
-        with cls.cached_graphs_lock:
-            cls.cached_graphs = new_graphs
-            cls.last_updated_time = end_time
-            cls.last_generation_duration = end_time - start_time
-            cls.latest_datapoint_time = dataframes["all"].index[-1]
+        cls.cached_graphs = new_graphs
+        cls.last_updated_time = end_time
+        cls.last_generation_duration = end_time - start_time
+        cls.latest_datapoint_time = dataframes["all"].index[-1]
         logger.info(f"Graph generation time: {cls.last_generation_duration}")
 
     @classmethod
@@ -221,69 +239,79 @@ class MainGraphs:
         return xrange
 
     @classmethod
-    def smooth_df(cls, df, selected_range):
-        """Resample df according to range."""
+    def limit_and_resample_df(cls, df, selected_range):
+        """Limit df to selected range and resample."""
+        start, end = cls.get_xrange(df, selected_range)
+        df = df[start:end]
         match selected_range:
             case "1m":
                 window = None
             case "All" | "2y":
-                window = "7D"
+                window = "W"
             case _:
                 window = "D"
         if window:
             return df.resample(window).mean().interpolate()
         return df
 
-    @classmethod
-    def limit_and_resample_df(cls, df, selected_range):
-        """Limit df to selected range and resample."""
-        start, end = cls.get_xrange(df, selected_range)
-        return cls.smooth_df(df[start:end], selected_range)
-
-    def __init__(self):
-        self.ui_plotly = []
+    def __init__(self, selected_range):
+        self.ui_plotly = {}
         self.ui_stats_labels = {}
+        self.selected_range = selected_range
 
-    def update_stats_labels(self):
+    async def update_stats_labels(self):
+        timezone = ZoneInfo(
+            await ui.run_javascript(
+                "Intl.DateTimeFormat().resolvedOptions().timeZone", timeout=10
+            )
+        )
         self.ui_stats_labels["last_datapoint_time"].set_text(
-            f"Latest datapoint: {MainGraphs.latest_datapoint_time.strftime('%c')}"
+            f"Latest datapoint: {MainGraphs.latest_datapoint_time.tz_localize('UTC').astimezone(timezone).strftime('%c')}"
         )
         self.ui_stats_labels["last_updated_time"].set_text(
-            f"Graphs last updated: {MainGraphs.last_updated_time.strftime('%c')}"
+            f"Graphs last updated: {MainGraphs.last_updated_time.astimezone(timezone).strftime('%c')}"
         )
         self.ui_stats_labels["last_generation_duration"].set_text(
             f"Graph generation duration: {MainGraphs.last_generation_duration.total_seconds():.2f}s"
         )
         self.ui_stats_labels["next_generation_time"].set_text(
             "Next generation: "
-            + (
-                datetime.now() + relativedelta(seconds=schedule.idle_seconds())
-            ).strftime("%c")
+            + (datetime.now() + relativedelta(seconds=schedule.idle_seconds()))
+            .astimezone(timezone)
+            .strftime("%c")
         )
 
     async def create(self):
         """Create all graphs."""
-        with MainGraphs.cached_graphs_lock:
-            for graph, height in MainGraphs.cached_graphs[SELECTED_RANGE]:
-                self.ui_plotly.append(
-                    ui.plotly(graph).classes("w-full").style(f"height: {height}")
-                )
-            with ui.row(align_items="center").classes("w-full"):
-                for label in [
-                    "last_datapoint_time",
-                    "last_updated_time",
-                    "last_generation_duration",
-                    "next_generation_time",
-                ]:
-                    self.ui_stats_labels[label] = ui.label()
-            self.update_stats_labels()
+        for name, height in MainGraphs.LAYOUT:
+            if name in MainGraphs.cached_graphs["ranged"]:
+                graph = MainGraphs.cached_graphs["ranged"][name][self.selected_range]
+            else:
+                try:
+                    graph = MainGraphs.cached_graphs["nonranged"][name]
+                except KeyError:
+                    continue
+            self.ui_plotly[name] = (
+                ui.plotly(graph).classes("w-full").style(f"height: {height}")
+            )
+        with ui.row(align_items="center").classes("w-full"):
+            for label in [
+                "last_datapoint_time",
+                "last_updated_time",
+                "last_generation_duration",
+                "next_generation_time",
+            ]:
+                self.ui_stats_labels[label] = ui.label()
+        await self.update_stats_labels()
 
     async def update(self):
         """Update all graphs."""
-        with MainGraphs.cached_graphs_lock:
-            for i, (graph, _) in enumerate(MainGraphs.cached_graphs[SELECTED_RANGE]):
-                self.ui_plotly[i].update_figure(graph)
-            self.update_stats_labels()
+        for name in MainGraphs.cached_graphs["ranged"]:
+            await run.io_bound(
+                self.ui_plotly[name].update_figure,
+                MainGraphs.cached_graphs["ranged"][name][self.selected_range],
+            )
+        await self.update_stats_labels()
 
 
 class IncomeExpenseGraphs:
@@ -337,6 +365,10 @@ async def main_page():
         ip=headers.get("cf-connecting-ip", "unknown"),
         country=headers.get("cf-ipcountry", "unknown"),
     )
+    # To avoid out of webgl context errors. See https://plotly.com/python/webgl-vs-svg/
+    ui.add_body_html(
+        '<script src="https://unpkg.com/virtual-webgl@1.0.6/src/virtual-webgl.js"></script>'
+    )
 
     async def wait_for_graphs():
         skel = None
@@ -354,10 +386,10 @@ async def main_page():
         with ui.tabs().classes("w-full") as tabs:
             for timerange in RANGES:
                 ui.tab(timerange)
-            tabs.bind_value(globals(), "SELECTED_RANGE")
 
     await ui.context.client.connected()
-    graphs = MainGraphs()
+    graphs = MainGraphs(DEFAULT_RANGE)
+    tabs.bind_value(graphs, "selected_range")
     await graphs.create()
     tabs.on_value_change(graphs.update)
 

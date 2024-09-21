@@ -15,7 +15,6 @@ import amortize_pal
 import common
 import i_and_e
 import margin_interest
-import stock_options
 from balance_etfs import get_desired_df
 
 COLOR_GREEN = "DarkGreen"
@@ -37,11 +36,22 @@ def add_hline_current(
     secondary_y=False,
     precision=0,
 ):
-    """Add hline to represent total."""
+    """Add hline to represent total and change percent."""
     current = data[[df_col]].iloc[-1][df_col]
+    percent_change = 0
+    if (earliest := data[[df_col]].iloc[0][df_col]) != 0:
+        percent_change = (current - earliest) / earliest * 100
+        if earliest < 0:
+            percent_change *= -1
+    percent_annotation = f"{percent_change:.{precision}f}%"
+    match percent_change:
+        case percent_change if percent_change > 0:
+            percent_annotation = "+" + percent_annotation
+        case percent_change if percent_change == 0:
+            percent_annotation = ""
     fig.add_hline(
         y=current,
-        annotation_text=f"{current:,.{precision}f}",
+        annotation_text=f"{current:,.{precision}f} {percent_annotation}",
         line_dash="dot",
         line_color="gray",
         annotation_position=annotation_position,
@@ -73,7 +83,7 @@ def make_assets_breakdown_section(daily_df):
     section.update_yaxes(matches=None, title_text="")
     section.update_yaxes(col=2, showticklabels=True)
     section.update_yaxes(col=1, title_text="USD")
-    section.update_xaxes(title_text="", matches="x", showticklabels=True)
+    section.update_xaxes(title_text="", showticklabels=True)
     section.update_traces(showlegend=False)
     # (0, 1) = total
     # (0, 2) = total_real_estate
@@ -101,7 +111,7 @@ def make_investing_retirement_section(invret_df):
         labels={"value": "USD"},
         title="Investing & Retirement",
     )
-    section.update_xaxes(title_text="", matches="x", showticklabels=True)
+    section.update_xaxes(title_text="", showticklabels=True)
     section.update_yaxes(title_text="")
     section.update_yaxes(matches=None)
     section.update_yaxes(col=2, showticklabels=True)
@@ -125,7 +135,7 @@ def make_real_estate_section(real_estate_df):
         labels={"value": "USD"},
         title="Real Estate",
     )
-    section.update_xaxes(title_text="", matches="x", showticklabels=True)
+    section.update_xaxes(title_text="", showticklabels=True)
     section.update_yaxes(title_text="")
     section.update_yaxes(matches=None)
     section.update_yaxes(col=2, showticklabels=True)
@@ -306,6 +316,24 @@ def make_prices_section(prices_df, title):
     return fig
 
 
+def make_forex_section(forex_df, title):
+    """Make section with forex graphs."""
+    fig = px.line(
+        forex_df,
+        x=forex_df.index,
+        y=forex_df.columns,
+        title=title,
+        facet_col="variable",
+        facet_col_wrap=2,
+    )
+    fig.update_yaxes(matches=None, title_text="")
+    fig.update_yaxes(col=2, showticklabels=True)
+    fig.update_yaxes(col=1, title_text="USD")
+    fig.update_yaxes(title_text="USD")
+    fig.update_xaxes(title_text="")
+    return fig
+
+
 def make_interest_rate_section(interest_df):
     """Make interest rate section."""
     section = make_subplots(
@@ -424,19 +452,13 @@ def make_loan_section(range_func):
         horizontal_spacing=0.05,
     )
 
-    def add_remaining_annotation(dataframe, row, col, adjustment, percent):
-        loan_remaining_with_exposure = (
-            (dataframe["Equity Balance"].iloc[-1] - adjustment) * (percent / 100)
-            - dataframe["Loan Balance"].iloc[-1]
-            + adjustment
-        )
+    def add_remaining_annotation(dataframe, row, col, percent):
         loan_remaining = (
             dataframe["Equity Balance"].iloc[-1] * (percent / 100)
             - dataframe["Loan Balance"].iloc[-1]
         )
         section.add_annotation(
-            # pylint: disable-next=line-too-long
-            text=f"Distance to {percent}%: {loan_remaining:,.0f}, w/ short put exposure ({adjustment}) = {loan_remaining_with_exposure:,.0f}",
+            text=f"Distance to {percent}%: {loan_remaining:,.0f}",
             x=str(dataframe.index[len(dataframe.index) // 2]),
             y=dataframe.max(axis=None),
             showarrow=False,
@@ -444,9 +466,7 @@ def make_loan_section(range_func):
             col=col,
         )
 
-    def add_loan_graph(
-        ledger_loan_balance_cmd, ledger_balance_cmd, col, adjustment, percent
-    ):
+    def add_loan_graph(ledger_loan_balance_cmd, ledger_balance_cmd, col, percent):
         balance_df = load_margin_loan_df(
             ledger_loan_balance_cmd=ledger_loan_balance_cmd,
             ledger_balance_cmd=ledger_balance_cmd,
@@ -459,25 +479,19 @@ def make_loan_section(range_func):
             y=balance_df.columns,
         ).data:
             section.add_trace(trace, row=1, col=col)
-        add_remaining_annotation(balance_df, 1, col, adjustment, percent)
+        add_remaining_annotation(balance_df, 1, col, percent)
 
     add_loan_graph(
         amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_IBKR,
         amortize_pal.LEDGER_BALANCE_HISTORY_IBKR,
         1,
-        stock_options.short_put_exposure(
-            stock_options.options_df(), "Interactive Brokers"
-        ),
-        85,
+        30,
     )
     add_loan_graph(
         amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL,
         amortize_pal.LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL,
         2,
-        stock_options.short_put_exposure(
-            stock_options.options_df(), "Charles Schwab Brokerage"
-        ),
-        50,
+        30,
     )
 
     section.update_yaxes(title_text="USD", col=1)
@@ -542,7 +556,7 @@ def make_margin_comparison_chart():
     return dataframe, chart
 
 
-def make_short_options_section():
+def make_short_options_section(options_df):
     """Make short options moneyness/loss bar chart."""
     section = make_subplots(
         rows=1,
@@ -556,6 +570,8 @@ def make_short_options_section():
     )
 
     def make_options_graph(df, col):
+        if not len(df):
+            return
         df.loc[:, "name"] = df["count"].astype(str) + " " + df["name"].astype(str)
         df = df.set_index("name").sort_values("exercise_value")
         chart = px.bar(
@@ -568,8 +584,7 @@ def make_short_options_section():
             section.add_trace(trace, row=1, col=col)
 
     dataframe = (
-        stock_options.options_df()
-        .groupby(level="name")
+        options_df.groupby(level="name")
         .agg({"exercise_value": "sum", "count": "sum", "in_the_money": "first"})
         .reset_index()
     )
