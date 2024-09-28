@@ -37,13 +37,16 @@ def add_hline_current(
     precision=0,
 ):
     """Add hline to represent total and change percent."""
-    current = data[[df_col]].iloc[-1][df_col]
+    current = data[df_col].loc[data[df_col].last_valid_index()]
     percent_change = 0
-    if (earliest := data[[df_col]].iloc[0][df_col]) != 0:
+    if (earliest := data[df_col].loc[data[df_col].first_valid_index()]) != 0:
         percent_change = (current - earliest) / earliest * 100
         if earliest < 0:
             percent_change *= -1
-    percent_annotation = f"{percent_change:.{precision}f}%"
+    percent_precision = 0
+    if 1 > percent_change > 0 or 0 > percent_change > -1:
+        percent_precision = 2
+    percent_annotation = f"{percent_change:.{percent_precision}f}%"
     match percent_change:
         case percent_change if percent_change > 0:
             percent_annotation = "+" + percent_annotation
@@ -61,25 +64,37 @@ def add_hline_current(
     )
 
 
+def update_facet_titles(fig, columns):
+    def col_to_name(facet):
+        col = facet.text.split("=")[-1]
+        for c, name in columns:
+            if c == col:
+                facet.update(text=name)
+
+    fig.for_each_annotation(col_to_name)
+
+
 def make_assets_breakdown_section(daily_df):
     """Make assets trend section."""
     columns = [
-        "total",
-        "total_real_estate",
-        "total_no_homes",
-        "total_retirement",
-        "total_investing",
-        "total_liquid",
+        ("total", "Total"),
+        ("total_real_estate", "Real Estate"),
+        ("total_no_homes", "Total w/o Real Estate"),
+        ("total_retirement", "Retirement"),
+        ("total_investing", "Investing"),
+        ("total_liquid", "Liquid"),
     ]
+    table_cols = [c for c, _ in columns]
     section = px.line(
         daily_df,
         x=daily_df.index,
-        y=columns,
+        y=table_cols,
         title="Assets Breakdown",
         facet_col="variable",
         facet_col_wrap=2,
-        category_orders={"variable": columns},
+        category_orders={"variable": table_cols},
     )
+    update_facet_titles(section, columns)
     section.update_yaxes(matches=None, title_text="")
     section.update_yaxes(col=2, showticklabels=True)
     section.update_yaxes(col=1, title_text="USD")
@@ -102,6 +117,12 @@ def make_assets_breakdown_section(daily_df):
 
 def make_investing_retirement_section(invret_df):
     """Make investing and retirement section."""
+    columns = [
+        ("pillar2", "Pillar 2"),
+        ("ira", "IRA"),
+        ("commodities", "Gold & Silver"),
+        ("etfs", "ETFs"),
+    ]
     section = px.line(
         invret_df,
         x=invret_df.index,
@@ -111,6 +132,7 @@ def make_investing_retirement_section(invret_df):
         labels={"value": "USD"},
         title="Investing & Retirement",
     )
+    update_facet_titles(section, columns)
     section.update_xaxes(title_text="", showticklabels=True)
     section.update_yaxes(title_text="")
     section.update_yaxes(matches=None)
@@ -135,6 +157,7 @@ def make_real_estate_section(real_estate_df):
         labels={"value": "USD"},
         title="Real Estate",
     )
+    section.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     section.update_xaxes(title_text="", showticklabels=True)
     section.update_yaxes(title_text="")
     section.update_yaxes(matches=None)
@@ -326,6 +349,9 @@ def make_forex_section(forex_df, title):
         facet_col="variable",
         facet_col_wrap=2,
     )
+    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+    add_hline_current(fig, forex_df, "CHFUSD", 0, 1, precision=2)
+    add_hline_current(fig, forex_df, "SGDUSD", 0, 2, precision=2)
     fig.update_yaxes(matches=None, title_text="")
     fig.update_yaxes(col=2, showticklabels=True)
     fig.update_yaxes(col=1, title_text="USD")

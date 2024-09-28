@@ -18,7 +18,7 @@ DESIRED_ALLOCATION = {
     "US_EQUITIES": 60,  # US equities, split up into US_SMALL_CAP and US_LARGE_CAP.
     "INTERNATIONAL_EQUITIES": 40,  # International equities
     "US_BONDS": 0,  # Bonds/Fixed Income, replaced with (age - 15)
-    "COMMODITIES": 7,  # Bonds are further reduced by this to make room
+    "COMMODITIES": 8,  # Bonds are further reduced by this to make room
 }
 ETF_TYPE_MAP = {
     "COMMODITIES": ["GLDM", "SGOL", "SIVR"],
