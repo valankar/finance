@@ -98,7 +98,7 @@ def short_put_exposure(dataframe, broker):
 
 def after_assignment(itm_df):
     """Output balances after assignment."""
-    etfs_df = pd.read_csv(etfs.CSV_OUTPUT_PATH, index_col=0).fillna(0)
+    etfs_df = etfs.get_etfs_df()
     etfs_df["shares_change"] = 0
     etfs_df["liquidity_change"] = 0
     for _, cols in itm_df.iterrows():
@@ -126,7 +126,7 @@ def after_assignment(itm_df):
                     shell=True,
                 ).split()[1]
             )
-            etfs_df.loc[ticker, "options_trade_income"] = -etf_options_trade_income
+            etfs_df.loc[ticker, "options_trade_income"] = -etf_options_trade_income  # type: ignore
         except IndexError:
             pass
     etfs_df["profit_or_loss"] = (
@@ -144,10 +144,9 @@ def after_assignment(itm_df):
     print(f"ETFs value change: {etfs_value_change:.0f}")
     print(f"Liquidity change: {liquidity_change}")
     print("  Ending balance:")
-    print(
-        f"    Schwab: {itm_df.xs('Charles Schwab Brokerage')['exercise_value'].sum()}"
-    )
-    print(f"    IBKR: {itm_df.xs('Interactive Brokers')['exercise_value'].sum()}")
+    for broker in ["Charles Schwab Brokerage", "Interactive Brokers"]:
+        if broker in itm_df.index.get_level_values(0):
+            print(f"    {broker}: {itm_df.xs(broker)['exercise_value'].sum()}")
     print(f"Options trade income: {options_trade_income:.0f}")
     print(f"Profit/loss compared to sale at current price: {profit_or_loss:.0f}")
     print(
@@ -159,24 +158,25 @@ def after_assignment(itm_df):
 def main():
     """Main."""
     options = options_df()
-    try:
-        print("Out of the money")
-        print(
-            options[options["in_the_money"] == False].drop(  # noqa: E712
-                columns=["intrinsic_value", "min_contract_price"]
-            )
+    print("Out of the money")
+    print(
+        options[options["in_the_money"] == False].drop(  # noqa: E712
+            columns=["intrinsic_value", "min_contract_price"]
         )
-        print("\nIn the money")
-        print(options[options["in_the_money"]], "\n")
-        print("Balances after in the money options assigned")
-        after_assignment(options[options["in_the_money"]])
-        for broker in ["Charles Schwab Brokerage", "Interactive Brokers"]:
-            print(f"{broker}")
-            print(f"  Short put exposure: {short_put_exposure(options, broker)}")
+    )
+    print("\nIn the money")
+    print(options[options["in_the_money"]], "\n")
+    print("Balances after in the money options assigned")
+    after_assignment(options[options["in_the_money"]])
+    for broker in ["Charles Schwab Brokerage", "Interactive Brokers"]:
+        print(f"{broker}")
+        print(f"  Short put exposure: {short_put_exposure(options, broker)}")
+        if broker in options.index.get_level_values(0):
+            print(
+                f"  Total exercise value: {options.xs(broker, level='account')['exercise_value'].sum()}"
+            )
             print(options.xs(broker, level="account"))
             print("\n")
-    except KeyError:
-        pass
 
 
 if __name__ == "__main__":

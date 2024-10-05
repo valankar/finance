@@ -4,10 +4,12 @@
 import io
 import subprocess
 from functools import reduce
+from typing import Callable
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.graph_objects import Figure
 from plotly.subplots import make_subplots
 from prefixed import Float
 
@@ -26,15 +28,20 @@ HOMES = [
 ]
 
 
+def set_bar_chart_color(trace, fig: Figure, row, col):
+    trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
+    fig.add_trace(trace, row=row, col=col)
+
+
 def add_hline_current(
-    fig,
-    data,
-    df_col,
-    row,
-    col,
-    annotation_position="top left",
-    secondary_y=False,
-    precision=0,
+    fig: Figure,
+    data: pd.DataFrame,
+    df_col: str,
+    row: int,
+    col: int,
+    annotation_position: str = "top left",
+    secondary_y: bool = False,
+    precision: int = 0,
 ):
     """Add hline to represent total and change percent."""
     current = data[df_col].loc[data[df_col].last_valid_index()]
@@ -58,13 +65,13 @@ def add_hline_current(
         line_dash="dot",
         line_color="gray",
         annotation_position=annotation_position,
-        row=row,
-        col=col,
+        row=row,  # type: ignore
+        col=col,  # type: ignore
         secondary_y=secondary_y,
     )
 
 
-def update_facet_titles(fig, columns):
+def update_facet_titles(fig: Figure, columns: list[tuple[str, str]]):
     def col_to_name(facet):
         col = facet.text.split("=")[-1]
         for c, name in columns:
@@ -74,7 +81,7 @@ def update_facet_titles(fig, columns):
     fig.for_each_annotation(col_to_name)
 
 
-def make_assets_breakdown_section(daily_df):
+def make_assets_breakdown_section(daily_df: pd.DataFrame) -> Figure:
     """Make assets trend section."""
     columns = [
         ("total", "Total"),
@@ -115,7 +122,7 @@ def make_assets_breakdown_section(daily_df):
     return section
 
 
-def make_investing_retirement_section(invret_df):
+def make_investing_retirement_section(invret_df: pd.DataFrame) -> Figure:
     """Make investing and retirement section."""
     columns = [
         ("pillar2", "Pillar 2"),
@@ -146,7 +153,7 @@ def make_investing_retirement_section(invret_df):
     return section
 
 
-def make_real_estate_section(real_estate_df):
+def make_real_estate_section(real_estate_df: pd.DataFrame) -> Figure:
     """Line graph of real estate."""
     section = px.line(
         real_estate_df,
@@ -173,7 +180,7 @@ def make_real_estate_section(real_estate_df):
     return section
 
 
-def make_real_estate_profit_bar(real_estate_df):
+def make_real_estate_profit_bar(real_estate_df: pd.DataFrame) -> go.Bar:
     """Bar chart of real estate profit."""
     values = []
     percent = []
@@ -181,7 +188,7 @@ def make_real_estate_profit_bar(real_estate_df):
     for home in cols:
         values.append(
             real_estate_df.iloc[-1][home]
-            - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]
+            - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
         )
         percent.append(real_estate_df.iloc[-1][f"{home} Percent Change"])
     profit_bar = go.Bar(
@@ -193,7 +200,7 @@ def make_real_estate_profit_bar(real_estate_df):
     return profit_bar
 
 
-def make_real_estate_profit_bar_yearly(real_estate_df):
+def make_real_estate_profit_bar_yearly(real_estate_df: pd.DataFrame) -> go.Bar:
     """Bar chart of real estate profit yearly."""
     values = []
     percent = []
@@ -201,10 +208,10 @@ def make_real_estate_profit_bar_yearly(real_estate_df):
     for home in cols:
         time_diff = (
             real_estate_df[home].index[-1] - real_estate_df[home].first_valid_index()
-        )
+        )  # type: ignore
         value_diff = (
             real_estate_df.iloc[-1][home]
-            - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]
+            - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
         )
         percent_diff = real_estate_df.iloc[-1][f"{home} Percent Change"]
         values.append((value_diff / time_diff.days) * 365)
@@ -218,7 +225,7 @@ def make_real_estate_profit_bar_yearly(real_estate_df):
     return profit_bar
 
 
-def make_investing_allocation_section():
+def make_investing_allocation_section() -> Figure:
     """Make investing current and desired allocation pie graphs."""
     changes_section = make_subplots(
         rows=1,
@@ -229,7 +236,8 @@ def make_investing_allocation_section():
         ),
         specs=[[{"type": "pie"}, {"type": "pie"}]],
     )
-    dataframe = get_desired_df(0)
+    if (dataframe := get_desired_df(0)) is None:
+        return changes_section
 
     # Current allocation
     labels = [
@@ -272,7 +280,9 @@ def make_investing_allocation_section():
     return changes_section
 
 
-def make_allocation_profit_section(daily_df, real_estate_df):
+def make_allocation_profit_section(
+    daily_df: pd.DataFrame, real_estate_df: pd.DataFrame
+) -> Figure:
     """Make asset allocation and day changes section."""
     real_estate_df = real_estate_df.copy()
     changes_section = make_subplots(
@@ -309,9 +319,9 @@ def make_allocation_profit_section(daily_df, real_estate_df):
         real_estate_df[f"{home} Percent Change"] = (
             (
                 real_estate_df[home]
-                - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]
+                - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
             )
-            / real_estate_df.loc[real_estate_df[home].first_valid_index(), home]
+            / real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
             * 100
         )
     changes_section.add_trace(make_real_estate_profit_bar(real_estate_df), row=2, col=1)
@@ -326,7 +336,7 @@ def make_allocation_profit_section(daily_df, real_estate_df):
     return changes_section
 
 
-def make_prices_section(prices_df, title):
+def make_prices_section(prices_df: pd.DataFrame, title: str) -> Figure:
     """Make section with prices graphs."""
     fig = px.line(
         prices_df,
@@ -339,7 +349,7 @@ def make_prices_section(prices_df, title):
     return fig
 
 
-def make_forex_section(forex_df, title):
+def make_forex_section(forex_df: pd.DataFrame, title: str) -> Figure:
     """Make section with forex graphs."""
     fig = px.line(
         forex_df,
@@ -360,7 +370,7 @@ def make_forex_section(forex_df, title):
     return fig
 
 
-def make_interest_rate_section(interest_df):
+def make_interest_rate_section(interest_df: pd.DataFrame) -> Figure:
     """Make interest rate section."""
     section = make_subplots(
         rows=1,
@@ -395,7 +405,7 @@ def make_interest_rate_section(interest_df):
     return section
 
 
-def load_ledger_equity_balance_df(ledger_balance_cmd):
+def load_ledger_equity_balance_df(ledger_balance_cmd: str) -> pd.DataFrame:
     """Get dataframe of equity balance."""
     equity_balance_df = pd.read_csv(
         io.StringIO(subprocess.check_output(ledger_balance_cmd, shell=True, text=True)),
@@ -421,7 +431,7 @@ def load_ledger_equity_balance_df(ledger_balance_cmd):
     return equity_balance_df
 
 
-def load_loan_balance_df(ledger_loan_balance_cmd):
+def load_loan_balance_df(ledger_loan_balance_cmd: str) -> pd.DataFrame:
     """Get dataframe of margin loan balance."""
     loan_balance_df = pd.read_csv(
         io.StringIO(
@@ -448,7 +458,9 @@ def load_loan_balance_df(ledger_loan_balance_cmd):
     return loan_balance_df
 
 
-def load_margin_loan_df(ledger_loan_balance_cmd, ledger_balance_cmd):
+def load_margin_loan_df(
+    ledger_loan_balance_cmd: str, ledger_balance_cmd: str
+) -> pd.DataFrame:
     """Get dataframe of margin loan balance with equity balance."""
     loan_balance_df = load_loan_balance_df(ledger_loan_balance_cmd)
     equity_balance_df = load_ledger_equity_balance_df(ledger_balance_cmd)
@@ -464,7 +476,9 @@ def load_margin_loan_df(ledger_loan_balance_cmd, ledger_balance_cmd):
     return combined_df.resample("D").last().interpolate().fillna(0).clip(lower=0)
 
 
-def make_loan_section(range_func):
+def make_loan_section(
+    range_func: Callable[[pd.DataFrame], tuple[str, str] | None],
+) -> Figure:
     """Make section with margin loans."""
 
     section = make_subplots(
@@ -478,7 +492,9 @@ def make_loan_section(range_func):
         horizontal_spacing=0.05,
     )
 
-    def add_remaining_annotation(dataframe, row, col, percent):
+    def add_remaining_annotation(
+        dataframe: pd.DataFrame, row: int, col: int, percent: int
+    ):
         loan_remaining = (
             dataframe["Equity Balance"].iloc[-1] * (percent / 100)
             - dataframe["Loan Balance"].iloc[-1]
@@ -492,13 +508,16 @@ def make_loan_section(range_func):
             col=col,
         )
 
-    def add_loan_graph(ledger_loan_balance_cmd, ledger_balance_cmd, col, percent):
+    def add_loan_graph(
+        ledger_loan_balance_cmd: str, ledger_balance_cmd: str, col: int, percent: int
+    ):
         balance_df = load_margin_loan_df(
             ledger_loan_balance_cmd=ledger_loan_balance_cmd,
             ledger_balance_cmd=ledger_balance_cmd,
         )
-        start, end = range_func(balance_df)
-        balance_df = balance_df[start:end]
+        if (r := range_func(balance_df)) is not None:
+            start, end = r
+            balance_df = balance_df[start:end]
         for trace in px.line(
             balance_df,
             x=balance_df.index,
@@ -527,7 +546,7 @@ def make_loan_section(range_func):
     return section
 
 
-def make_change_section(daily_df, column, title):
+def make_change_section(daily_df: pd.DataFrame, column: str, title: str) -> Figure:
     """Make section with change in different timespans."""
     changes_section = make_subplots(
         rows=1,
@@ -539,12 +558,13 @@ def make_change_section(daily_df, column, title):
         vertical_spacing=0.07,
         horizontal_spacing=0.05,
     )
-    for trace in make_total_bar_yoy(daily_df, column).data:
-        trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
-        changes_section.add_trace(trace, row=1, col=1)
-    for trace in make_total_bar_mom(daily_df, column).data:
-        trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
-        changes_section.add_trace(trace, row=1, col=2)
+
+    make_total_bar_yoy(daily_df, column).for_each_trace(
+        lambda t: set_bar_chart_color(t, changes_section, 1, 1)
+    )
+    make_total_bar_mom(daily_df, column).for_each_trace(
+        lambda t: set_bar_chart_color(t, changes_section, 1, 2)
+    )
     changes_section.update_yaxes(title_text="USD", col=1)
     changes_section.update_xaxes(title_text="")
     changes_section.update_xaxes(tickformat="%Y", row=1, col=1)
@@ -552,23 +572,32 @@ def make_change_section(daily_df, column, title):
     return changes_section
 
 
-def make_total_bar_mom(daily_df, column):
+def make_total_bar_mom(daily_df: pd.DataFrame, column: str) -> Figure:
     """Make month over month total profit bar graphs."""
     diff_df = daily_df.resample("ME").last().interpolate().diff().dropna().iloc[-36:]
     monthly_bar = px.bar(diff_df, x=diff_df.index, y=column)
+    line_chart = px.scatter(
+        diff_df,
+        x=diff_df.index,
+        y=column,
+        trendline="lowess",
+    )
+    line_chart.for_each_trace(
+        lambda t: monthly_bar.add_trace(t), selector={"mode": "lines"}
+    )
     return monthly_bar
 
 
-def make_total_bar_yoy(daily_df, column):
+def make_total_bar_yoy(daily_df: pd.DataFrame, column: str) -> Figure:
     """Make year over year total profit bar graphs."""
     diff_df = daily_df.resample("YE").last().interpolate().diff().dropna()
     # Re-align at beginning of year.
-    diff_df.index = pd.DatetimeIndex(diff_df.index.strftime("%Y-01-01"))
-    yearly_bar = px.bar(diff_df, x=diff_df.index, y=column, text_auto=".3s")
+    diff_df.index = pd.DatetimeIndex(diff_df.index.strftime("%Y-01-01"))  # type: ignore
+    yearly_bar = px.bar(diff_df, x=diff_df.index, y=column, text_auto=".3s")  # type: ignore
     return yearly_bar
 
 
-def make_margin_comparison_chart():
+def make_margin_comparison_chart() -> tuple[pd.DataFrame, Figure]:
     """Make margin comparison bar chart."""
     dataframe = margin_interest.interest_comparison_df().abs()
     chart = px.histogram(
@@ -582,7 +611,7 @@ def make_margin_comparison_chart():
     return dataframe, chart
 
 
-def make_short_options_section(options_df):
+def make_short_options_section(options_df: pd.DataFrame) -> Figure:
     """Make short options moneyness/loss bar chart."""
     section = make_subplots(
         rows=1,
@@ -595,7 +624,7 @@ def make_short_options_section(options_df):
         horizontal_spacing=0.05,
     )
 
-    def make_options_graph(df, col):
+    def make_options_graph(df: pd.DataFrame, col: int):
         if not len(df):
             return
         df.loc[:, "name"] = df["count"].astype(str) + " " + df["name"].astype(str)
@@ -605,9 +634,7 @@ def make_short_options_section(options_df):
             x=df.index,
             y=["exercise_value"],
         )
-        for trace in chart.data:
-            trace.marker.color = [COLOR_GREEN if y > 0 else COLOR_RED for y in trace.y]
-            section.add_trace(trace, row=1, col=col)
+        chart.for_each_trace(lambda t: set_bar_chart_color(t, section, 1, col))
 
     dataframe = (
         options_df.groupby(level="name")
@@ -623,7 +650,7 @@ def make_short_options_section(options_df):
     return section
 
 
-def get_interest_rate_df():
+def get_interest_rate_df() -> pd.DataFrame:
     """Merge interest rate data."""
     fedfunds_df = common.load_sqlite_and_rename_col(
         "fedfunds", rename_cols={"percent": "Fed Funds"}

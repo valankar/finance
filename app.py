@@ -7,9 +7,9 @@ import io
 import os.path
 import subprocess
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
-from typing import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import datetime, timedelta
+from typing import Awaitable, Callable, ClassVar, Iterable, Literal
 
 import pandas as pd
 import plotly.io as pio
@@ -42,14 +42,19 @@ def pandas_options():
         yield
 
 
+type NonRangedGraphs = dict[str, dict]
+type RangedGraphs = dict[str, dict[str, dict]]
+type CachedGraphs = dict[Literal["ranged", "nonranged"], NonRangedGraphs | RangedGraphs]
+
+
 class MainGraphs:
     """Collection of all main graphs."""
 
-    cached_graphs = {}
-    last_updated_time = None
-    last_generation_duration = None
-    latest_datapoint_time = None
-    LAYOUT = (
+    cached_graphs: ClassVar[CachedGraphs] = {}
+    last_updated_time: ClassVar[datetime] = datetime.now()
+    last_generation_duration: ClassVar[timedelta] = timedelta()
+    latest_datapoint_time: ClassVar[pd.Timestamp] = pd.Timestamp.now()
+    LAYOUT: tuple[tuple[str, str], ...] = (
         ("assets_breakdown", "96vh"),
         ("investing_retirement", "75vh"),
         ("real_estate", "96vh"),
@@ -65,15 +70,16 @@ class MainGraphs:
     )
 
     @classmethod
-    def all_graphs_populated(cls):
+    def all_graphs_populated(cls) -> bool:
         found_graphs = set()
         required_graphs = set([name for name, _ in cls.LAYOUT]) - set(["short_options"])
         for graph_type in ["ranged", "nonranged"]:
-            found_graphs.update(cls.cached_graphs.get(graph_type, {}).keys())
+            if graph_type in cls.cached_graphs:
+                found_graphs.update(cls.cached_graphs[graph_type].keys())
         return len(required_graphs - found_graphs) == 0
 
     @classmethod
-    def get_plot_height_percent(cls, name):
+    def get_plot_height_percent(cls, name: str) -> float:
         for n, height in cls.LAYOUT:
             if n == name:
                 return float(int(height[:-2]) / 100)
@@ -85,7 +91,7 @@ class MainGraphs:
         executor: ThreadPoolExecutor,
         name: str,
         plot_func: Callable[[], Figure],
-    ):
+    ) -> Future:
         plot = executor.submit(lambda: plot_func()).result()
         executor.submit(
             lambda: plot.write_image(
@@ -103,7 +109,7 @@ class MainGraphs:
         name: str,
         plot_func: Callable[[str], Figure],
         r: str,
-    ):
+    ) -> Future:
         plot = executor.submit(lambda: plot_func(r)).result()
         executor.submit(
             lambda: plot.write_image(
@@ -115,7 +121,7 @@ class MainGraphs:
         return executor.submit(lambda: plot.to_plotly_json())
 
     @classmethod
-    def generate_all_graphs(cls):
+    def generate_all_graphs(cls) -> None:
         """Generate and save all Plotly graphs."""
         logger.info("Generating graphs")
         start_time = datetime.now()
@@ -240,7 +246,7 @@ class MainGraphs:
                     r,
                 )
 
-            new_graphs = {"ranged": defaultdict(dict), "nonranged": {}}
+            new_graphs: CachedGraphs = {"ranged": defaultdict(dict), "nonranged": {}}
             for name, future in nonranged_graphs.items():
                 new_graphs["nonranged"][name] = future.result()
             for name, ranged in ranged_graphs.items():
@@ -254,7 +260,9 @@ class MainGraphs:
         logger.info(f"Graph generation time: {cls.last_generation_duration}")
 
     @classmethod
-    def get_xrange(cls, dataframe, selected_range):
+    def get_xrange(
+        cls, dataframe: pd.DataFrame, selected_range: str
+    ) -> tuple[str, str] | None:
         """Determine time range for selected button."""
         today_time = datetime.now()
         today_time_str = today_time.strftime("%Y-%m-%d")
@@ -262,7 +270,7 @@ class MainGraphs:
         relative = None
         match selected_range:
             case "All":
-                xrange = [dataframe.index[0].strftime("%Y-%m-%d"), today_time_str]
+                xrange = (dataframe.index[0].strftime("%Y-%m-%d"), today_time_str)
             case "3y":
                 relative = relativedelta(years=-3)
             case "2y":
@@ -270,7 +278,7 @@ class MainGraphs:
             case "1y":
                 relative = relativedelta(years=-1)
             case "YTD":
-                xrange = [today_time.strftime("%Y-01-01"), today_time_str]
+                xrange = (today_time.strftime("%Y-01-01"), today_time_str)
             case "6m":
                 relative = relativedelta(months=-6)
             case "3m":
@@ -280,16 +288,20 @@ class MainGraphs:
             case "1d":
                 relative = relativedelta(days=-1)
         if relative:
-            xrange = [
+            xrange = (
                 (today_time + relative).strftime("%Y-%m-%d"),
                 today_time_str,
-            ]
+            )
         return xrange
 
     @classmethod
-    def limit_and_resample_df(cls, df, selected_range):
+    def limit_and_resample_df(
+        cls, df: pd.DataFrame, selected_range: str
+    ) -> pd.DataFrame:
         """Limit df to selected range and resample."""
-        start, end = cls.get_xrange(df, selected_range)
+        if (retval := cls.get_xrange(df, selected_range)) is None:
+            return df
+        start, end = retval
         df = df[start:end]
         match selected_range:
             case "1m" | "1d":
@@ -302,12 +314,12 @@ class MainGraphs:
             return df.resample(window).mean().interpolate()
         return df
 
-    def __init__(self, selected_range):
+    def __init__(self, selected_range: str):
         self.ui_plotly = {}
         self.ui_stats_labels = {}
         self.selected_range = selected_range
 
-    async def update_stats_labels(self):
+    async def update_stats_labels(self) -> None:
         try:
             timezone = ZoneInfo(
                 await ui.run_javascript(
@@ -325,14 +337,15 @@ class MainGraphs:
         self.ui_stats_labels["last_generation_duration"].set_text(
             f"Graph generation duration: {MainGraphs.last_generation_duration.total_seconds():.2f}s"
         )
-        self.ui_stats_labels["next_generation_time"].set_text(
-            "Next generation: "
-            + (datetime.now() + relativedelta(seconds=schedule.idle_seconds()))
-            .astimezone(timezone)
-            .strftime("%c")
-        )
+        if (idle_seconds := schedule.idle_seconds()) is not None:
+            self.ui_stats_labels["next_generation_time"].set_text(
+                "Next generation: "
+                + (datetime.now() + relativedelta(seconds=int(idle_seconds)))
+                .astimezone(timezone)
+                .strftime("%c")
+            )
 
-    async def create(self):
+    async def create(self) -> None:
         """Create all graphs."""
         for name, height in MainGraphs.LAYOUT:
             if name in MainGraphs.cached_graphs["ranged"]:
@@ -356,7 +369,7 @@ class MainGraphs:
             ui.link("Static Images", "/image_only")
         await self.update_stats_labels()
 
-    async def update(self):
+    async def update(self) -> None:
         """Update all graphs."""
         for name in MainGraphs.cached_graphs["ranged"]:
             await run.io_bound(
@@ -369,7 +382,7 @@ class MainGraphs:
 class IncomeExpenseGraphs:
     """Collection of all income & expense graphs."""
 
-    def get_graphs(self):
+    def get_graphs(self) -> Iterable[Awaitable[Figure]]:
         """Generate Plotly graphs. This calls subprocess."""
         ledger_df, ledger_summarized_df = i_and_e.get_ledger_dataframes()
         funcs = (
@@ -410,14 +423,15 @@ class IncomeExpenseGraphs:
 @ui.page("/")
 async def main_page():
     """Generate main UI."""
-    headers = ui.context.client.request.headers
-    logger.info(
-        "User: {user}, IP: {ip}, Country: {country}, User-Agent: {agent}",
-        user=headers.get("cf-access-authenticated-user-email", "unknown"),
-        ip=headers.get("cf-connecting-ip", "unknown"),
-        country=headers.get("cf-ipcountry", "unknown"),
-        agent=headers.get("user-agent", "unknown"),
-    )
+    if request := ui.context.client.request:
+        headers = request.headers
+        logger.info(
+            "User: {user}, IP: {ip}, Country: {country}, User-Agent: {agent}",
+            user=headers.get("cf-access-authenticated-user-email", "unknown"),
+            ip=headers.get("cf-connecting-ip", "unknown"),
+            country=headers.get("cf-ipcountry", "unknown"),
+            agent=headers.get("user-agent", "unknown"),
+        )
     # To avoid out of webgl context errors. See https://plotly.com/python/webgl-vs-svg/
     ui.add_body_html(
         '<script src="https://unpkg.com/virtual-webgl@1.0.6/src/virtual-webgl.js"></script>'
@@ -448,12 +462,12 @@ async def main_page():
 
 
 class MainGraphsImageOnly:
-    def __init__(self, selected_range):
+    def __init__(self, selected_range: str):
         self.ui_image = {}
         self.selected_range = selected_range
         self.latest_timestamp = datetime.fromtimestamp(0)
 
-    def images(self):
+    def images(self) -> None:
         with ui.column().classes("w-full"):
             for name, _ in MainGraphs.LAYOUT:
                 for path in [
@@ -473,7 +487,7 @@ class MainGraphsImageOnly:
                 )
                 ui.link("Dynamic graphs", "/")
 
-    def update(self):
+    def update(self) -> None:
         for name, _ in MainGraphs.LAYOUT:
             if os.path.exists(
                 path := f"{common.PREFIX}/{name}-{self.selected_range}.png"

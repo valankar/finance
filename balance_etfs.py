@@ -93,7 +93,7 @@ def convert_etfs_to_types(etfs_df):
     return etfs_df.loc[ETF_TYPE_MAP.keys()]
 
 
-def get_desired_df(amount):
+def get_desired_df(amount) -> pd.DataFrame | None:
     """Get dataframe, cost to get to desired allocation."""
     desired_allocation = age_adjustment(DESIRED_ALLOCATION)
     if (s := round(sum(desired_allocation.values()))) != 100:

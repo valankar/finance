@@ -18,10 +18,10 @@ LEDGER_BALANCE_CMD = (
 LEDGER_BALANCE_MULTI_CURRENCY_CMD = (
     f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} " "-c -n -J bal"
 )
+LEDGER_LIMIT_ETFS = '--limit "commodity=~/^(SCH|SW[AIT]|GLD|SGOL|SIVR|IBKR)/"'
 
 
-def write_commodity(ledger_args, table):
-    """Write commodity table."""
+def get_commodity_df(ledger_args: str) -> pd.DataFrame | None:
     process = subprocess.run(
         f"{LEDGER_COMMODITY_CMD} {ledger_args}",
         shell=True,
@@ -37,11 +37,16 @@ def write_commodity(ledger_args, table):
         ticker = ticker.strip('"')
         df_data[ticker] = float(shares)
     if not df_data:
-        return
-    dataframe = pd.DataFrame(
+        return None
+    return pd.DataFrame(
         df_data, index=[pd.Timestamp.now()], columns=sorted(df_data.keys())
     ).rename_axis("date")
-    common.to_sql(dataframe, table)
+
+
+def write_commodity(ledger_args, table):
+    """Write commodity table."""
+    if (dataframe := get_commodity_df(ledger_args)) is not None:
+        common.to_sql(dataframe, table)
 
 
 def write_balance(ledger_args, filename, multi_currency=False):
@@ -114,8 +119,8 @@ def main():
     """Main."""
     write_balances()
     write_commodity(
-        '--limit "commodity=~/^(SCH|SW[AIT]|GLD|SGOL|SIVR|IBKR)/" --limit '
-        + '"account=~/^Assets:Investments:(Charles Schwab .*Brokerage|Interactive Brokers)/"',
+        LEDGER_LIMIT_ETFS
+        + ' --limit "account=~/^Assets:Investments:(Charles Schwab .*Brokerage|Interactive Brokers)/"',
         "schwab_etfs_amounts",
     )
     write_commodity(

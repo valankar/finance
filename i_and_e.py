@@ -8,6 +8,7 @@ from datetime import date
 import pandas as pd
 import plotly.express as px
 from dateutil.relativedelta import relativedelta
+from plotly.graph_objects import Figure
 
 import common
 
@@ -16,12 +17,12 @@ TOSHL_INCOME_TABLE = "toshl_income_export_2023-01-01"
 TOSHL_EXPENSES_TABLE = "toshl_expenses_export_2023-01-01"
 
 
-def get_ledger_csv():
+def get_ledger_csv() -> io.StringIO:
     """Get income/expense ledger csv as a StringIO."""
     return io.StringIO(subprocess.check_output(LEDGER_CSV_CMD, shell=True, text=True))
 
 
-def convert_toshl_usd(dataframe):
+def convert_toshl_usd(dataframe: pd.DataFrame) -> pd.DataFrame:
     """Change CHF to USD."""
     dataframe = dataframe.rename(
         columns={"Category": "category", "In main currency": "amount_chf"}
@@ -46,7 +47,7 @@ def convert_toshl_usd(dataframe):
     return dataframe
 
 
-def get_toshl_expenses_dataframe():
+def get_toshl_expenses_dataframe() -> pd.DataFrame:
     """Get historical data from Toshl export."""
     dataframe = common.read_sql_table(TOSHL_EXPENSES_TABLE, index_col="Date")
     # Remove unnecessary transactions.
@@ -222,7 +223,7 @@ def get_toshl_expenses_dataframe():
     return dataframe
 
 
-def get_toshl_income_dataframe():
+def get_toshl_income_dataframe() -> pd.DataFrame:
     """Get historical data from Toshl export."""
     dataframe = common.read_sql_table(TOSHL_INCOME_TABLE, index_col="Date")
     # Remove unnecessary transactions.
@@ -257,7 +258,7 @@ def get_toshl_income_dataframe():
     return dataframe
 
 
-def get_dataframe(ledger_df, category_prefix):
+def get_dataframe(ledger_df: pd.DataFrame, category_prefix: str):
     """Get income or expense dataframe."""
     dataframe = ledger_df[ledger_df["category"].str.startswith(f"{category_prefix}:")]
     dataframe = dataframe.assign(amount=dataframe["amount"].abs())
@@ -267,7 +268,7 @@ def get_dataframe(ledger_df, category_prefix):
     return dataframe
 
 
-def configure_yearly_chart(chart):
+def configure_yearly_chart(chart: Figure):
     """Set some defaults for yearly charts."""
     chart.update_traces(xbins_size="M12")
     chart.update_yaxes(title_text="USD")
@@ -281,7 +282,7 @@ def configure_yearly_chart(chart):
     chart.update_layout(bargap=0.1)
 
 
-def configure_monthly_chart(chart):
+def configure_monthly_chart(chart: Figure):
     """Set some defaults for monthly charts."""
     chart.update_traces(xbins_size="M1")
     chart.update_yaxes(title_text="USD")
@@ -295,7 +296,7 @@ def configure_monthly_chart(chart):
     chart.update_layout(bargap=0.1)
 
 
-def get_income_expense_df(ledger_df):
+def get_income_expense_df(ledger_df: pd.DataFrame):
     """Get income and expense totals dataframe."""
     income_df = get_dataframe(ledger_df, "Income")
     income_df = (
@@ -312,7 +313,7 @@ def get_income_expense_df(ledger_df):
     return income_df.join(expense_df, how="outer")
 
 
-def get_historical_average_labels():
+def get_historical_average_labels() -> tuple[tuple[int, ...], tuple[str, ...]]:
     """Get labels for historical averages."""
     return (36, 24, 12, 6, 3, 1), (
         "Last 3 years",
@@ -324,7 +325,7 @@ def get_historical_average_labels():
     )
 
 
-def get_average_monthly_top_expenses(ledger_df):
+def get_average_monthly_top_expenses(ledger_df: pd.DataFrame) -> Figure:
     """Get average monthly top expenses."""
     expense_df = get_dataframe(ledger_df, "Expenses")
     months_back, labels = get_historical_average_labels()
@@ -338,8 +339,8 @@ def get_average_monthly_top_expenses(ledger_df):
             .mean(numeric_only=True)
             .agg(["idxmax", "max"])
         )
-        categories.append(exp_max_df.iloc[0].values.item())
-        expenses.append(exp_max_df.iloc[1].values.item())
+        categories.append(exp_max_df.iloc[0].values.item())  # type: ignore
+        expenses.append(exp_max_df.iloc[1].values.item())  # type: ignore
     top_expenses_df = pd.DataFrame(
         {"category": categories, "expense": expenses}, index=labels
     )
@@ -348,7 +349,7 @@ def get_average_monthly_top_expenses(ledger_df):
         x=top_expenses_df.index,
         y="expense",
         color="category",
-        text_auto=",.0f",
+        text_auto=",.0f",  # type: ignore
         title="Average Monthly Top Expenses",
     )
     chart.update_xaxes(title_text="", categoryarray=labels, categoryorder="array")
@@ -356,7 +357,7 @@ def get_average_monthly_top_expenses(ledger_df):
     return chart
 
 
-def get_average_monthly_income_expenses_chart(ledger_df):
+def get_average_monthly_income_expenses_chart(ledger_df: pd.DataFrame) -> Figure:
     """Get average income and expenses chart."""
     joined_df = get_income_expense_df(ledger_df)
     months_back, labels = get_historical_average_labels()
@@ -376,14 +377,14 @@ def get_average_monthly_income_expenses_chart(ledger_df):
         y=i_and_e_avg_df.columns,
         title="Average Monthly Income and Expenses",
         barmode="group",
-        text_auto=",.0f",
+        text_auto=",.0f",  # type: ignore
     )
     chart.update_xaxes(title_text="")
     chart.update_yaxes(title_text="USD")
     return chart
 
 
-def get_income_expense_yearly_chart(ledger_df):
+def get_income_expense_yearly_chart(ledger_df: pd.DataFrame) -> Figure:
     """Get yearly income and expense totals chart."""
     joined_df = get_income_expense_df(ledger_df)
     chart = px.histogram(
@@ -393,13 +394,13 @@ def get_income_expense_yearly_chart(ledger_df):
         barmode="group",
         title="Yearly Income and Expenses",
         histfunc="sum",
-        text_auto=",.0f",
+        text_auto=",.0f",  # type: ignore
     )
     configure_yearly_chart(chart)
     return chart
 
 
-def get_income_expense_monthly_chart(ledger_df):
+def get_income_expense_monthly_chart(ledger_df: pd.DataFrame) -> Figure:
     """Get monthly income and expense totals chart."""
     dataframe = get_income_expense_df(ledger_df)
     # Only keep last 12 months.
@@ -407,7 +408,7 @@ def get_income_expense_monthly_chart(ledger_df):
         dataframe.resample("ME")
         .sum(numeric_only=True)
         .iloc[-12]
-        .name.strftime("%Y-%m") :
+        .name.strftime("%Y-%m") :  # type: ignore
     ]
     chart = px.histogram(
         dataframe,
@@ -416,13 +417,13 @@ def get_income_expense_monthly_chart(ledger_df):
         barmode="group",
         title="Monthly Income and Expenses",
         histfunc="sum",
-        text_auto=",.0f",
+        text_auto=",.0f",  # type: ignore
     )
     configure_monthly_chart(chart)
     return chart
 
 
-def get_yearly_chart(ledger_df, category_prefix, title):
+def get_yearly_chart(ledger_df: pd.DataFrame, category_prefix: str, title: str):
     """Get yearly income or expense bar chart."""
     dataframe = get_dataframe(ledger_df, category_prefix)
     chart = px.histogram(
@@ -443,14 +444,11 @@ def get_yearly_chart(ledger_df, category_prefix, title):
     )
     line_df.index = line_df.index.map(lambda x: pd.to_datetime(x.strftime("%Y-06")))
     line_chart = px.scatter(line_df, x=line_df.index, y="amount", trendline="lowess")
-    line_chart.update_traces(showlegend=True)
-    for trace in line_chart.data:
-        if trace.mode == "lines":
-            chart.add_trace(trace)
+    line_chart.for_each_trace(lambda t: chart.add_trace(t), selector={"mode": "lines"})
     return chart
 
 
-def get_monthly_chart(ledger_df, category_prefix, title):
+def get_monthly_chart(ledger_df: pd.DataFrame, category_prefix: str, title: str):
     """Get monthly income or expense bar chart."""
     dataframe = get_dataframe(ledger_df, category_prefix)
     # Only keep last 12 months.
@@ -458,7 +456,7 @@ def get_monthly_chart(ledger_df, category_prefix, title):
         dataframe.resample("ME")
         .sum(numeric_only=True)
         .iloc[-12]
-        .name.strftime("%Y-%m") :
+        .name.strftime("%Y-%m") :  # type: ignore
     ]
     chart = px.histogram(
         dataframe,
@@ -478,25 +476,11 @@ def get_monthly_chart(ledger_df, category_prefix, title):
     )
     line_df.index = line_df.index.map(lambda x: pd.to_datetime(x.strftime("%Y-%m-15")))
     line_chart = px.scatter(line_df, x=line_df.index, y="amount", trendline="lowess")
-    line_chart.update_traces(showlegend=True)
-    for trace in line_chart.data:
-        if trace.mode == "lines":
-            chart.add_trace(trace)
+    line_chart.for_each_trace(lambda t: chart.add_trace(t), selector={"mode": "lines"})
     return chart
 
 
-def write_plots(output_file, plots):
-    """Write out html file with plots."""
-    output_file.write(
-        plots[0].to_html(full_html=False, include_plotlyjs="cdn", default_height="50%")
-    )
-    for plot in plots[1:]:
-        output_file.write(
-            plot.to_html(full_html=False, include_plotlyjs=False, default_height="50%")
-        )
-
-
-def get_ledger_dataframes():
+def get_ledger_dataframes() -> tuple[pd.DataFrame, pd.DataFrame]:
     """Get ledger and ledger summarized dataframes."""
     ledger_df = pd.read_csv(
         get_ledger_csv(),
