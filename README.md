@@ -20,8 +20,8 @@ This stores all the historical data as text or CSV files, and then creates plots
 Crontab example:
 
 ```shell
-@hourly             flock $HOME/code/accounts -c "$HOME/software/miniconda3/condabin/mamba run -n investing $HOME/bin/accounts/finance_hourly.py"
-@daily              flock $HOME/code/accounts -c "$HOME/software/miniconda3/condabin/mamba run -n investing $HOME/bin/accounts/finance_daily.py"
+@hourly             $HOME/code/accounts/cron_hourly.sh
+@daily              $HOME/code/accounts/cron_daily.sh
 ```
 
 Locking the directory is to prevent both scripts writing at the same time.
@@ -31,6 +31,7 @@ Locking the directory is to prevent both scripts writing at the same time.
 ```shell
 sqlite-utils add-column web/sqlite.db schwab_etfs_prices IBKR float
 sqlite-utils add-column web/sqlite.db schwab_etfs_amounts IBKR float
+sqlite-utils schema web/sqlite.db > sqlite_schema.sql
 ```
 
 Update `ledger_amounts.py` and `history.py` to include new ticker.

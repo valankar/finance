@@ -10,8 +10,7 @@ import common
 import etfs
 
 
-def options_df():
-    """Get call and put dataframe."""
+def options_df_raw() -> pd.DataFrame:
     cmd = (
         f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/ (CALL|PUT)/' bal "
         + '--no-total --flat --balance-format "%(partial_account)\n%(strip(T))\n"'
@@ -19,7 +18,7 @@ def options_df():
     entries = []
     for line in io.StringIO(subprocess.check_output(cmd, shell=True, text=True)):
         if line[0].isalpha():
-            account = line.strip()
+            account = line.strip().split(":")[-1]
             continue
         count = line.split(maxsplit=1)[0]
         call_name = line.split(maxsplit=1)[1].strip().strip('"')
@@ -33,16 +32,21 @@ def options_df():
                 "type": option_type,
                 "ticker": ticker,
                 "count": int(count),
-                "strike": int(strike),
+                "strike": float(strike),
                 "expiration": pd.to_datetime(expiration),
                 "account": account,
             }
         )
-    calls_df = pd.DataFrame(entries)
+    return pd.DataFrame(entries)
+
+
+def options_df():
+    """Get call and put dataframe."""
+    calls_puts_df = options_df_raw()
     etfs_df = pd.read_csv(
         etfs.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "current_price"]
     ).fillna(0)
-    joined_df = pd.merge(calls_df, etfs_df, on="ticker").set_index(
+    joined_df = pd.merge(calls_puts_df, etfs_df, on="ticker").set_index(
         ["account", "name", "expiration"]
     )
     joined_df.loc[joined_df["type"] == "CALL", "in_the_money"] = (
@@ -167,7 +171,10 @@ def main():
     print("\nIn the money")
     print(options[options["in_the_money"]], "\n")
     print("Balances after in the money options assigned")
-    after_assignment(options[options["in_the_money"]])
+    try:
+        after_assignment(options[options["in_the_money"]])
+    except KeyError:
+        pass
     for broker in ["Charles Schwab Brokerage", "Interactive Brokers"]:
         print(f"{broker}")
         print(f"  Short put exposure: {short_put_exposure(options, broker)}")

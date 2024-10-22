@@ -17,7 +17,7 @@ import portalocker
 import schedule
 from dateutil.relativedelta import relativedelta
 from loguru import logger
-from nicegui import app, background_tasks, run, ui
+from nicegui import app, run, ui
 from plotly.graph_objects import Figure
 from zoneinfo import ZoneInfo
 
@@ -525,6 +525,21 @@ def stock_options_page():
         with pandas_options():
             stock_options.main()
             ui.html(f"<PRE>{output.getvalue()}</PRE>")
+    fig = plot.make_prices_section(
+        common.read_sql_table("index_prices").sort_index(), "Index Prices"
+    ).update_layout(margin=SUBPLOT_MARGIN)
+
+    options_df = stock_options.options_df_raw().loc[
+        lambda df: (df["ticker"] == "SPX") & (df["count"].abs() > 1)
+    ]
+    for _, row in options_df.iterrows():
+        fig.add_hline(
+            y=row["strike"],
+            annotation_text=f"{row['count']} {row['name']}",
+            annotation_position="top left",
+        )
+
+    ui.plotly(fig).classes("w-full").style("height: 50vh")
 
 
 @ui.page("/latest_values", title="Latest Values")
@@ -547,12 +562,6 @@ def balance_etfs_page(amount: int = 0):
 def healthcheck_page():
     """Docker healthcheck."""
     ui.html("<PRE>ok</PRE>")
-
-
-@app.get("/generate_graphs")
-def generate_graphs_page():
-    background_tasks.create(run.io_bound(schedule.run_all))
-    return {"message": "ok"}
 
 
 async def update_graphs_loop():

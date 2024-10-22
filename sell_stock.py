@@ -46,7 +46,15 @@ def sell_stock_brokerage(brokerage: Literal["ibkr", "schwab"], value: int):
             continue
         for etf in etfs_in_type:
             if etf in brokerage_df.columns:
-                new_df = pd.concat([new_df, sell_stock(etf, to_sell)])
+                sell_df = sell_stock(etf, to_sell)
+                max_shares = brokerage_df.iloc[0][etf]
+                # Only sell what is available.
+                sell_df.loc[etf, "shares_to_sell"] = min(
+                    max_shares,
+                    sell_df.loc[etf, "shares_to_sell"],  # type: ignore
+                )
+                new_df = pd.concat([new_df, sell_df])
+    new_df["value_to_sell"] = new_df["shares_to_sell"] * new_df["current_price"]
     new_df["options_to_sell"] = new_df["shares_to_sell"] // 100
     return new_df
 

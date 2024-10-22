@@ -122,3 +122,7 @@ CREATE TABLE sofr (
 	percent FLOAT
 );
 CREATE INDEX ix_sofr_date ON sofr (date);
+CREATE TABLE index_prices (
+	date DATETIME, 
+	"^SPX" FLOAT);
+CREATE INDEX ix_index_prices_date ON index_prices (date);

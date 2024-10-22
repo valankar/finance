@@ -436,15 +436,6 @@ def get_yearly_chart(ledger_df: pd.DataFrame, category_prefix: str, title: str):
         category_orders={"category": sorted(dataframe["category"].unique())},
     )
     configure_yearly_chart(chart)
-    # Add a trendline that excludes current year and shifted to middle.
-    line_df = (
-        dataframe[: (date.today() + relativedelta(years=-1)).strftime("%Y")]
-        .resample("YE")
-        .sum(numeric_only=True)
-    )
-    line_df.index = line_df.index.map(lambda x: pd.to_datetime(x.strftime("%Y-06")))
-    line_chart = px.scatter(line_df, x=line_df.index, y="amount", trendline="lowess")
-    line_chart.for_each_trace(lambda t: chart.add_trace(t), selector={"mode": "lines"})
     return chart
 
 
@@ -468,15 +459,6 @@ def get_monthly_chart(ledger_df: pd.DataFrame, category_prefix: str, title: str)
         category_orders={"category": sorted(dataframe["category"].unique())},
     )
     configure_monthly_chart(chart)
-    # Add a trendline that excludes current month and shifted to middle.
-    line_df = (
-        dataframe[: (date.today() + relativedelta(months=-1)).strftime("%Y-%m")]
-        .resample("ME")
-        .sum(numeric_only=True)
-    )
-    line_df.index = line_df.index.map(lambda x: pd.to_datetime(x.strftime("%Y-%m-15")))
-    line_chart = px.scatter(line_df, x=line_df.index, y="amount", trendline="lowess")
-    line_chart.for_each_trace(lambda t: chart.add_trace(t), selector={"mode": "lines"})
     return chart
 
 

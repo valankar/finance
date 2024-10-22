@@ -93,7 +93,7 @@ def convert_etfs_to_types(etfs_df):
     return etfs_df.loc[ETF_TYPE_MAP.keys()]
 
 
-def get_desired_df(amount) -> pd.DataFrame | None:
+def get_desired_df(amount: float) -> pd.DataFrame | None:
     """Get dataframe, cost to get to desired allocation."""
     desired_allocation = age_adjustment(DESIRED_ALLOCATION)
     if (s := round(sum(desired_allocation.values()))) != 100:
@@ -129,14 +129,14 @@ def get_common_only_df(allocation_df, clipped_df, amount, xact):
     return allocation_df.round(2)
 
 
-def get_buy_only_df(allocation_df, amount):
+def get_buy_only_df(allocation_df: pd.DataFrame, amount: int) -> pd.DataFrame:
     """Get an allocation dataframe that only involves buying and not selling."""
     if len(allocation_df[allocation_df["usd_to_reconcile"] < 0]) == 0:
         return allocation_df
     return get_common_only_df(allocation_df, allocation_df.clip(lower=0), amount, "buy")
 
 
-def get_sell_only_df(allocation_df, amount):
+def get_sell_only_df(allocation_df: pd.DataFrame, amount: int) -> pd.DataFrame:
     """Get an allocation dataframe that only involves selling and not buying."""
     if len(allocation_df[allocation_df["usd_to_reconcile"] > 0]) == 0:
         return allocation_df
@@ -145,13 +145,10 @@ def get_sell_only_df(allocation_df, amount):
     )
 
 
-def get_rebalancing_df(amount):
+def get_rebalancing_df(amount: int) -> pd.DataFrame | None:
     """Get rebalancing dataframe."""
-    try:
-        amount = float(amount)
-    except ValueError:
-        amount = 0
-    allocation_df = get_desired_df(amount)
+    if (allocation_df := get_desired_df(amount)) is None:
+        return None
     if amount > 0:
         allocation_df = get_buy_only_df(allocation_df, amount)
     elif amount < 0:
@@ -163,7 +160,7 @@ def main():
     """Main."""
     amount = 0
     if len(sys.argv) > 1:
-        amount = sys.argv[1]
+        amount = int(sys.argv[1])
     print(get_rebalancing_df(amount))
 
 

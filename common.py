@@ -10,6 +10,7 @@ import warnings
 from contextlib import contextmanager
 from functools import reduce
 from pathlib import Path
+from typing import Mapping, Sequence
 
 import pandas as pd
 import yahoofinancials
@@ -40,7 +41,7 @@ class GetTickerError(Exception):
     """Error getting ticker."""
 
 
-def get_tickers(tickers: list) -> dict:
+def get_tickers(tickers: Sequence[str]) -> Mapping:
     """Get prices for a list of tickers."""
     ticker_dict = {}
     for ticker in tickers:
@@ -60,7 +61,7 @@ def log_function_result(name, success, error_string=None):
 
 
 @functools.cache
-def get_ticker(ticker):
+def get_ticker(ticker: str) -> float:
     """Get ticker prices by trying various methods."""
     get_ticker_methods = (
         get_ticker_yahooquery,
@@ -81,20 +82,17 @@ def get_ticker(ticker):
     raise GetTickerError("No more methods to get ticker price")
 
 
-@functools.cache
-def get_ticker_yahoofinancials(ticker):
+def get_ticker_yahoofinancials(ticker: str) -> float:
     """Get ticker price via yahoofinancials library."""
-    return yahoofinancials.YahooFinancials(ticker).get_current_price()
+    return yahoofinancials.YahooFinancials(ticker).get_current_price()  # type: ignore
 
 
-@functools.cache
-def get_ticker_yahooquery(ticker):
+def get_ticker_yahooquery(ticker: str) -> float:
     """Get ticker price via yahooquery library."""
-    return yahooquery.Ticker(ticker).price[ticker]["regularMarketPrice"]
+    return yahooquery.Ticker(ticker).price[ticker]["regularMarketPrice"]  # type: ignore
 
 
-@functools.cache
-def get_ticker_yfinance(ticker):
+def get_ticker_yfinance(ticker: str) -> float:
     """Get ticker price via yfinance library."""
     with warnings.catch_warnings():
         # See https://github.com/ranaroussi/yfinance/issues/1837
@@ -128,34 +126,45 @@ def to_sql(dataframe, table, if_exists="append", index_label="date", foreign_key
         conn.commit()
 
 
-def write_ticker_csv(
-    amounts_table,
-    prices_table,
-    csv_output_path,
-    ticker_col_name="ticker",
-    ticker_amt_col="shares",
-    ticker_aliases=None,
-    ticker_prices=None,
-):
-    """Write ticker values to prices table and csv file.
-
-    ticker_aliases is used to map name to actual ticker: GOLD -> GC=F
-    """
-    # Just get the latest row.
+def write_ticker_sql(
+    amounts_table: str,
+    prices_table: str,
+    ticker_aliases: Mapping | None = None,
+    ticker_prices: Mapping | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    # Just get the latest row and use columns to figure out tickers.
     amounts_df = read_sql_query(
         f"select * from {amounts_table} order by date desc limit 1"
     )
     if ticker_aliases:
         amounts_df = amounts_df.rename(columns=ticker_aliases)
     if not ticker_prices:
-        ticker_prices = get_tickers(amounts_df.columns)
+        ticker_prices = get_tickers(list(amounts_df.columns))
     prices_df = pd.DataFrame(
         ticker_prices, index=[pd.Timestamp.now()], columns=sorted(ticker_prices.keys())
     ).rename_axis("date")
     if ticker_aliases:
         prices_df = prices_df.rename(columns={v: k for k, v in ticker_aliases.items()})
     to_sql(prices_df, prices_table)
+    return amounts_df, prices_df
 
+
+def write_ticker_csv(
+    amounts_table: str,
+    prices_table: str,
+    csv_output_path: str,
+    ticker_col_name: str = "ticker",
+    ticker_amt_col: str = "shares",
+    ticker_aliases: Mapping | None = None,
+    ticker_prices: Mapping | None = None,
+):
+    """Write ticker values to prices table and csv file.
+
+    ticker_aliases is used to map name to actual ticker: GOLD -> GC=F
+    """
+    amounts_df, prices_df = write_ticker_sql(
+        amounts_table, prices_table, ticker_aliases, ticker_prices
+    )
     if ticker_aliases:
         # Revert back columns names/tickers.
         amounts_df = amounts_df.rename(
@@ -179,10 +188,12 @@ def temporary_file_move(dest_file):
     shutil.move(write_file.name, dest_file)
 
 
-def schwab_browser_page(page):
-    """Click popup that sometimes appears."""
+def schwab_browser_page(page, accept_cookies=False):
+    """Click popups that sometimes appears."""
     page.get_by_text("Continue with a limited experience").click()
-    page.get_by_role("button", name="Accept All Cookies").click()
+    # Only necessary outside of US.
+    if accept_cookies:
+        page.get_by_role("button", name="Accept All Cookies").click()
     return page
 
 

@@ -428,6 +428,10 @@ def load_ledger_equity_balance_df(ledger_balance_cmd: str) -> pd.DataFrame:
     equity_balance_df = pd.concat([equity_balance_df, equity_balance_latest_df])
     equity_balance_df["30% Equity Balance"] = equity_balance_df["Equity Balance"] * 0.3
     equity_balance_df["50% Equity Balance"] = equity_balance_df["Equity Balance"] * 0.5
+    # Delete rows when stock split occurred.
+    equity_balance_df = pd.concat(
+        [equity_balance_df[:"2024-10-10"], equity_balance_df["2024-10-20":]]
+    )
     return equity_balance_df
 
 

@@ -9,8 +9,6 @@ services:
       com.centurylinklabs.watchtower.no-pull: true
       sablier.enable: true
     restart: unless-stopped
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/healthcheck" ]
     networks:
       - cloudflare
 
@@ -52,6 +50,8 @@ services:
     profiles: [ "scripts" ]
     container_name: selenium
     shm_size: 2g
+    environment:
+      - SE_ENABLE_TRACING=false
     ports:
       - "7900:7900"
     healthcheck:
@@ -64,6 +64,8 @@ services:
     profiles: [ "scripts" ]
     container_name: selenium-dev
     shm_size: 2g
+    environment:
+      - SE_ENABLE_TRACING=false
     ports:
       - "7901:7900"
       - "4444:4444"

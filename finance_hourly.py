@@ -7,6 +7,7 @@ import common
 import etfs
 import forex
 import history
+import index_prices
 import ledger_amounts
 import ledger_prices_db
 import push_web
@@ -18,6 +19,7 @@ def main():
     with portalocker.Lock(common.LOCKFILE, timeout=common.LOCKFILE_TIMEOUT):
         ledger_amounts.main()
         etfs.main()
+        index_prices.main()
         forex.main()
         schwab_ira.main()
         ledger_prices_db.main()
