@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Store IBKR margin rate history for USD, CHF."""
+"""Sell owned stock or options."""
 
 import argparse
 from typing import Literal
@@ -9,6 +9,7 @@ import pandas as pd
 import balance_etfs
 import etfs
 import ledger_amounts
+import stock_options
 
 
 def sell_stock(stock: str, value: int) -> pd.DataFrame:
@@ -40,8 +41,22 @@ def sell_stock_brokerage(brokerage: Literal["ibkr", "schwab"], value: int):
         print("No ETFs found")
         return
     new_df = pd.DataFrame()
+    # Take into account options assignment
+    options_df = stock_options.options_df()
+    if account in options_df.index.get_level_values(0):
+        options_df = options_df.xs(account)
+        options_df = stock_options.after_assignment_df(options_df)  # type: ignore
+        for etf in brokerage_df.columns:
+            try:
+                brokerage_df[etf] = brokerage_df[etf].add(
+                    options_df.loc[etf, "shares_change"], fill_value=0
+                )
+            except KeyError:
+                pass
+    print("\nShares at brokerage including ALL option assignment")
+    print(brokerage_df, "\n")
     for etf_type, etfs_in_type in balance_etfs.ETF_TYPE_MAP.items():
-        to_sell = -rebalancing_df.loc[etf_type, "usd_to_reconcile"]  # type: ignore
+        to_sell = -rebalancing_df.loc[etf_type, "sell_only"]  # type: ignore
         if to_sell <= 0:
             continue
         for etf in etfs_in_type:
@@ -53,6 +68,13 @@ def sell_stock_brokerage(brokerage: Literal["ibkr", "schwab"], value: int):
                     max_shares,
                     sell_df.loc[etf, "shares_to_sell"],  # type: ignore
                 )
+                identical_etfs = brokerage_df.columns.intersection(etfs_in_type)
+                if len(identical_etfs) > 1:
+                    sell_df["identical_to"] = " ".join(
+                        sorted(set(identical_etfs) - set([etf]))
+                    )
+                else:
+                    sell_df["identical_to"] = ""
                 new_df = pd.concat([new_df, sell_df])
     new_df["value_to_sell"] = new_df["shares_to_sell"] * new_df["current_price"]
     new_df["options_to_sell"] = new_df["shares_to_sell"] // 100
@@ -67,11 +89,13 @@ def main():
     parser.add_argument("--brokerage", default=None, choices=["ibkr", "schwab"])
     parser.add_argument("--value", default=None, type=int)
     args = parser.parse_args()
-    if not args.value:
-        parser.error("Value required")
+    if not args.value or args.value <= 0:
+        parser.error("Positive value required")
+    if not args.ticker and not args.brokerage:
+        parser.error("Must specify ticker or brokerage")
     if args.ticker:
         print(sell_stock(args.ticker, args.value).round(2))
-    elif args.brokerage:
+    else:
         if (sell_df := sell_stock_brokerage(args.brokerage, args.value)) is not None:
             print(sell_df.round(2))
             print(f"Total value to sell: {sell_df['value_to_sell'].sum():.2f}")

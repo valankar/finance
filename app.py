@@ -215,7 +215,9 @@ class MainGraphs:
                     executor,
                     "prices",
                     lambda range: plot.make_prices_section(
-                        cls.limit_and_resample_df(dataframes["prices"], range),
+                        cls.limit_and_resample_df(
+                            dataframes["prices"], range
+                        ).sort_index(axis=1),
                         "Prices",
                     ).update_layout(margin=SUBPLOT_MARGIN),
                     r,

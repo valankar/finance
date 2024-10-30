@@ -28,14 +28,14 @@ CREATE TABLE "schwab_etfs_amounts" (
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT);
 CREATE TABLE schwab_etfs_prices (
 	date DATETIME, 
 	"SCHA" FLOAT, 
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT);
 CREATE TABLE schwab_ira_amounts (
 	date DATETIME, 
 	"SWYGX" FLOAT
@@ -85,7 +85,7 @@ CREATE TABLE swygx_holdings (
 	"USD" FLOAT, 
 	"SCHO" FLOAT, 
 	"SVUXX" FLOAT
-);
+, SGUXX FLOAT);
 CREATE TABLE swtsx_market_cap (
 	date DATETIME, 
 	"US_LARGE_CAP" FLOAT, 
@@ -112,6 +112,10 @@ CREATE TABLE interactive_brokers_margin_rates (
 	"CHF" FLOAT
 );
 CREATE INDEX ix_interactive_brokers_margin_rates_date ON interactive_brokers_margin_rates (date);
+CREATE TABLE index_prices (
+	date DATETIME, 
+	"^SPX" FLOAT);
+CREATE INDEX ix_index_prices_date ON index_prices (date);
 CREATE TABLE fedfunds (
 	date DATETIME, 
 	percent FLOAT
@@ -122,7 +126,3 @@ CREATE TABLE sofr (
 	percent FLOAT
 );
 CREATE INDEX ix_sofr_date ON sofr (date);
-CREATE TABLE index_prices (
-	date DATETIME, 
-	"^SPX" FLOAT);
-CREATE INDEX ix_index_prices_date ON index_prices (date);

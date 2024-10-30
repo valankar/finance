@@ -100,8 +100,7 @@ def short_put_exposure(dataframe, broker):
     return total
 
 
-def after_assignment(itm_df):
-    """Output balances after assignment."""
+def after_assignment_df(itm_df: pd.DataFrame) -> pd.DataFrame:
     etfs_df = etfs.get_etfs_df()
     etfs_df["shares_change"] = 0
     etfs_df["liquidity_change"] = 0
@@ -119,7 +118,12 @@ def after_assignment(itm_df):
     etfs_df["original_value"] = etfs_df["value"]
     etfs_df["value"] = etfs_df["shares"] * etfs_df["current_price"]
     etfs_df["value_change"] = etfs_df["value"] - etfs_df["original_value"]
+    return etfs_df
 
+
+def after_assignment(itm_df):
+    """Output balances after assignment."""
+    etfs_df = after_assignment_df(itm_df)
     # Figure out trade profits
     for ticker, cols in etfs_df.iterrows():
         try:

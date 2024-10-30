@@ -14,10 +14,10 @@ from plotly.subplots import make_subplots
 from prefixed import Float
 
 import amortize_pal
+import balance_etfs
 import common
 import i_and_e
 import margin_interest
-from balance_etfs import get_desired_df
 
 COLOR_GREEN = "DarkGreen"
 COLOR_RED = "DarkRed"
@@ -236,7 +236,7 @@ def make_investing_allocation_section() -> Figure:
         ),
         specs=[[{"type": "pie"}, {"type": "pie"}]],
     )
-    if (dataframe := get_desired_df(0)) is None:
+    if (dataframe := balance_etfs.get_rebalancing_df(0)) is None:
         return changes_section
 
     # Current allocation
@@ -244,15 +244,19 @@ def make_investing_allocation_section() -> Figure:
         "US Large Cap",
         "US Small Cap",
         "US Bonds",
-        "International Equities",
-        "Commodities",
+        "International Developed",
+        "International Emerging",
+        "Commodities Gold",
+        "Commodities Silver",
     ]
     values = [
         dataframe.loc["US_LARGE_CAP"]["value"],
         dataframe.loc["US_SMALL_CAP"]["value"],
         dataframe.loc["US_BONDS"]["value"],
-        dataframe.loc["INTERNATIONAL_EQUITIES"]["value"],
-        dataframe.loc["COMMODITIES"]["value"],
+        dataframe.loc["INTERNATIONAL_DEVELOPED"]["value"],
+        dataframe.loc["INTERNATIONAL_EMERGING"]["value"],
+        dataframe.loc["COMMODITIES_GOLD"]["value"],
+        dataframe.loc["COMMODITIES_SILVER"]["value"],
     ]
     pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
     for trace in pie_total.data:
@@ -266,10 +270,14 @@ def make_investing_allocation_section() -> Figure:
         + dataframe.loc["US_SMALL_CAP"]["usd_to_reconcile"],
         dataframe.loc["US_BONDS"]["value"]
         + dataframe.loc["US_BONDS"]["usd_to_reconcile"],
-        dataframe.loc["INTERNATIONAL_EQUITIES"]["value"]
-        + dataframe.loc["INTERNATIONAL_EQUITIES"]["usd_to_reconcile"],
-        dataframe.loc["COMMODITIES"]["value"]
-        + dataframe.loc["COMMODITIES"]["usd_to_reconcile"],
+        dataframe.loc["INTERNATIONAL_DEVELOPED"]["value"]
+        + dataframe.loc["INTERNATIONAL_DEVELOPED"]["usd_to_reconcile"],
+        dataframe.loc["INTERNATIONAL_EMERGING"]["value"]
+        + dataframe.loc["INTERNATIONAL_EMERGING"]["usd_to_reconcile"],
+        dataframe.loc["COMMODITIES_GOLD"]["value"]
+        + dataframe.loc["COMMODITIES_GOLD"]["usd_to_reconcile"],
+        dataframe.loc["COMMODITIES_SILVER"]["value"]
+        + dataframe.loc["COMMODITIES_SILVER"]["usd_to_reconcile"],
     ]
     pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
     for trace in pie_total.data:
@@ -425,13 +433,13 @@ def load_ledger_equity_balance_df(ledger_balance_cmd: str) -> pd.DataFrame:
         parse_dates=True,
         names=["date", "Equity Balance"],
     )
-    equity_balance_df = pd.concat([equity_balance_df, equity_balance_latest_df])
+    equity_balance_df = (
+        pd.concat([equity_balance_df, equity_balance_latest_df])
+        .rolling(window="30D")
+        .min()
+    )
     equity_balance_df["30% Equity Balance"] = equity_balance_df["Equity Balance"] * 0.3
     equity_balance_df["50% Equity Balance"] = equity_balance_df["Equity Balance"] * 0.5
-    # Delete rows when stock split occurred.
-    equity_balance_df = pd.concat(
-        [equity_balance_df[:"2024-10-10"], equity_balance_df["2024-10-20":]]
-    )
     return equity_balance_df
 
 
