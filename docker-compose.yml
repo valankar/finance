@@ -26,6 +26,8 @@ services:
     profiles: [ "scripts" ]
     container_name: accounts_daily
     volumes: *volumes
+    environment: &daily_environment
+      - FRED_API_KEY=${FRED_API_KEY}
     labels:
       com.centurylinklabs.watchtower.no-pull: true
     depends_on:
@@ -38,6 +40,7 @@ services:
     profiles: [ "scripts" ]
     container_name: accounts_daily_script
     volumes: *volumes
+    environment: *daily_environment
     labels:
       com.centurylinklabs.watchtower.no-pull: true
     depends_on:

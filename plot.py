@@ -4,7 +4,6 @@
 import io
 import subprocess
 from functools import reduce
-from typing import Callable
 
 import pandas as pd
 import plotly.express as px
@@ -248,6 +247,7 @@ def make_investing_allocation_section() -> Figure:
         "International Emerging",
         "Commodities Gold",
         "Commodities Silver",
+        "Commodities Crypto",
     ]
     values = [
         dataframe.loc["US_LARGE_CAP"]["value"],
@@ -257,6 +257,7 @@ def make_investing_allocation_section() -> Figure:
         dataframe.loc["INTERNATIONAL_EMERGING"]["value"],
         dataframe.loc["COMMODITIES_GOLD"]["value"],
         dataframe.loc["COMMODITIES_SILVER"]["value"],
+        dataframe.loc["COMMODITIES_CRYPTO"]["value"],
     ]
     pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
     for trace in pie_total.data:
@@ -278,6 +279,8 @@ def make_investing_allocation_section() -> Figure:
         + dataframe.loc["COMMODITIES_GOLD"]["usd_to_reconcile"],
         dataframe.loc["COMMODITIES_SILVER"]["value"]
         + dataframe.loc["COMMODITIES_SILVER"]["usd_to_reconcile"],
+        dataframe.loc["COMMODITIES_CRYPTO"]["value"]
+        + dataframe.loc["COMMODITIES_CRYPTO"]["usd_to_reconcile"],
     ]
     pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
     for trace in pie_total.data:
@@ -433,10 +436,10 @@ def load_ledger_equity_balance_df(ledger_balance_cmd: str) -> pd.DataFrame:
         parse_dates=True,
         names=["date", "Equity Balance"],
     )
-    equity_balance_df = (
-        pd.concat([equity_balance_df, equity_balance_latest_df])
-        .rolling(window="30D")
-        .min()
+    equity_balance_df = pd.concat([equity_balance_df, equity_balance_latest_df])
+    # Cleanup stock splits
+    equity_balance_df = pd.concat(
+        [equity_balance_df.loc[:"2024-10-10"], equity_balance_df.loc["2024-11-07":]]
     )
     equity_balance_df["30% Equity Balance"] = equity_balance_df["Equity Balance"] * 0.3
     equity_balance_df["50% Equity Balance"] = equity_balance_df["Equity Balance"] * 0.5
@@ -470,27 +473,7 @@ def load_loan_balance_df(ledger_loan_balance_cmd: str) -> pd.DataFrame:
     return loan_balance_df
 
 
-def load_margin_loan_df(
-    ledger_loan_balance_cmd: str, ledger_balance_cmd: str
-) -> pd.DataFrame:
-    """Get dataframe of margin loan balance with equity balance."""
-    loan_balance_df = load_loan_balance_df(ledger_loan_balance_cmd)
-    equity_balance_df = load_ledger_equity_balance_df(ledger_balance_cmd)
-    combined_df = equity_balance_df
-    if len(loan_balance_df) > 0:
-        combined_df = pd.merge(
-            loan_balance_df.abs(),
-            equity_balance_df,
-            left_index=True,
-            right_index=True,
-            how="outer",
-        )
-    return combined_df.resample("D").last().interpolate().fillna(0).clip(lower=0)
-
-
-def make_loan_section(
-    range_func: Callable[[pd.DataFrame], tuple[str, str] | None],
-) -> Figure:
+def make_loan_section() -> Figure:
     """Make section with margin loans."""
 
     section = make_subplots(
@@ -505,17 +488,14 @@ def make_loan_section(
     )
 
     def add_remaining_annotation(
-        dataframe: pd.DataFrame, row: int, col: int, percent: int
+        equity: float, loan: float, row: int, col: int, percent: int
     ):
-        loan_remaining = (
-            dataframe["Equity Balance"].iloc[-1] * (percent / 100)
-            - dataframe["Loan Balance"].iloc[-1]
-        )
+        loan_remaining = equity * (percent / 100) + loan
         section.add_annotation(
-            text=f"Distance to {percent}%: {loan_remaining:,.0f}",
-            x=str(dataframe.index[len(dataframe.index) // 2]),
-            y=dataframe.max(axis=None),
+            text=f"Distance to {100 - percent}%: {loan_remaining:,.0f}",
             showarrow=False,
+            x="Loan",
+            y=equity * 0.1,
             row=row,
             col=col,
         )
@@ -523,20 +503,38 @@ def make_loan_section(
     def add_loan_graph(
         ledger_loan_balance_cmd: str, ledger_balance_cmd: str, col: int, percent: int
     ):
-        balance_df = load_margin_loan_df(
-            ledger_loan_balance_cmd=ledger_loan_balance_cmd,
-            ledger_balance_cmd=ledger_balance_cmd,
+        loan_balance_df = load_loan_balance_df(ledger_loan_balance_cmd)
+        equity_balance_df = load_ledger_equity_balance_df(ledger_balance_cmd)
+        fig = go.Waterfall(
+            measure=["relative", "relative", "total"],
+            x=["Equity", "Loan", "Equity - Loan"],
+            y=[
+                equity_balance_df.iloc[-1]["Equity Balance"],
+                loan_balance_df.iloc[-1]["Loan Balance"],
+                0,
+            ],
         )
-        if (r := range_func(balance_df)) is not None:
-            start, end = r
-            balance_df = balance_df[start:end]
-        for trace in px.line(
-            balance_df,
-            x=balance_df.index,
-            y=balance_df.columns,
-        ).data:
-            section.add_trace(trace, row=1, col=col)
-        add_remaining_annotation(balance_df, 1, col, percent)
+        section.add_trace(fig, row=1, col=col)
+        for percent_hline, annotation in ((30, 70), (50, 50)):
+            percent_balance = (
+                equity_balance_df.iloc[-1]["Equity Balance"]
+                - equity_balance_df.iloc[-1][f"{percent_hline}% Equity Balance"]
+            )
+            section.add_hline(
+                y=percent_balance,
+                annotation_text=f"{annotation}% Equity Balance",
+                line_dash="dot",
+                line_color="gray",
+                row=1,  # type: ignore
+                col=col,  # type: ignore
+            )
+        add_remaining_annotation(
+            equity_balance_df.iloc[-1]["Equity Balance"],
+            loan_balance_df.iloc[-1]["Loan Balance"],
+            1,
+            col,
+            percent,
+        )
 
     add_loan_graph(
         amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_IBKR,
@@ -551,8 +549,9 @@ def make_loan_section(
         30,
     )
 
+    section.update_yaxes(matches=None)
     section.update_yaxes(title_text="USD", col=1)
-    section.update_traces(row=1, col=2, showlegend=False)
+    section.update_traces(showlegend=False)
     section.update_xaxes(title_text="")
     section.update_layout(title="Margin/Box Loans")
     return section

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Calculate ETF values."""
 
+import argparse
 import functools
-import sys
-from collections.abc import Callable
 from datetime import date
+from typing import Any
 
 import pandas as pd
 
@@ -18,8 +18,8 @@ BIRTHDAY = date(1975, 2, 28)
 # https://www.morningstar.com/etfs/arcx/vt/portfolio
 # Last updated 10/25/2024
 DESIRED_ALLOCATION = {
-    "US_EQUITIES": 61.62,  # US equities, split up into US_SMALL_CAP and US_LARGE_CAP.
-    "INTERNATIONAL_EQUITIES": 38.38,  # International equities
+    "US_EQUITIES": 60,  # US equities, split up into US_SMALL_CAP and US_LARGE_CAP.
+    "INTERNATIONAL_EQUITIES": 40,  # International equities
     "US_BONDS": 0,  # Bonds/Fixed Income, replaced with (age - 15)
     "COMMODITIES": 8,  # Bonds are further reduced by this to make room
 }
@@ -30,12 +30,14 @@ INTERNATIONAL_PERCENTAGE = {
     "EMERGING": 10,
 }
 COMMODITIES_PERCENTAGE = {
-    "GOLD": 93,
-    "SILVER": 7,
+    "GOLD": 62,
+    "SILVER": 5,
+    "CRYPTO": 33,
 }
 ETF_TYPE_MAP = {
     "COMMODITIES_GOLD": ["GLDM", "SGOL"],
     "COMMODITIES_SILVER": ["SIVR"],
+    "COMMODITIES_CRYPTO": ["COIN", "BITX"],
     "US_SMALL_CAP": ["SCHA"],
     "US_LARGE_CAP": ["SCHX"],
     "US_BONDS": ["SCHO", "SCHR", "SCHZ", "SWAGX"],
@@ -62,7 +64,7 @@ def get_swtsx_market_cap():
     return common.read_sql_table("swtsx_market_cap").iloc[-1]
 
 
-def age_adjustment(allocation: dict[str, float]) -> dict[str, float] | None:
+def adjustment(allocation: dict[str, Any]) -> dict[str, Any] | None:
     """Make bond adjustment based on age (age - 15)."""
     allocation = allocation.copy()
     age_in_days = (date.today() - BIRTHDAY).days
@@ -76,6 +78,9 @@ def age_adjustment(allocation: dict[str, float]) -> dict[str, float] | None:
     ) / 100
     allocation["COMMODITIES_SILVER"] = (
         allocation["COMMODITIES"] * COMMODITIES_PERCENTAGE["SILVER"]
+    ) / 100
+    allocation["COMMODITIES_CRYPTO"] = (
+        allocation["COMMODITIES"] * COMMODITIES_PERCENTAGE["CRYPTO"]
     ) / 100
     del allocation["COMMODITIES"]
     remaining = (100 - wanted_bonds) / 100
@@ -153,10 +158,7 @@ def convert_etfs_to_types(etfs_df, etf_type_map: dict[str, list[str]]):
     return etfs_df.loc[etf_type_map.keys()]
 
 
-def get_desired_df(
-    adjustment: Callable[[dict[str, float]], dict[str, float] | None],
-    etf_type_map: dict[str, list[str]],
-) -> pd.DataFrame | None:
+def get_desired_df(otm: bool) -> pd.DataFrame | None:
     """Get dataframe, cost to get to desired allocation."""
     if not (desired_allocation := adjustment(DESIRED_ALLOCATION)):
         return None
@@ -168,14 +170,17 @@ def get_desired_df(
         etfs.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "value"]
     ).fillna(0)
     # Take into account options assignment
-    itm_df = stock_options.after_assignment_df(stock_options.options_df())
+    options_df = stock_options.options_df()
+    if not otm:
+        options_df = options_df.loc[lambda df: df["in_the_money"]]
+    itm_df = stock_options.after_assignment_df(options_df)
     etfs_df["value"] = etfs_df["value"].add(itm_df["value_change"], fill_value=0)
     ira_df = pd.read_csv(
         schwab_ira.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "value"]
     ).fillna(0)
     wanted_df = pd.DataFrame({"wanted_percent": pd.Series(desired_allocation)})
-    mf_df = convert_etfs_to_types(etfs_df, etf_type_map) + convert_ira_to_types(
-        ira_df, etf_type_map
+    mf_df = convert_etfs_to_types(etfs_df, ETF_TYPE_MAP) + convert_ira_to_types(
+        ira_df, ETF_TYPE_MAP
     )
     total = mf_df["value"].sum()
     mf_df["current_percent"] = (mf_df["value"] / total) * 100
@@ -216,15 +221,10 @@ def get_sell_only_df(allocation_df: pd.DataFrame, amount: int) -> pd.DataFrame:
 
 def get_rebalancing_df(
     amount: int,
-    adjustment: Callable[[dict[str, float]], dict[str, float] | None] = age_adjustment,
-    etf_type_map: dict[str, list[str]] = ETF_TYPE_MAP,
+    otm: bool = True,
 ) -> pd.DataFrame | None:
     """Get rebalancing dataframe."""
-    if (
-        allocation_df := get_desired_df(
-            adjustment=adjustment, etf_type_map=etf_type_map
-        )
-    ) is None:
+    if (allocation_df := get_desired_df(otm=otm)) is None:
         return None
     if amount > 0:
         allocation_df = get_buy_only_df(allocation_df, amount)
@@ -235,10 +235,13 @@ def get_rebalancing_df(
 
 def main():
     """Main."""
-    amount = 0
-    if len(sys.argv) > 1:
-        amount = int(sys.argv[1])
-    print(get_rebalancing_df(amount))
+    parser = argparse.ArgumentParser(
+        description="Rebalance ETFs",
+    )
+    parser.add_argument("--value", default=0, type=int)
+    parser.add_argument("--otm", default=True, action=argparse.BooleanOptionalAction)
+    args = parser.parse_args()
+    print(get_rebalancing_df(amount=args.value, otm=args.otm))
 
 
 if __name__ == "__main__":

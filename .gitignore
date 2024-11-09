@@ -4,3 +4,4 @@ toshl_exports/
 web/
 *.old
 .venv
+app_echarts.py

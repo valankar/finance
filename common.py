@@ -190,7 +190,7 @@ def temporary_file_move(dest_file):
 
 def schwab_browser_page(page, accept_cookies=False):
     """Click popups that sometimes appears."""
-    page.get_by_text("Continue with a limited experience").click()
+    # page.get_by_text("Continue with a limited experience").click()
     # Only necessary outside of US.
     if accept_cookies:
         page.get_by_role("button", name="Accept All Cookies").click()

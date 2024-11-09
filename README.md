@@ -29,8 +29,9 @@ Locking the directory is to prevent both scripts writing at the same time.
 ## Adding new tickers
 
 ```shell
-sqlite-utils add-column web/sqlite.db schwab_etfs_prices IBKR float
-sqlite-utils add-column web/sqlite.db schwab_etfs_amounts IBKR float
+TICKER="IBKR"
+sqlite-utils add-column web/sqlite.db schwab_etfs_prices ${TICKER} float
+sqlite-utils add-column web/sqlite.db schwab_etfs_amounts ${TICKER} float
 sqlite-utils schema web/sqlite.db > sqlite_schema.sql
 ```
 

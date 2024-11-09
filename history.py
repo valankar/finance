@@ -13,7 +13,7 @@ LEDGER_LIQUID_CMD = (
     "-n bal \\(^assets or ^liabilities\\)"
 )
 LEDGER_COMMODITIES_CMD = (
-    f'{common.LEDGER_PREFIX} -J -n --limit "commodity=~/^(GLD|SGOL|SIVR)/" bal '
+    f'{common.LEDGER_PREFIX} -J -n --limit "commodity=~/^(GLD|SGOL|SIVR|COIN|BITX)/" bal '
     '^"Assets:Investments"'
 )
 LEDGER_ETFS_CMD = (
@@ -70,7 +70,7 @@ def main():
     history_df = pd.DataFrame(
         history_df_data,
         index=[pd.Timestamp.now()],
-        columns=history_df_data.keys(),
+        columns=list(history_df_data.keys()),
     )
     common.to_sql(history_df, "history")
 

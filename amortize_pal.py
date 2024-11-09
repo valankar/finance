@@ -10,6 +10,7 @@ from amortization.schedule import amortization_schedule
 from tabulate import tabulate
 
 import common
+import ledger_amounts
 
 # APY is SOFR plus this amount
 APY_OVER_SOFR_SCHWAB = 2.80
@@ -32,11 +33,11 @@ LEDGER_LOAN_BALANCE_HISTORY_IBKR = (
 )
 LEDGER_BALANCE_HISTORY_IBKR = (
     f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^(IB|SCH|GLD|SGOL|SIVR)/' -J -E reg ^Assets:Investments:'Interactive Brokers'"""
+    + f"--limit 'commodity=~/{ledger_amounts.ETFS_REGEX}/' -J -E reg ^Assets:Investments:'Interactive Brokers'"
 )
 LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL = (
     f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^(SCH|SW|GLD|SGOL|SIVR)/' -J -E reg ^Assets:Investments:'Charles Schwab Brokerage'"""
+    + f"--limit 'commodity=~/{ledger_amounts.ETFS_REGEX}|^SWVXX/' -J -E reg ^Assets:Investments:'Charles Schwab Brokerage'"
 )
 LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL = (
     f"{common.LEDGER_PREFIX} "
@@ -82,7 +83,7 @@ def get_max_loan_interest_only(apy, months, monthly_payment):
 
 def get_max_loan(apy, months, monthly_payment):
     """Get maximum loan given by monthly_payment over months. Apy is percentage."""
-    return round(abs(npf.pv(apy / months, months, monthly_payment)), 2)
+    return round(abs(npf.pv(apy / months, months, monthly_payment)), 2)  # type: ignore
 
 
 def get_sofr():

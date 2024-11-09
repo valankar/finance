@@ -166,6 +166,13 @@ class MainGraphs:
                     "investing_allocation",
                     lambda: plot.make_investing_allocation_section(),
                 ),
+                "loan": cls.submit_plot_generator(
+                    executor,
+                    "loan",
+                    lambda: plot.make_loan_section().update_layout(
+                        margin=SUBPLOT_MARGIN
+                    ),
+                ),
             }
             if len(dataframes["options"]):
                 nonranged_graphs["short_options"] = cls.submit_plot_generator(
@@ -236,14 +243,6 @@ class MainGraphs:
                     "interest_rate",
                     lambda range: plot.make_interest_rate_section(
                         cls.limit_and_resample_df(dataframes["interest_rate"], range)
-                    ).update_layout(margin=SUBPLOT_MARGIN),
-                    r,
-                )
-                ranged_graphs["loan"][r] = cls.submit_plot_generator_ranged(
-                    executor,
-                    "loan",
-                    lambda range: plot.make_loan_section(
-                        lambda df: cls.get_xrange(df, range)
                     ).update_layout(margin=SUBPLOT_MARGIN),
                     r,
                 )
