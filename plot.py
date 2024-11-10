@@ -235,7 +235,7 @@ def make_investing_allocation_section() -> Figure:
         ),
         specs=[[{"type": "pie"}, {"type": "pie"}]],
     )
-    if (dataframe := balance_etfs.get_rebalancing_df(0)) is None:
+    if (dataframe := balance_etfs.get_rebalancing_df(0, otm=False)) is None:
         return changes_section
 
     # Current allocation
@@ -492,7 +492,7 @@ def make_loan_section() -> Figure:
     ):
         loan_remaining = equity * (percent / 100) + loan
         section.add_annotation(
-            text=f"Distance to {100 - percent}%: {loan_remaining:,.0f}",
+            text=f"Distance to {percent}%: {loan_remaining:,.0f}",
             showarrow=False,
             x="Loan",
             y=equity * 0.1,
@@ -515,14 +515,14 @@ def make_loan_section() -> Figure:
             ],
         )
         section.add_trace(fig, row=1, col=col)
-        for percent_hline, annotation in ((30, 70), (50, 50)):
+        for percent_hline in (30, 50):
             percent_balance = (
                 equity_balance_df.iloc[-1]["Equity Balance"]
                 - equity_balance_df.iloc[-1][f"{percent_hline}% Equity Balance"]
             )
             section.add_hline(
                 y=percent_balance,
-                annotation_text=f"{annotation}% Equity Balance",
+                annotation_text=f"{percent_hline}% Equity Balance",
                 line_dash="dot",
                 line_color="gray",
                 row=1,  # type: ignore

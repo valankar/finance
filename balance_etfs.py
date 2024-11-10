@@ -49,12 +49,12 @@ ETF_TYPE_MAP = {
 TOTAL_MARKET_FUNDS = ["SWTSX", "SCHB"]
 
 
-def reconcile(etfs_df: pd.DataFrame, total: float) -> pd.DataFrame:
+def reconcile(etfs_df: pd.DataFrame, amount: int, total: float) -> pd.DataFrame:
     """Add reconciliation column."""
     etfs_df["diff_percent"] = etfs_df["wanted_percent"] - etfs_df["current_percent"]
-    etfs_df["usd_to_reconcile"] = ((etfs_df["wanted_percent"] / 100) * total) - etfs_df[
-        "value"
-    ]
+    etfs_df["usd_to_reconcile"] = (amount * (etfs_df["wanted_percent"] / 100)) + (
+        ((etfs_df["wanted_percent"] / 100) * total) - etfs_df["value"]
+    )
     return etfs_df.round(2)
 
 
@@ -158,7 +158,7 @@ def convert_etfs_to_types(etfs_df, etf_type_map: dict[str, list[str]]):
     return etfs_df.loc[etf_type_map.keys()]
 
 
-def get_desired_df(otm: bool) -> pd.DataFrame | None:
+def get_desired_df(amount: int, otm: bool) -> pd.DataFrame | None:
     """Get dataframe, cost to get to desired allocation."""
     if not (desired_allocation := adjustment(DESIRED_ALLOCATION)):
         return None
@@ -185,7 +185,7 @@ def get_desired_df(otm: bool) -> pd.DataFrame | None:
     total = mf_df["value"].sum()
     mf_df["current_percent"] = (mf_df["value"] / total) * 100
     mf_df = mf_df.join(wanted_df, how="outer").fillna(0).sort_index()
-    return reconcile(mf_df, total)
+    return reconcile(mf_df, amount, total)
 
 
 def get_common_only_df(allocation_df, clipped_df, amount, xact):
@@ -224,7 +224,7 @@ def get_rebalancing_df(
     otm: bool = True,
 ) -> pd.DataFrame | None:
     """Get rebalancing dataframe."""
-    if (allocation_df := get_desired_df(otm=otm)) is None:
+    if (allocation_df := get_desired_df(amount=amount, otm=otm)) is None:
         return None
     if amount > 0:
         allocation_df = get_buy_only_df(allocation_df, amount)
