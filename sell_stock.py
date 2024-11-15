@@ -24,7 +24,9 @@ def sell_stock(stock: str, value: int) -> pd.DataFrame:
 
 def sell_stock_brokerage(brokerage: Literal["ibkr", "schwab"], value: int):
     # Find how much to balance
-    if (rebalancing_df := balance_etfs.get_rebalancing_df(-value)) is None:
+    if (
+        rebalancing_df := balance_etfs.get_rebalancing_df(amount=-value, otm=False)
+    ) is None:
         print("Cannot get rebalancing dataframe")
         return
     print(rebalancing_df)
@@ -53,7 +55,7 @@ def sell_stock_brokerage(brokerage: Literal["ibkr", "schwab"], value: int):
                 )
             except KeyError:
                 pass
-    print("\nShares at brokerage including ALL option assignment")
+    print("\nShares at brokerage including ITM option assignment")
     print(brokerage_df, "\n")
     for etf_type, etfs_in_type in balance_etfs.ETF_TYPE_MAP.items():
         to_sell = -rebalancing_df.loc[etf_type, "sell_only"]  # type: ignore

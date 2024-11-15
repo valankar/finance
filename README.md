@@ -35,4 +35,4 @@ sqlite-utils add-column web/sqlite.db schwab_etfs_amounts ${TICKER} float
 sqlite-utils schema web/sqlite.db > sqlite_schema.sql
 ```
 
-Update `ledger_amounts.py` and `history.py` to include new ticker.
+Update `ledger_amounts.py` and `history.py` and `balance_etfs.py` to include new ticker.

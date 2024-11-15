@@ -6,22 +6,25 @@ import subprocess
 import pandas as pd
 
 import common
+import stock_options
 
 LEDGER_LIQUID_CMD = (
     f"""{common.LEDGER_PREFIX} --limit 'commodity=~/^(SWVXX|\\\\$|CHF|GBP|SGD|"SPX)/' """
     "--limit 'not(account=~/(Retirement|Precious Metals|Zurcher)/)' -J "
     "-n bal \\(^assets or ^liabilities\\)"
 )
+COMMODITIES_REGEX = "(GLD|SGOL|SIVR|COIN|BITX|MSTR)"
 LEDGER_COMMODITIES_CMD = (
-    f'{common.LEDGER_PREFIX} -J -n --limit "commodity=~/^(GLD|SGOL|SIVR|COIN|BITX)/" bal '
+    f"""{common.LEDGER_PREFIX} -J -n --limit 'commodity=~/^{COMMODITIES_REGEX}/' bal """
     '^"Assets:Investments"'
 )
+ETFS_REGEX = "(SCH|SW[AIT]|IBKR)"
 LEDGER_ETFS_CMD = (
-    f'{common.LEDGER_PREFIX} --limit "commodity=~/^(SCH|SW[AIT]|IBKR)/" -J -n bal '
+    f"""{common.LEDGER_PREFIX} --limit 'commodity=~/^{ETFS_REGEX}/' -J -n bal """
     '^"Assets:Investments:.*Broker.*"'
 )
 LEDGER_IRA_CMD = (
-    f'{common.LEDGER_PREFIX} --limit "commodity=~/^SWYGX/" -J -n bal '
+    f"""{common.LEDGER_PREFIX} --limit 'commodity=~/^SWYGX/' -J -n bal """
     '^"Assets:Investments:Retirement:Charles Schwab IRA"'
 )
 LEDGER_REAL_ESTATE_CMD = f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Real Estate"'
@@ -46,8 +49,15 @@ def get_ledger_balance(command):
 
 def main():
     """Main."""
-    commodities = get_ledger_balance(LEDGER_COMMODITIES_CMD)
-    etfs = get_ledger_balance(LEDGER_ETFS_CMD)
+    options_df = stock_options.options_df().loc[lambda df: df["in_the_money"]]
+    commodities_options = options_df[options_df["ticker"].str.match(COMMODITIES_REGEX)][
+        "intrinsic_value"
+    ].sum()
+    etfs_options = options_df[options_df["ticker"].str.match(ETFS_REGEX)][
+        "intrinsic_value"
+    ].sum()
+    commodities = get_ledger_balance(LEDGER_COMMODITIES_CMD) + commodities_options
+    etfs = get_ledger_balance(LEDGER_ETFS_CMD) + etfs_options
     total_investing = commodities + etfs
     total_real_estate = get_ledger_balance(LEDGER_REAL_ESTATE_CMD)
 

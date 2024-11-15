@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 """Compare margin interest between CHF and USD."""
 
+import amortize_pal
 import common
-import plot
-
-LEDGER_LOAN_BALANCE_CHF = (
-    f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} -c "
-    + r"""--limit 'commodity=~/^CHF$/' -J -E reg ^Assets:Investments:'Interactive Brokers'"""
-)
 
 
 def chf_interest_as_percentage_of_usd():
@@ -23,8 +18,8 @@ def chf_interest_as_percentage_of_usd():
 def interest_comparison_df():
     """Get a monthly interest comparison dataframe."""
     balance_df = (
-        plot.load_loan_balance_df(
-            ledger_loan_balance_cmd=LEDGER_LOAN_BALANCE_CHF,
+        amortize_pal.load_loan_balance_df(
+            ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_CHF,
         )
         .resample("D")
         .last()

@@ -56,10 +56,9 @@ def options_df():
         joined_df["strike"] > joined_df["current_price"]
     )
     joined_df["exercise_value"] = joined_df["strike"] * joined_df["count"] * 100
-
-    joined_df.loc[
-        (joined_df["type"] == "CALL") & (joined_df["count"] < 0), "exercise_value"
-    ] = abs(joined_df["strike"] * joined_df["count"] * 100)
+    joined_df.loc[joined_df["type"] == "CALL", "exercise_value"] = -joined_df[
+        "exercise_value"
+    ]
     joined_df.loc[
         (joined_df["type"] == "PUT") & (joined_df["count"] < 0),
         "exercise_value",
@@ -68,15 +67,11 @@ def options_df():
     joined_df.loc[
         (joined_df["type"] == "CALL") & joined_df["in_the_money"],
         "intrinsic_value",
-    ] = abs(
-        (joined_df["current_price"] - joined_df["strike"]) * joined_df["count"] * 100
-    )
+    ] = (joined_df["current_price"] - joined_df["strike"]) * joined_df["count"] * 100
     joined_df.loc[
         (joined_df["type"] == "PUT") & joined_df["in_the_money"],
         "intrinsic_value",
-    ] = abs(
-        (joined_df["strike"] - joined_df["current_price"]) * joined_df["count"] * 100
-    )
+    ] = (joined_df["strike"] - joined_df["current_price"]) * joined_df["count"] * 100
     joined_df["min_contract_price"] = 0.0
     joined_df.loc[joined_df["in_the_money"], "min_contract_price"] = joined_df[
         "intrinsic_value"
@@ -124,43 +119,21 @@ def after_assignment_df(itm_df: pd.DataFrame) -> pd.DataFrame:
 def after_assignment(itm_df):
     """Output balances after assignment."""
     etfs_df = after_assignment_df(itm_df)
-    # Figure out trade profits
-    for ticker, cols in etfs_df.iterrows():
-        try:
-            etf_options_trade_income = float(
-                subprocess.check_output(
-                    f'{common.LEDGER_PREFIX} -J -n --limit "commodity=~/{ticker}.+(CALL|PUT)/" bal',
-                    text=True,
-                    shell=True,
-                ).split()[1]
-            )
-            etfs_df.loc[ticker, "options_trade_income"] = -etf_options_trade_income  # type: ignore
-        except IndexError:
-            pass
-    etfs_df["profit_or_loss"] = (
-        etfs_df["value_change"]
-        + etfs_df["liquidity_change"]
-        + etfs_df["options_trade_income"]
-    )
     print(etfs_df.round(2))
     etfs_value_change = etfs_df["value_change"].sum()
-    options_trade_income = etfs_df["options_trade_income"].sum()
     liquidity_change = etfs_df["liquidity_change"].sum()
-    profit_or_loss = etfs_df["profit_or_loss"].sum()
-    total_no_homes = common.read_sql_table("history").iloc[-1]["total_no_homes"]
-    total_no_homes_new = total_no_homes + etfs_value_change + liquidity_change
     print(f"ETFs value change: {etfs_value_change:.0f}")
     print(f"Liquidity change: {liquidity_change}")
-    print("  Ending balance:")
+    print("  Balance change:")
     for broker in ["Charles Schwab Brokerage", "Interactive Brokers"]:
         if broker in itm_df.index.get_level_values(0):
-            print(f"    {broker}: {itm_df.xs(broker)['exercise_value'].sum()}")
-    print(f"Options trade income: {options_trade_income:.0f}")
-    print(f"Profit/loss compared to sale at current price: {profit_or_loss:.0f}")
-    print(
-        f"total_no_homes: {total_no_homes_new:.0f} (original: {total_no_homes:.0f}, "
-        f"difference: {total_no_homes_new - total_no_homes:.0f})\n"
-    )
+            print(f"    {broker}")
+            broker_df = itm_df.xs(broker)
+            for expiration in broker_df.index.get_level_values(1).unique():
+                print(
+                    f"      Expiration: {expiration.date()}: {broker_df.xs(expiration, level="expiration")['exercise_value'].sum()}"
+                )
+    print()
 
 
 def main():

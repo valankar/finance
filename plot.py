@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Plot finance graphs."""
 
-import io
-import subprocess
 from functools import reduce
+from typing import Callable
 
 import pandas as pd
 import plotly.express as px
@@ -126,7 +125,7 @@ def make_investing_retirement_section(invret_df: pd.DataFrame) -> Figure:
     columns = [
         ("pillar2", "Pillar 2"),
         ("ira", "IRA"),
-        ("commodities", "Gold & Silver"),
+        ("commodities", "Gold, Silver, Crypto"),
         ("etfs", "ETFs"),
     ]
     section = px.line(
@@ -416,63 +415,6 @@ def make_interest_rate_section(interest_df: pd.DataFrame) -> Figure:
     return section
 
 
-def load_ledger_equity_balance_df(ledger_balance_cmd: str) -> pd.DataFrame:
-    """Get dataframe of equity balance."""
-    equity_balance_df = pd.read_csv(
-        io.StringIO(subprocess.check_output(ledger_balance_cmd, shell=True, text=True)),
-        sep=" ",
-        index_col=0,
-        parse_dates=True,
-        names=["date", "Equity Balance"],
-    )
-    equity_balance_latest_df = pd.read_csv(
-        io.StringIO(
-            subprocess.check_output(
-                ledger_balance_cmd.replace(" reg ", " bal "), shell=True, text=True
-            )
-        ),
-        sep=" ",
-        index_col=0,
-        parse_dates=True,
-        names=["date", "Equity Balance"],
-    )
-    equity_balance_df = pd.concat([equity_balance_df, equity_balance_latest_df])
-    # Cleanup stock splits
-    equity_balance_df = pd.concat(
-        [equity_balance_df.loc[:"2024-10-10"], equity_balance_df.loc["2024-11-07":]]
-    )
-    equity_balance_df["30% Equity Balance"] = equity_balance_df["Equity Balance"] * 0.3
-    equity_balance_df["50% Equity Balance"] = equity_balance_df["Equity Balance"] * 0.5
-    return equity_balance_df
-
-
-def load_loan_balance_df(ledger_loan_balance_cmd: str) -> pd.DataFrame:
-    """Get dataframe of margin loan balance."""
-    loan_balance_df = pd.read_csv(
-        io.StringIO(
-            subprocess.check_output(ledger_loan_balance_cmd, shell=True, text=True)
-        ),
-        sep=" ",
-        index_col=0,
-        parse_dates=True,
-        names=["date", "Loan Balance"],
-    )
-    loan_balance_latest_df = pd.read_csv(
-        io.StringIO(
-            subprocess.check_output(
-                ledger_loan_balance_cmd.replace(" reg ", " bal "), shell=True, text=True
-            )
-        ),
-        sep=" ",
-        index_col=0,
-        parse_dates=True,
-        names=["date", "Loan Balance"],
-    )
-    loan_balance_df = pd.concat([loan_balance_df, loan_balance_latest_df])
-    loan_balance_df.loc[loan_balance_df["Loan Balance"] > 0, "Loan Balance"] = 0
-    return loan_balance_df
-
-
 def make_loan_section() -> Figure:
     """Make section with margin loans."""
 
@@ -501,10 +443,11 @@ def make_loan_section() -> Figure:
         )
 
     def add_loan_graph(
-        ledger_loan_balance_cmd: str, ledger_balance_cmd: str, col: int, percent: int
+        get_balances: Callable[[], tuple[pd.DataFrame, pd.DataFrame]],
+        col: int,
+        percent: int,
     ):
-        loan_balance_df = load_loan_balance_df(ledger_loan_balance_cmd)
-        equity_balance_df = load_ledger_equity_balance_df(ledger_balance_cmd)
+        loan_balance_df, equity_balance_df = get_balances()
         fig = go.Waterfall(
             measure=["relative", "relative", "total"],
             x=["Equity", "Loan", "Equity - Loan"],
@@ -537,14 +480,12 @@ def make_loan_section() -> Figure:
         )
 
     add_loan_graph(
-        amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_IBKR,
-        amortize_pal.LEDGER_BALANCE_HISTORY_IBKR,
+        amortize_pal.get_balances_ibkr,
         1,
         30,
     )
     add_loan_graph(
-        amortize_pal.LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL,
-        amortize_pal.LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL,
+        amortize_pal.get_balances_schwab_nonpal,
         2,
         30,
     )
