@@ -99,12 +99,10 @@ def get_sofr():
 
 def get_options_value(broker: str) -> float:
     try:
-        options_df = (
-            stock_options.options_df().loc[broker].loc[lambda df: df["in_the_money"]]
-        )
+        options_df = stock_options.options_df_with_value().loc[broker]
         options_value = options_df[
             options_df["ticker"].str.match(ledger_amounts.ETFS_REGEX)
-        ]["intrinsic_value"].sum()
+        ]["value"].sum()
         return options_value
     except KeyError:
         return 0

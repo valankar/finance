@@ -49,13 +49,11 @@ def get_ledger_balance(command):
 
 def main():
     """Main."""
-    options_df = stock_options.options_df().loc[lambda df: df["in_the_money"]]
+    options_df = stock_options.options_df_with_value()
     commodities_options = options_df[options_df["ticker"].str.match(COMMODITIES_REGEX)][
-        "intrinsic_value"
+        "value"
     ].sum()
-    etfs_options = options_df[options_df["ticker"].str.match(ETFS_REGEX)][
-        "intrinsic_value"
-    ].sum()
+    etfs_options = options_df[options_df["ticker"].str.match(ETFS_REGEX)]["value"].sum()
     commodities = get_ledger_balance(LEDGER_COMMODITIES_CMD) + commodities_options
     etfs = get_ledger_balance(LEDGER_ETFS_CMD) + etfs_options
     total_investing = commodities + etfs

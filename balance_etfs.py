@@ -26,8 +26,8 @@ DESIRED_ALLOCATION = {
 # International equities allocation
 # If this is empty, it is determined from SWYGX current holdings.
 INTERNATIONAL_PERCENTAGE = {
-    "DEVELOPED": 90,
-    "EMERGING": 10,
+    # "DEVELOPED": 90,
+    # "EMERGING": 10,
 }
 COMMODITIES_PERCENTAGE = {
     "GOLD": 62,

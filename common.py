@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Common functions."""
 
-import functools
 import multiprocessing
 import os
 import shutil
@@ -16,6 +15,7 @@ import pandas as pd
 import yahoofinancials
 import yahooquery
 import yfinance
+from joblib import Memory, expires_after
 from playwright.sync_api import sync_playwright
 from sqlalchemy import create_engine
 from sqlalchemy import text as sqlalchemy_text
@@ -35,6 +35,10 @@ LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 # pylint: disable-next=line-too-long
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
 GET_TICKER_TIMEOUT = 30
+
+cache_decorator = Memory(f"{PREFIX}cache").cache(
+    cache_validation_callback=expires_after(minutes=30)
+)
 
 
 class GetTickerError(Exception):
@@ -60,7 +64,7 @@ def log_function_result(name, success, error_string=None):
     )
 
 
-@functools.cache
+@cache_decorator
 def get_ticker(ticker: str) -> float:
     """Get ticker prices by trying various methods."""
     get_ticker_methods = (
