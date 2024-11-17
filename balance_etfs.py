@@ -2,7 +2,6 @@
 """Calculate ETF values."""
 
 import argparse
-import functools
 from datetime import date
 from typing import Any
 
@@ -14,13 +13,15 @@ import schwab_ira
 import stock_options
 
 BIRTHDAY = date(1975, 2, 28)
+# Percentages of allocations.
 # Modeled from:
 # https://www.morningstar.com/etfs/arcx/vt/portfolio
 # Last updated 10/25/2024
 DESIRED_ALLOCATION = {
-    "US_EQUITIES": 60,  # US equities, split up into US_SMALL_CAP and US_LARGE_CAP.
-    "INTERNATIONAL_EQUITIES": 40,  # International equities
-    "US_BONDS": 0,  # Bonds/Fixed Income, replaced with (age - 15)
+    # If equities are commented out, they are determined from SWYGX allocation.
+    # "US_EQUITIES": 60,  # US equities, split up into US_SMALL_CAP and US_LARGE_CAP.
+    # "INTERNATIONAL_EQUITIES": 40,  # International equities
+    # Bonds/Fixed Income, replaced with (age - 15)
     "COMMODITIES": 8,  # Bonds are further reduced by this to make room
 }
 # International equities allocation
@@ -58,10 +59,35 @@ def reconcile(etfs_df: pd.DataFrame, amount: int, total: float) -> pd.DataFrame:
     return etfs_df.round(2)
 
 
-@functools.cache
 def get_swtsx_market_cap():
     """Get market cap distribution from swtsx_market_cap DB table."""
     return common.read_sql_table("swtsx_market_cap").iloc[-1]
+
+
+def get_swygx_international_allocations() -> tuple[float, float, float]:
+    swygx_holdings = common.read_sql_table("swygx_holdings").iloc[-1]
+    international_allocation = (
+        swygx_holdings[
+            swygx_holdings.index.intersection(
+                ETF_TYPE_MAP["INTERNATIONAL_DEVELOPED"]
+                + ETF_TYPE_MAP["INTERNATIONAL_EMERGING"]
+            )
+        ].sum()
+        / 100
+    )
+    developed_allocation = (
+        swygx_holdings[
+            swygx_holdings.index.intersection(ETF_TYPE_MAP["INTERNATIONAL_DEVELOPED"])
+        ].sum()
+        / 100
+    )
+    emerging_allocation = (
+        swygx_holdings[
+            swygx_holdings.index.intersection(ETF_TYPE_MAP["INTERNATIONAL_EMERGING"])
+        ].sum()
+        / 100
+    )
+    return international_allocation, developed_allocation, emerging_allocation
 
 
 def adjustment(allocation: dict[str, Any]) -> dict[str, Any] | None:
@@ -84,6 +110,17 @@ def adjustment(allocation: dict[str, Any]) -> dict[str, Any] | None:
     ) / 100
     del allocation["COMMODITIES"]
     remaining = (100 - wanted_bonds) / 100
+    international_allocation, developed_allocation, emerging_allocation = (
+        get_swygx_international_allocations()
+    )
+    # Figure out US vs international allocation.
+    if "US_EQUITIES" in allocation:
+        if allocation["US_EQUITIES"] + allocation["INTERNATIONAL_EQUITIES"] != 100:
+            print("US_EQUITIES + INTERNATIONAL_EQUITIES != 100")
+            return None
+    else:
+        allocation["US_EQUITIES"] = (1 - international_allocation) * 100
+        allocation["INTERNATIONAL_EQUITIES"] = international_allocation * 100
     # Figure out US large vs small cap percentages.
     for (
         market_cap,
@@ -100,24 +137,6 @@ def adjustment(allocation: dict[str, Any]) -> dict[str, Any] | None:
             return None
         developed_allocation = INTERNATIONAL_PERCENTAGE["DEVELOPED"] / 100
         emerging_allocation = INTERNATIONAL_PERCENTAGE["EMERGING"] / 100
-    else:
-        swygx_holdings = common.read_sql_table("swygx_holdings").iloc[-1]
-        developed_allocation = (
-            swygx_holdings[
-                swygx_holdings.index.intersection(
-                    ETF_TYPE_MAP["INTERNATIONAL_DEVELOPED"]
-                )
-            ].sum()
-            / 100
-        )
-        emerging_allocation = (
-            swygx_holdings[
-                swygx_holdings.index.intersection(
-                    ETF_TYPE_MAP["INTERNATIONAL_EMERGING"]
-                )
-            ].sum()
-            / 100
-        )
     allocation["INTERNATIONAL_DEVELOPED"] = (
         developed_allocation / (developed_allocation + emerging_allocation)
     ) * remaining

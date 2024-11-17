@@ -36,9 +36,10 @@ LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
 GET_TICKER_TIMEOUT = 30
 
-cache_decorator = Memory(f"{PREFIX}cache").cache(
+cache_decorator = Memory(f"{PREFIX}cache", verbose=0).cache(
     cache_validation_callback=expires_after(minutes=30)
 )
+cache_forever_decorator = Memory(f"{PREFIX}cache", verbose=0).cache()
 
 
 class GetTickerError(Exception):

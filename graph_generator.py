@@ -1,10 +1,11 @@
 from collections import defaultdict
-from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Callable, Literal
 
 import pandas as pd
+import plotly.io as pio
 from dateutil.relativedelta import relativedelta
+from joblib import Parallel, delayed, parallel_config
 from loguru import logger
 from plotly.graph_objects import Figure
 
@@ -68,23 +69,6 @@ def limit_and_resample_df(df: pd.DataFrame, selected_range: str) -> pd.DataFrame
     return df
 
 
-def submit_plot_generator(
-    executor: ThreadPoolExecutor,
-    name: str,
-    plot_func: Callable[[], Figure],
-    layout: tuple[tuple[str, str], ...],
-) -> Future:
-    plot = executor.submit(lambda: plot_func()).result()
-    executor.submit(
-        lambda: plot.write_image(
-            f"{common.PREFIX}/{name}.png",
-            width=1024,
-            height=768 * get_plot_height_percent(name, layout),
-        )
-    )
-    return executor.submit(lambda: plot.to_plotly_json())
-
-
 def get_plot_height_percent(name: str, layout: tuple[tuple[str, str], ...]) -> float:
     for n, height in layout:
         if n == name:
@@ -92,25 +76,36 @@ def get_plot_height_percent(name: str, layout: tuple[tuple[str, str], ...]) -> f
     return 1.0
 
 
-def submit_plot_generator_ranged(
-    executor: ThreadPoolExecutor,
+def plot_generate(
+    name: str, plot_func: Callable[[], Figure], layout: tuple[tuple[str, str], ...]
+) -> tuple[str, dict]:
+    pio.templates.default = "plotly_dark"
+    fig = plot_func()
+    write_image(fig, name, f"{common.PREFIX}/{name}.png", layout)
+    return name, fig.to_plotly_json()
+
+
+def plot_generate_ranged(
     name: str,
     plot_func: Callable[[str], Figure],
     r: str,
     layout: tuple[tuple[str, str], ...],
-) -> Future:
-    plot = executor.submit(lambda: plot_func(r)).result()
-    executor.submit(
-        lambda: plot.write_image(
-            f"{common.PREFIX}/{name}-{r}.png",
-            width=1024,
-            height=768 * get_plot_height_percent(name, layout),
-        )
+) -> tuple[str, dict]:
+    pio.templates.default = "plotly_dark"
+    fig = plot_func(r)
+    write_image(fig, name, f"{common.PREFIX}/{name}-{r}.png", layout)
+    return name, fig.to_plotly_json()
+
+
+def write_image(fig: Figure, name: str, path: str, layout: tuple[tuple[str, str], ...]):
+    fig.write_image(
+        path,
+        width=1024,
+        height=768 * get_plot_height_percent(name, layout),
     )
-    return executor.submit(lambda: plot.to_plotly_json())
 
 
-@common.cache_decorator
+@common.cache_forever_decorator
 def generate_all_graphs(
     layout: tuple[tuple[str, str], ...],
     ranges: list[str],
@@ -127,132 +122,107 @@ def generate_all_graphs(
         "interest_rate": plot.get_interest_rate_df(),
         "options": stock_options.options_df(),
     }
-    with ThreadPoolExecutor() as executor:
-        nonranged_graphs = {
-            "allocation_profit": submit_plot_generator(
-                executor,
-                "allocation_profit",
-                lambda: plot.make_allocation_profit_section(
-                    dataframes["all"],
-                    dataframes["real_estate"],
-                ).update_layout(margin=subplot_margin),
-                layout,
+    nonranged_graphs_generate = [
+        (
+            "allocation_profit",
+            lambda: plot.make_allocation_profit_section(
+                dataframes["all"],
+                dataframes["real_estate"],
+            ).update_layout(margin=subplot_margin),
+        ),
+        (
+            "change",
+            lambda: plot.make_change_section(
+                dataframes["all"],
+                "total",
+                "Total Net Worth Change",
             ),
-            "change": submit_plot_generator(
-                executor,
-                "change",
-                lambda: plot.make_change_section(
-                    dataframes["all"],
-                    "total",
-                    "Total Net Worth Change",
-                ),
-                layout,
+        ),
+        (
+            "change_no_homes",
+            lambda: plot.make_change_section(
+                dataframes["all"],
+                "total_no_homes",
+                "Total Net Worth Change w/o Real Estate",
             ),
-            "change_no_homes": submit_plot_generator(
-                executor,
-                "change_no_homes",
-                lambda: plot.make_change_section(
-                    dataframes["all"],
-                    "total_no_homes",
-                    "Total Net Worth Change w/o Real Estate",
-                ),
-                layout,
-            ),
-            "investing_allocation": submit_plot_generator(
-                executor,
-                "investing_allocation",
-                lambda: plot.make_investing_allocation_section(),
-                layout,
-            ),
-            "loan": submit_plot_generator(
-                executor,
-                "loan",
-                lambda: plot.make_loan_section().update_layout(margin=subplot_margin),
-                layout,
-            ),
-        }
-        if len(dataframes["options"]):
-            nonranged_graphs["short_options"] = submit_plot_generator(
-                executor,
+        ),
+        (
+            "investing_allocation",
+            lambda: plot.make_investing_allocation_section(),
+        ),
+        (
+            "loan",
+            lambda: plot.make_loan_section().update_layout(margin=subplot_margin),
+        ),
+    ]
+    if len(dataframes["options"]):
+        nonranged_graphs_generate.append(
+            (
                 "short_options",
                 lambda: plot.make_short_options_section(
                     dataframes["options"]
                 ).update_layout(margin=subplot_margin),
-                layout,
             )
-        ranged_graphs = defaultdict(dict)
+        )
+    ranged_graphs_generate = [
+        (
+            "assets_breakdown",
+            lambda range: plot.make_assets_breakdown_section(
+                limit_and_resample_df(dataframes["all"], range)
+            ).update_layout(margin=subplot_margin),
+        ),
+        (
+            "investing_retirement",
+            lambda range: plot.make_investing_retirement_section(
+                limit_and_resample_df(
+                    dataframes["all"][["pillar2", "ira", "commodities", "etfs"]],
+                    range,
+                )
+            ).update_layout(margin=subplot_margin),
+        ),
+        (
+            "real_estate",
+            lambda range: plot.make_real_estate_section(
+                limit_and_resample_df(
+                    dataframes["real_estate"],
+                    range,
+                )
+            ).update_layout(margin=subplot_margin),
+        ),
+        (
+            "prices",
+            lambda range: plot.make_prices_section(
+                limit_and_resample_df(dataframes["prices"], range).sort_index(axis=1),
+                "Prices",
+            ).update_layout(margin=subplot_margin),
+        ),
+        (
+            "forex",
+            lambda range: plot.make_forex_section(
+                limit_and_resample_df(dataframes["forex"], range),
+                "Forex",
+            ).update_layout(margin=subplot_margin),
+        ),
+        (
+            "interest_rate",
+            lambda range: plot.make_interest_rate_section(
+                limit_and_resample_df(dataframes["interest_rate"], range)
+            ).update_layout(margin=subplot_margin),
+        ),
+    ]
+    new_graphs: Graphs = {"ranged": defaultdict(dict), "nonranged": {}}
+    with parallel_config(n_jobs=-1):
+        for name, json in Parallel(return_as="generator_unordered")(  # type: ignore
+            delayed(plot_generate)(*args, layout) for args in nonranged_graphs_generate
+        ):
+            new_graphs["nonranged"][name] = json
         for r in ranges:
-            ranged_graphs["assets_breakdown"][r] = submit_plot_generator_ranged(
-                executor,
-                "assets_breakdown",
-                lambda range: plot.make_assets_breakdown_section(
-                    limit_and_resample_df(dataframes["all"], range)
-                ).update_layout(margin=subplot_margin),
-                r,
-                layout,
-            )
-            ranged_graphs["investing_retirement"][r] = submit_plot_generator_ranged(
-                executor,
-                "investing_retirement",
-                lambda range: plot.make_investing_retirement_section(
-                    limit_and_resample_df(
-                        dataframes["all"][["pillar2", "ira", "commodities", "etfs"]],
-                        range,
-                    )
-                ).update_layout(margin=subplot_margin),
-                r,
-                layout,
-            )
-            ranged_graphs["real_estate"][r] = submit_plot_generator_ranged(
-                executor,
-                "real_estate",
-                lambda range: plot.make_real_estate_section(
-                    limit_and_resample_df(
-                        dataframes["real_estate"],
-                        range,
-                    )
-                ).update_layout(margin=subplot_margin),
-                r,
-                layout,
-            )
-            ranged_graphs["prices"][r] = submit_plot_generator_ranged(
-                executor,
-                "prices",
-                lambda range: plot.make_prices_section(
-                    limit_and_resample_df(dataframes["prices"], range).sort_index(
-                        axis=1
-                    ),
-                    "Prices",
-                ).update_layout(margin=subplot_margin),
-                r,
-                layout,
-            )
-            ranged_graphs["forex"][r] = submit_plot_generator_ranged(
-                executor,
-                "forex",
-                lambda range: plot.make_forex_section(
-                    limit_and_resample_df(dataframes["forex"], range),
-                    "Forex",
-                ).update_layout(margin=subplot_margin),
-                r,
-                layout,
-            )
-            ranged_graphs["interest_rate"][r] = submit_plot_generator_ranged(
-                executor,
-                "interest_rate",
-                lambda range: plot.make_interest_rate_section(
-                    limit_and_resample_df(dataframes["interest_rate"], range)
-                ).update_layout(margin=subplot_margin),
-                r,
-                layout,
-            )
+            for name, json in Parallel(return_as="generator_unordered")(  # type: ignore
+                delayed(plot_generate_ranged)(*args, r, layout)
+                for args in ranged_graphs_generate
+            ):
+                new_graphs["ranged"][name][r] = json
 
-        new_graphs: Graphs = {"ranged": defaultdict(dict), "nonranged": {}}
-        for name, future in nonranged_graphs.items():
-            new_graphs["nonranged"][name] = future.result()
-        for name, ranged in ranged_graphs.items():
-            for r, future in ranged.items():
-                new_graphs["ranged"][name][r] = future.result()
     end_time = datetime.now()
     cached_graphs = new_graphs
     last_updated_time = end_time

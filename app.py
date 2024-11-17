@@ -11,11 +11,8 @@ from typing import Awaitable, ClassVar, Iterable
 
 import pandas as pd
 import plotly.io as pio
-import portalocker
-import schedule
-from dateutil.relativedelta import relativedelta
 from loguru import logger
-from nicegui import app, run, ui
+from nicegui import run, ui
 from plotly.graph_objects import Figure
 from zoneinfo import ZoneInfo
 
@@ -62,25 +59,23 @@ class MainGraphs:
         ("loan", "45vh"),
         ("short_options", "50vh"),
     )
+    CACHE_CALL_ARGS = (LAYOUT, RANGES, SUBPLOT_MARGIN)
 
     @classmethod
     def all_graphs_populated(cls) -> bool:
-        found_graphs = set()
-        required_graphs = set([name for name, _ in cls.LAYOUT]) - set(["short_options"])
-        for graph_type in ["ranged", "nonranged"]:
-            if graph_type in cls.graphs:
-                found_graphs.update(cls.graphs[graph_type].keys())
-        return len(required_graphs - found_graphs) == 0
-
-    @classmethod
-    def generate_all_graphs(cls) -> None:
-        """Generate and save all Plotly graphs."""
-        (
-            cls.graphs,
-            cls.last_updated_time,
-            cls.last_generation_duration,
-            cls.latest_datapoint_time,
-        ) = graph_generator.generate_all_graphs(cls.LAYOUT, RANGES, SUBPLOT_MARGIN)
+        if graph_generator.generate_all_graphs.check_call_in_cache(
+            *cls.CACHE_CALL_ARGS
+        ):
+            (
+                cls.graphs,
+                cls.last_updated_time,
+                cls.last_generation_duration,
+                cls.latest_datapoint_time,
+            ) = graph_generator.generate_all_graphs(*cls.CACHE_CALL_ARGS)
+            return True
+        elif len(cls.graphs):
+            return True
+        return False
 
     def __init__(self, selected_range: str):
         self.ui_plotly = {}
@@ -105,13 +100,6 @@ class MainGraphs:
         self.ui_stats_labels["last_generation_duration"].set_text(
             f"Graph generation duration: {MainGraphs.last_generation_duration.total_seconds():.2f}s"
         )
-        if (idle_seconds := schedule.idle_seconds()) is not None:
-            self.ui_stats_labels["next_generation_time"].set_text(
-                "Next generation: "
-                + (datetime.now() + relativedelta(seconds=int(idle_seconds)))
-                .astimezone(timezone)
-                .strftime("%c")
-            )
 
     async def create(self) -> None:
         """Create all graphs."""
@@ -332,26 +320,8 @@ def healthcheck_page():
     ui.html("<PRE>ok</PRE>")
 
 
-async def update_graphs_loop():
-    # Kick off run of everything before loop.
-    await run.io_bound(schedule.run_all)
-    while True:
-        await run.io_bound(schedule.run_pending)
-        await asyncio.sleep(10)
-
-
-def lock_and_generate_graphs():
-    try:
-        with portalocker.Lock(common.LOCKFILE, timeout=common.LOCKFILE_TIMEOUT):
-            MainGraphs.generate_all_graphs()
-    except portalocker.LockException as e:
-        logger.error(f"Failed to acquire portalocker lock: {e}")
-
-
 if __name__ in {"__main__", "__mp_main__"}:
     pio.templates.default = "plotly_dark"
-    schedule.every().hour.at(":05").do(lock_and_generate_graphs)
-    app.on_startup(update_graphs_loop)
     ui.run(
         title="Accounts",
         dark=True,
