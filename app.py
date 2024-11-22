@@ -310,7 +310,7 @@ def latest_values_page():
 def balance_etfs_page(amount: int = 0):
     """Balance ETFs."""
     with pandas_options():
-        df = balance_etfs.get_rebalancing_df(amount)
+        df = balance_etfs.get_rebalancing_df(amount=amount, otm=False)
         ui.html(f"<PRE>{df}</PRE>")
 
 

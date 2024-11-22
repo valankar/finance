@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Compare margin interest between CHF and USD."""
 
-import amortize_pal
 import common
+import margin_loan
 
 
 def chf_interest_as_percentage_of_usd():
@@ -18,8 +18,8 @@ def chf_interest_as_percentage_of_usd():
 def interest_comparison_df():
     """Get a monthly interest comparison dataframe."""
     balance_df = (
-        amortize_pal.load_loan_balance_df(
-            ledger_loan_balance_cmd=amortize_pal.LEDGER_LOAN_BALANCE_CHF,
+        margin_loan.load_loan_balance_df(
+            ledger_loan_balance_cmd=margin_loan.LEDGER_LOAN_BALANCE_CHF,
         )
         .resample("D")
         .last()

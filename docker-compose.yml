@@ -6,9 +6,8 @@ services:
     volumes: &volumes
       - ${HOME}/code/accounts:/app/code/accounts
       - ${HOME}/code/ledger:/app/code/ledger
-    labels:
+    labels: &labels
       com.centurylinklabs.watchtower.no-pull: true
-      sablier.enable: true
     restart: unless-stopped
     networks:
       - cloudflare
@@ -18,8 +17,7 @@ services:
     profiles: [ "scripts" ]
     container_name: accounts_hourly
     volumes: *volumes
-    labels:
-      com.centurylinklabs.watchtower.no-pull: true
+    labels: *labels
     command: "/app/code/accounts/finance_hourly.py"
 
   accounts_daily:
@@ -29,8 +27,7 @@ services:
     volumes: *volumes
     environment: &daily_environment
       - FRED_API_KEY=${FRED_API_KEY}
-    labels:
-      com.centurylinklabs.watchtower.no-pull: true
+    labels: *labels
     depends_on:
       selenium:
         condition: service_healthy
@@ -42,8 +39,7 @@ services:
     container_name: accounts_daily_script
     volumes: *volumes
     environment: *daily_environment
-    labels:
-      com.centurylinklabs.watchtower.no-pull: true
+    labels: *labels
     depends_on:
       selenium:
         condition: service_healthy
@@ -60,8 +56,6 @@ services:
       - "7900:7900"
     healthcheck:
       test: &selenium-healthcheck [ "CMD", "/opt/bin/check-grid.sh", "--host", "0.0.0.0", "--port", "4444" ]
-    labels:
-      com.centurylinklabs.watchtower.no-pull: true
 
   selenium-dev:
     image: selenium/standalone-chromium
@@ -75,8 +69,6 @@ services:
       - "4444:4444"
     healthcheck:
       test: *selenium-healthcheck
-    labels:
-      com.centurylinklabs.watchtower.no-pull: true
 
 networks:
   cloudflare:

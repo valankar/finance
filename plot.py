@@ -11,11 +11,11 @@ from plotly.graph_objects import Figure
 from plotly.subplots import make_subplots
 from prefixed import Float
 
-import amortize_pal
 import balance_etfs
 import common
 import i_and_e
 import margin_interest
+import margin_loan
 
 COLOR_GREEN = "DarkGreen"
 COLOR_RED = "DarkRed"
@@ -480,12 +480,12 @@ def make_loan_section() -> Figure:
         )
 
     add_loan_graph(
-        amortize_pal.get_balances_ibkr,
+        margin_loan.get_balances_ibkr,
         1,
         30,
     )
     add_loan_graph(
-        amortize_pal.get_balances_schwab_nonpal,
+        margin_loan.get_balances_schwab_nonpal,
         2,
         30,
     )
