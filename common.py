@@ -20,7 +20,8 @@ from playwright.sync_api import sync_playwright
 from sqlalchemy import create_engine
 from sqlalchemy import text as sqlalchemy_text
 
-PUBLIC_HTML = f"{Path.home()}/code/accounts/web/"
+CODE_DIR = f"{Path.home()}/code/accounts"
+PUBLIC_HTML = f"{CODE_DIR}/web/"
 PREFIX = PUBLIC_HTML
 LOCKFILE = f"{PREFIX}/run.lock"
 LOCKFILE_TIMEOUT = 10 * 60
@@ -35,6 +36,7 @@ LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 # pylint: disable-next=line-too-long
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
 GET_TICKER_TIMEOUT = 30
+PLOTLY_THEME = "plotly_dark"
 
 cache_decorator = Memory(f"{PREFIX}cache", verbose=0).cache(
     cache_validation_callback=expires_after(minutes=30)

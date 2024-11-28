@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SQLITE_CMD="sqlite3 web/sqlite.db -readonly"
+SQLITE_CMD="sqlite3 ${HOME}/code/accounts/web/sqlite.db -readonly"
 SQL_PREFIX="select datetime(date, 'localtime') as date, \
     format('%,.0f', total) as total, \
     format('%,.0f', total_real_estate) as total_real_estate, \

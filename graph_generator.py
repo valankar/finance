@@ -18,15 +18,18 @@ type RangedGraphs = dict[str, dict[str, dict]]
 type Graphs = dict[Literal["ranged", "nonranged"], NonRangedGraphs | RangedGraphs]
 
 
-def get_xrange(dataframe: pd.DataFrame, selected_range: str) -> tuple[str, str] | None:
+def get_xrange(
+    dataframe: pd.DataFrame, selected_range: str
+) -> tuple[str | datetime, str | datetime] | None:
     """Determine time range for selected button."""
+    latest_time = dataframe.index[-1]
+    earliest_time = dataframe.index[0]
     today_time = datetime.now()
-    today_time_str = today_time.strftime("%Y-%m-%d")
     xrange = None
     relative = None
     match selected_range:
         case "All":
-            xrange = (dataframe.index[0].strftime("%Y-%m-%d"), today_time_str)
+            xrange = (earliest_time, latest_time)
         case "3y":
             relative = relativedelta(years=-3)
         case "2y":
@@ -34,7 +37,7 @@ def get_xrange(dataframe: pd.DataFrame, selected_range: str) -> tuple[str, str] 
         case "1y":
             relative = relativedelta(years=-1)
         case "YTD":
-            xrange = (today_time.strftime("%Y-01-01"), today_time_str)
+            xrange = (today_time.strftime("%Y-01-01"), latest_time)
         case "6m":
             relative = relativedelta(months=-6)
         case "3m":
@@ -44,10 +47,7 @@ def get_xrange(dataframe: pd.DataFrame, selected_range: str) -> tuple[str, str] 
         case "1d":
             relative = relativedelta(days=-1)
     if relative:
-        xrange = (
-            (today_time + relative).strftime("%Y-%m-%d"),
-            today_time_str,
-        )
+        xrange = ((latest_time + relative), latest_time)
     return xrange
 
 
@@ -79,7 +79,7 @@ def get_plot_height_percent(name: str, layout: tuple[tuple[str, str], ...]) -> f
 def plot_generate(
     name: str, plot_func: Callable[[], Figure], layout: tuple[tuple[str, str], ...]
 ) -> tuple[str, dict]:
-    pio.templates.default = "plotly_dark"
+    pio.templates.default = common.PLOTLY_THEME
     fig = plot_func()
     write_image(fig, name, f"{common.PREFIX}/{name}.png", layout)
     return name, fig.to_plotly_json()
@@ -91,7 +91,7 @@ def plot_generate_ranged(
     r: str,
     layout: tuple[tuple[str, str], ...],
 ) -> tuple[str, dict]:
-    pio.templates.default = "plotly_dark"
+    pio.templates.default = common.PLOTLY_THEME
     fig = plot_func(r)
     write_image(fig, name, f"{common.PREFIX}/{name}-{r}.png", layout)
     return name, fig.to_plotly_json()
@@ -153,6 +153,10 @@ def generate_all_graphs(
         (
             "loan",
             lambda: plot.make_loan_section().update_layout(margin=subplot_margin),
+        ),
+        (
+            "daily_indicator",
+            lambda: plot.make_daily_indicator(dataframes["all"]),
         ),
     ]
     if len(dataframes["options"]):
@@ -235,3 +239,10 @@ def generate_all_graphs(
         last_generation_duration,
         latest_datapoint_time,
     )
+
+
+def clear_and_generate(
+    cache_call_args: tuple[tuple[tuple[str, str], ...], list[str], dict[str, int]],
+) -> None:
+    generate_all_graphs.clear()
+    generate_all_graphs(*cache_call_args)

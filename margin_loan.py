@@ -38,7 +38,7 @@ def get_options_value(broker: str) -> float:
         options_df = stock_options.options_df_with_value().loc[broker]
         options_value = options_df[
             options_df["ticker"].str.match(ledger_amounts.ETFS_REGEX)
-        ]["value"].sum()
+        ]["adjusted_value"].sum()
         return options_value
     except KeyError:
         return 0

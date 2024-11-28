@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run hourly finance functions."""
 
+import argparse
+
 import portalocker
 
 import common
@@ -18,17 +20,22 @@ from app import MainGraphs
 
 def main():
     """Main."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--graphs-only", default=False, action=argparse.BooleanOptionalAction
+    )
+    args = parser.parse_args()
     with portalocker.Lock(common.LOCKFILE, timeout=common.LOCKFILE_TIMEOUT):
-        ledger_amounts.main()
-        etfs.main()
-        index_prices.main()
-        forex.main()
-        schwab_ira.main()
-        ledger_prices_db.main()
-        history.main()
-        push_web.main()
-        graph_generator.generate_all_graphs.clear()
-        graph_generator.generate_all_graphs(*MainGraphs.CACHE_CALL_ARGS)
+        if not args.graphs_only:
+            ledger_amounts.main()
+            etfs.main()
+            index_prices.main()
+            forex.main()
+            schwab_ira.main()
+            ledger_prices_db.main()
+            history.main()
+            push_web.main()
+        graph_generator.clear_and_generate(MainGraphs.CACHE_CALL_ARGS)
 
 
 if __name__ == "__main__":

@@ -51,9 +51,11 @@ def main():
     """Main."""
     options_df = stock_options.options_df_with_value()
     commodities_options = options_df[options_df["ticker"].str.match(COMMODITIES_REGEX)][
-        "value"
+        "adjusted_value"
     ].sum()
-    etfs_options = options_df[options_df["ticker"].str.match(ETFS_REGEX)]["value"].sum()
+    etfs_options = options_df[options_df["ticker"].str.match(ETFS_REGEX)][
+        "adjusted_value"
+    ].sum()
     commodities = get_ledger_balance(LEDGER_COMMODITIES_CMD) + commodities_options
     etfs = get_ledger_balance(LEDGER_ETFS_CMD) + etfs_options
     total_investing = commodities + etfs

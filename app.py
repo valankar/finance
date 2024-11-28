@@ -8,13 +8,13 @@ import os.path
 import subprocess
 from datetime import datetime, timedelta
 from typing import Awaitable, ClassVar, Iterable
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.io as pio
 from loguru import logger
 from nicegui import run, ui
 from plotly.graph_objects import Figure
-from zoneinfo import ZoneInfo
 
 import balance_etfs
 import common
@@ -58,6 +58,7 @@ class MainGraphs:
         ("interest_rate", "45vh"),
         ("loan", "45vh"),
         ("short_options", "50vh"),
+        ("daily_indicator", "45vh"),
     )
     CACHE_CALL_ARGS = (LAYOUT, RANGES, SUBPLOT_MARGIN)
 
@@ -301,7 +302,7 @@ def stock_options_page():
 @ui.page("/latest_values", title="Latest Values")
 def latest_values_page():
     """Latest values."""
-    output = subprocess.check_output("./latest_values.sh", text=True)
+    output = subprocess.check_output(f"{common.CODE_DIR}/latest_values.sh", text=True)
     ui.html(f"<PRE>{output}</PRE>")
 
 
@@ -314,14 +315,8 @@ def balance_etfs_page(amount: int = 0):
         ui.html(f"<PRE>{df}</PRE>")
 
 
-@ui.page("/healthcheck", title="Healthcheck")
-def healthcheck_page():
-    """Docker healthcheck."""
-    ui.html("<PRE>ok</PRE>")
-
-
 if __name__ in {"__main__", "__mp_main__"}:
-    pio.templates.default = "plotly_dark"
+    pio.templates.default = common.PLOTLY_THEME
     ui.run(
         title="Accounts",
         dark=True,

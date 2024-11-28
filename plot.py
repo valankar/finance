@@ -7,6 +7,7 @@ from typing import Callable
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from dateutil.relativedelta import relativedelta
 from plotly.graph_objects import Figure
 from plotly.subplots import make_subplots
 from prefixed import Float
@@ -79,6 +80,35 @@ def update_facet_titles(fig: Figure, columns: list[tuple[str, str]]):
     fig.for_each_annotation(col_to_name)
 
 
+def centered_title(fig: Figure, title: str):
+    fig.update_layout(title={"text": title, "x": 0.5, "xanchor": "center"})
+
+
+def make_daily_indicator(hourly_df: pd.DataFrame) -> Figure:
+    df = hourly_df[hourly_df.index[-1] + relativedelta(days=-1) :]
+    fig = go.Figure()
+    for col, (column, title) in enumerate(
+        [
+            ("total", "Total"),
+            ("total_no_homes", "Total w/o Real Estate"),
+        ]
+    ):
+        fig.add_trace(
+            go.Indicator(
+                mode="number+delta+gauge",
+                number={"prefix": "$"},
+                title={"text": title},
+                value=df.iloc[-1][column],
+                delta={"reference": df.iloc[0][column], "valueformat": ",.0f"},
+                gauge={},
+                domain={"row": 0, "column": col},
+            )
+        )
+    centered_title(fig, "Daily Change")
+    fig.update_layout(grid={"rows": 1, "columns": 2})
+    return fig
+
+
 def make_assets_breakdown_section(daily_df: pd.DataFrame) -> Figure:
     """Make assets trend section."""
     columns = [
@@ -94,12 +124,12 @@ def make_assets_breakdown_section(daily_df: pd.DataFrame) -> Figure:
         daily_df,
         x=daily_df.index,
         y=table_cols,
-        title="Assets Breakdown",
         facet_col="variable",
         facet_col_wrap=2,
         category_orders={"variable": table_cols},
     )
     update_facet_titles(section, columns)
+    centered_title(section, "Assets Breakdown")
     section.update_yaxes(matches=None, title_text="")
     section.update_yaxes(col=2, showticklabels=True)
     section.update_yaxes(col=1, title_text="USD")
@@ -135,9 +165,9 @@ def make_investing_retirement_section(invret_df: pd.DataFrame) -> Figure:
         facet_col="variable",
         facet_col_wrap=2,
         labels={"value": "USD"},
-        title="Investing & Retirement",
     )
     update_facet_titles(section, columns)
+    centered_title(section, "Investing & Retirement")
     section.update_xaxes(title_text="", showticklabels=True)
     section.update_yaxes(title_text="")
     section.update_yaxes(matches=None)
@@ -160,8 +190,8 @@ def make_real_estate_section(real_estate_df: pd.DataFrame) -> Figure:
         facet_col="variable",
         facet_col_wrap=2,
         labels={"value": "USD"},
-        title="Real Estate",
     )
+    centered_title(section, "Real Estate")
     section.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     section.update_xaxes(title_text="", showticklabels=True)
     section.update_yaxes(title_text="")
@@ -286,7 +316,7 @@ def make_investing_allocation_section() -> Figure:
         changes_section.add_trace(trace, row=1, col=2)
 
     changes_section.update_traces(textinfo="percent+value")
-    changes_section.update_layout(title="Investing Allocation")
+    centered_title(changes_section, "Investing Allocation")
     return changes_section
 
 
@@ -352,10 +382,10 @@ def make_prices_section(prices_df: pd.DataFrame, title: str) -> Figure:
         prices_df,
         x=prices_df.index,
         y=prices_df.columns,
-        title=title,
     )
     fig.update_yaxes(title_text="USD")
     fig.update_xaxes(title_text="")
+    centered_title(fig, title)
     return fig
 
 
@@ -365,7 +395,6 @@ def make_forex_section(forex_df: pd.DataFrame, title: str) -> Figure:
         forex_df,
         x=forex_df.index,
         y=forex_df.columns,
-        title=title,
         facet_col="variable",
         facet_col_wrap=2,
     )
@@ -377,6 +406,7 @@ def make_forex_section(forex_df: pd.DataFrame, title: str) -> Figure:
     fig.update_yaxes(col=1, title_text="USD")
     fig.update_yaxes(title_text="USD")
     fig.update_xaxes(title_text="")
+    centered_title(fig, title)
     return fig
 
 
@@ -494,7 +524,7 @@ def make_loan_section() -> Figure:
     section.update_yaxes(title_text="USD", col=1)
     section.update_traces(showlegend=False)
     section.update_xaxes(title_text="")
-    section.update_layout(title="Margin/Box Loans")
+    centered_title(section, "Margin/Box Loans")
     return section
 
 
@@ -520,7 +550,7 @@ def make_change_section(daily_df: pd.DataFrame, column: str, title: str) -> Figu
     changes_section.update_yaxes(title_text="USD", col=1)
     changes_section.update_xaxes(title_text="")
     changes_section.update_xaxes(tickformat="%Y", row=1, col=1)
-    changes_section.update_layout(title=title)
+    centered_title(changes_section, title)
     return changes_section
 
 
@@ -581,12 +611,11 @@ def make_short_options_section(options_df: pd.DataFrame) -> Figure:
             return
         df.loc[:, "name"] = df["count"].astype(str) + " " + df["name"].astype(str)
         df = df.set_index("name").sort_values("exercise_value")
-        chart = px.bar(
-            df,
+        fig = go.Waterfall(
             x=df.index,
-            y=["exercise_value"],
+            y=df["exercise_value"],
         )
-        chart.for_each_trace(lambda t: set_bar_chart_color(t, section, 1, col))
+        section.add_trace(fig, row=1, col=col)
 
     dataframe = (
         options_df.groupby(level="name")
@@ -597,7 +626,7 @@ def make_short_options_section(options_df: pd.DataFrame) -> Figure:
     make_options_graph(dataframe[dataframe["in_the_money"]], 2)
     section.update_yaxes(title_text="USD", col=1)
     section.update_xaxes(title_text="")
-    section.update_layout(title="Options")
+    centered_title(section, "Options")
     section.update_traces(showlegend=False)
     return section
 

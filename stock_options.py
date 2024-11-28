@@ -66,7 +66,12 @@ def get_options_quotes(dataframe: pd.DataFrame):
 
 @common.cache_decorator
 def options_df_with_value() -> pd.DataFrame:
-    return get_options_quotes(options_df())
+    df = get_options_quotes(options_df())
+    # Take the maximum of intrinsic_value and value, keeping sign.
+    df["adjusted_value"] = df[["intrinsic_value", "value"]].abs().max(axis=1) * (
+        df["count"] / df["count"].abs()
+    )
+    return df
 
 
 def options_df() -> pd.DataFrame:
