@@ -20,11 +20,6 @@ import margin_loan
 
 COLOR_GREEN = "DarkGreen"
 COLOR_RED = "DarkRed"
-HOMES = [
-    "Mt Vernon",
-    "Northlake",
-    "Villa Maria",
-]
 
 
 def set_bar_chart_color(trace, fig: Figure, row, col):
@@ -183,10 +178,11 @@ def make_investing_retirement_section(invret_df: pd.DataFrame) -> Figure:
 
 def make_real_estate_section(real_estate_df: pd.DataFrame) -> Figure:
     """Line graph of real estate."""
+    cols = [x for x in real_estate_df.columns if "Percent" not in x]
     section = px.line(
         real_estate_df,
         x=real_estate_df.index,
-        y=[x for x in real_estate_df.columns if "Percent" not in x],
+        y=cols,
         facet_col="variable",
         facet_col_wrap=2,
         labels={"value": "USD"},
@@ -199,12 +195,9 @@ def make_real_estate_section(real_estate_df: pd.DataFrame) -> Figure:
     section.update_yaxes(col=2, showticklabels=True)
     section.update_yaxes(col=1, title_text="USD")
     section.update_traces(showlegend=False)
-    add_hline_current(section, real_estate_df, "Mt Vernon Price", 3, 1)
-    add_hline_current(section, real_estate_df, "Mt Vernon Rent", 3, 2)
-    add_hline_current(section, real_estate_df, "Northlake Price", 2, 1)
-    add_hline_current(section, real_estate_df, "Northlake Rent", 2, 2)
-    add_hline_current(section, real_estate_df, "Villa Maria Price", 1, 1)
-    add_hline_current(section, real_estate_df, "Villa Maria Rent", 1, 2)
+    for i, p in enumerate(reversed(common.PROPERTIES)):
+        add_hline_current(section, real_estate_df, f"{p.name} Price", i + 1, 1)
+        add_hline_current(section, real_estate_df, f"{p.name} Rent", i + 1, 2)
     return section
 
 
@@ -212,7 +205,7 @@ def make_real_estate_profit_bar(real_estate_df: pd.DataFrame) -> go.Bar:
     """Bar chart of real estate profit."""
     values = []
     percent = []
-    cols = [f"{home} Price" for home in HOMES]
+    cols = [f"{home.name} Price" for home in common.PROPERTIES]
     for home in cols:
         values.append(
             real_estate_df.iloc[-1][home]
@@ -232,7 +225,7 @@ def make_real_estate_profit_bar_yearly(real_estate_df: pd.DataFrame) -> go.Bar:
     """Bar chart of real estate profit yearly."""
     values = []
     percent = []
-    cols = [f"{home} Price" for home in HOMES]
+    cols = [f"{home.name} Price" for home in common.PROPERTIES]
     for home in cols:
         time_diff = (
             real_estate_df[home].index[-1] - real_estate_df[home].first_valid_index()
@@ -288,9 +281,8 @@ def make_investing_allocation_section() -> Figure:
         dataframe.loc["COMMODITIES_SILVER"]["value"],
         dataframe.loc["COMMODITIES_CRYPTO"]["value"],
     ]
-    pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
-    for trace in pie_total.data:
-        changes_section.add_trace(trace, row=1, col=1)
+    pie_total = go.Pie(labels=labels, values=values)
+    changes_section.add_trace(pie_total, row=1, col=1)
 
     # Desired allocation
     values = [
@@ -311,9 +303,8 @@ def make_investing_allocation_section() -> Figure:
         dataframe.loc["COMMODITIES_CRYPTO"]["value"]
         + dataframe.loc["COMMODITIES_CRYPTO"]["usd_to_reconcile"],
     ]
-    pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
-    for trace in pie_total.data:
-        changes_section.add_trace(trace, row=1, col=2)
+    pie_total = go.Pie(labels=labels, values=values)
+    changes_section.add_trace(pie_total, row=1, col=2)
 
     changes_section.update_traces(textinfo="percent+value")
     centered_title(changes_section, "Investing Allocation")
@@ -351,10 +342,9 @@ def make_allocation_profit_section(
     ]
     pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
     pie_total.update_layout(title="Asset Allocation", title_x=0.5)
-    for trace in pie_total.data:
-        changes_section.add_trace(trace, row=1, col=1)
+    pie_total.for_each_trace(lambda t: changes_section.add_trace(t, row=1, col=1))
 
-    cols = [f"{home} Price" for home in HOMES]
+    cols = [f"{home.name} Price" for home in common.PROPERTIES]
     for home in cols:
         real_estate_df[f"{home} Percent Change"] = (
             (
@@ -420,15 +410,13 @@ def make_interest_rate_section(interest_df: pd.DataFrame) -> Figure:
             "IBKR Forex Margin Interest Comparison",
         ),
     )
-    for trace in px.line(
+    px.line(
         interest_df,
         x=interest_df.index,
         y=interest_df.columns,
-    ).data:
-        section.add_trace(trace, row=1, col=1)
+    ).for_each_trace(lambda t: section.add_trace(t, row=1, col=1))
     margin_df, margin_chart = make_margin_comparison_chart()
-    for trace in margin_chart.data:
-        section.add_trace(trace, row=1, col=2)
+    margin_chart.for_each_trace(lambda t: section.add_trace(t, row=1, col=2))
     section.add_annotation(
         text=(
             "Cost of CHF loan as percentage of USD loan: "

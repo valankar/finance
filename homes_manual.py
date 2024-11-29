@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 """Manually add home values."""
 
+import argparse
 import statistics
-import sys
 
 import pandas as pd
 
 import common
-
-NAME_TO_FILE = {
-    "Property Name": "prop1.txt",
-}
 
 
 def write_prices_table(name, redfin, zillow):
@@ -30,21 +26,20 @@ def write_rents_table(name, value):
 
 def main():
     """Main."""
-    try:
-        name = sys.argv[1]
-        redfin_price = int(sys.argv[2].replace(",", ""))
-        zillow_price = int(sys.argv[3].replace(",", ""))
-        rent = int(sys.argv[4].replace(",", ""))
-    except IndexError:
-        print(f"Usage: {sys.argv[0]} name redfin_price zillow_price rent")
-        sys.exit(1)
-    average = round(statistics.mean([redfin_price, zillow_price]))
-    with common.temporary_file_move(
-        f"{common.PREFIX}{NAME_TO_FILE[name]}"
-    ) as output_file:
-        output_file.write(str(average))
-    write_prices_table(name, redfin_price, zillow_price)
-    write_rents_table(name, rent)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--name", required=True)
+    parser.add_argument("--redfin-price", required=True, type=int)
+    parser.add_argument("--zillow-price", required=True, type=int)
+    parser.add_argument("--rent", required=True, type=int)
+    args = parser.parse_args()
+    average = round(statistics.mean([args.redfin_price, args.zillow_price]))
+    if p := common.get_property(args.name):
+        with common.temporary_file_move(f"{common.PREFIX}{p.file}") as output_file:
+            output_file.write(str(average))
+        write_prices_table(args.name, args.redfin_price, args.zillow_price)
+        write_rents_table(args.name, args.rent)
+    else:
+        print(f"Property {args.name} is unknown")
 
 
 if __name__ == "__main__":

@@ -68,10 +68,23 @@ def get_options_quotes(dataframe: pd.DataFrame):
 def options_df_with_value() -> pd.DataFrame:
     df = get_options_quotes(options_df())
     # Take the maximum of intrinsic_value and value, keeping sign.
-    df["adjusted_value"] = df[["intrinsic_value", "value"]].abs().max(axis=1) * (
+    df["value"] = df[["intrinsic_value", "value"]].abs().max(axis=1) * (
         df["count"] / df["count"].abs()
     )
+    df["profit"] = df["value"] - (df["contract_price"] * df["count"] * 100)
     return df
+
+
+def add_contract_price(dataframe: pd.DataFrame) -> pd.DataFrame:
+    prices = []
+    for idx, row in dataframe.iterrows():
+        name = idx[1].replace("/", r"\/")  # type: ignore
+        total = common.get_ledger_balance(
+            f"""{common.LEDGER_PREFIX} -J -s reg --limit='commodity=~/"{name}"/'"""
+        )
+        prices.append(total / (row["count"] * 100))
+    dataframe["contract_price"] = prices
+    return dataframe
 
 
 def options_df() -> pd.DataFrame:
@@ -110,7 +123,8 @@ def options_df() -> pd.DataFrame:
     joined_df.loc[joined_df["in_the_money"], "min_contract_price"] = joined_df[
         "intrinsic_value"
     ] / (joined_df["count"] * 100)
-    return joined_df.sort_values(["account", "expiration", "name"]).round(2)
+    joined_df = joined_df.sort_values(["account", "expiration", "name"]).round(2)
+    return add_contract_price(joined_df)
 
 
 def short_put_exposure(dataframe, broker):

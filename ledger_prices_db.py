@@ -9,9 +9,6 @@ COMMODITY_TABLES = [
     "schwab_etfs_prices",
     "schwab_ira_prices",
 ]
-PROPERTY_COLS = {
-    "Prop 1": "Prop 1 Price",
-}
 DATE_FORMAT = "%Y/%m/%d %H:%M:%S"
 NOW = datetime.now().strftime(DATE_FORMAT)
 
@@ -26,18 +23,18 @@ def main():
                 output_file.write(f"P {NOW} {ticker} ${price}\n")
 
         # Forex values
-        forex_df = common.read_sql_table("forex").resample("D").last().loc["2023":]
-        for date_index, series in forex_df.iterrows():
-            new_date = date_index.strftime(DATE_FORMAT)
-            if series.notna()["CHFUSD"]:
-                output_file.write(f"P {new_date} CHF ${series['CHFUSD']}\n")
-            if series.notna()["SGDUSD"]:
-                output_file.write(f"P {new_date} SGD ${series['SGDUSD']}\n")
+        series = common.read_sql_table("forex").iloc[-1]
+        for ticker, price in series.items():
+            ticker = str(ticker).replace("USD", "")
+            output_file.write(f"P {NOW} {ticker} ${price}\n")
 
         # Properties
         real_estate_df = common.get_real_estate_df()
-        for estate, col in PROPERTY_COLS.items():
-            output_file.write(f'P {NOW} "{estate}" ${real_estate_df[col].iloc[-1]}\n')
+        for p in common.PROPERTIES:
+            col = f"{p.name} Price"
+            output_file.write(
+                f'P {NOW} "{p.address}" ${real_estate_df[col].iloc[-1]}\n'
+            )
 
 
 if __name__ == "__main__":

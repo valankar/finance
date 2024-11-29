@@ -50,20 +50,21 @@ services:
     profiles: [ "scripts" ]
     container_name: selenium
     shm_size: 2g
-    environment:
+    environment: &selenium_environment
       - SE_ENABLE_TRACING=false
     ports:
       - "7900:7900"
     healthcheck:
       test: &selenium-healthcheck [ "CMD", "/opt/bin/check-grid.sh", "--host", "0.0.0.0", "--port", "4444" ]
 
+  # Example use:
+  # SELENIUM_REMOTE_URL="http://localhost:4444" ./homes.py
   selenium-dev:
     image: selenium/standalone-chromium
     profiles: [ "scripts" ]
     container_name: selenium-dev
     shm_size: 2g
-    environment:
-      - SE_ENABLE_TRACING=false
+    environment: *selenium_environment
     ports:
       - "7901:7900"
       - "4444:4444"

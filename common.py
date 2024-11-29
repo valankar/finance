@@ -4,12 +4,13 @@
 import multiprocessing
 import os
 import shutil
+import subprocess
 import tempfile
 import warnings
 from contextlib import contextmanager
 from functools import reduce
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Mapping, NamedTuple, Sequence
 
 import pandas as pd
 import yahoofinancials
@@ -33,10 +34,32 @@ LEDGER_BIN = "ledger"
 LEDGER_DIR = f"{Path.home()}/code/ledger"
 LEDGER_DAT = f"{LEDGER_DIR}/ledger.ledger"
 LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
-# pylint: disable-next=line-too-long
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
 GET_TICKER_TIMEOUT = 30
 PLOTLY_THEME = "plotly_dark"
+
+
+class GetTickerError(Exception):
+    """Error getting ticker."""
+
+
+class Property(NamedTuple):
+    name: str
+    file: str
+    redfin_url: str
+    zillow_url: str
+    address: str
+
+
+PROPERTIES = (
+    Property(
+        name="Some Real Estate",
+        file="prop1.txt",
+        redfin_url="URL",
+        zillow_url="URL",
+        address="ADDRESS",
+    ),
+)
 
 cache_decorator = Memory(f"{PREFIX}cache", verbose=0).cache(
     cache_validation_callback=expires_after(minutes=30)
@@ -44,8 +67,11 @@ cache_decorator = Memory(f"{PREFIX}cache", verbose=0).cache(
 cache_forever_decorator = Memory(f"{PREFIX}cache", verbose=0).cache()
 
 
-class GetTickerError(Exception):
-    """Error getting ticker."""
+def get_property(name: str) -> Property | None:
+    for p in PROPERTIES:
+        if p.name == name:
+            return p
+    return None
 
 
 def get_tickers(tickers: Sequence[str]) -> Mapping:
@@ -262,6 +288,18 @@ def get_real_estate_df():
         .mean()
         .interpolate()
     )
+
+
+def get_ledger_balance(command):
+    """Get account balance from ledger."""
+    try:
+        return float(
+            subprocess.check_output(
+                f"{command} | tail -1", shell=True, text=True
+            ).split()[1]
+        )
+    except IndexError:
+        return 0
 
 
 if __name__ == "__main__":

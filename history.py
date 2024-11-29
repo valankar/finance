@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Write finance history."""
 
-import subprocess
-
 import pandas as pd
 
 import common
 import stock_options
+from common import get_ledger_balance
 
 LEDGER_LIQUID_CMD = (
     f"""{common.LEDGER_PREFIX} --limit 'commodity=~/^(SWVXX|\\\\$|CHF|GBP|SGD|"SPX)/' """
@@ -35,27 +34,13 @@ LEDGER_UBS_PILLAR_CMD = (
 LEDGER_ZURCHER_CMD = f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Zurcher Kantonal"'
 
 
-def get_ledger_balance(command):
-    """Get account balance from ledger."""
-    try:
-        return float(
-            subprocess.check_output(
-                f"{command} | tail -1", shell=True, text=True
-            ).split()[1]
-        )
-    except IndexError:
-        return 0
-
-
 def main():
     """Main."""
     options_df = stock_options.options_df_with_value()
     commodities_options = options_df[options_df["ticker"].str.match(COMMODITIES_REGEX)][
-        "adjusted_value"
+        "value"
     ].sum()
-    etfs_options = options_df[options_df["ticker"].str.match(ETFS_REGEX)][
-        "adjusted_value"
-    ].sum()
+    etfs_options = options_df[options_df["ticker"].str.match(ETFS_REGEX)]["value"].sum()
     commodities = get_ledger_balance(LEDGER_COMMODITIES_CMD) + commodities_options
     etfs = get_ledger_balance(LEDGER_ETFS_CMD) + etfs_options
     total_investing = commodities + etfs
