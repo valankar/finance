@@ -150,6 +150,10 @@ def read_sql_query(query):
         )
 
 
+def read_sql_last(table: str) -> pd.DataFrame:
+    return read_sql_query(f"select * from {table} order by date desc limit 1")
+
+
 def to_sql(dataframe, table, if_exists="append", index_label="date", foreign_key=False):
     """Write dataframe to sqlite table."""
     with create_engine(SQLITE_URI).connect() as conn:
@@ -166,9 +170,7 @@ def write_ticker_sql(
     ticker_prices: Mapping | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     # Just get the latest row and use columns to figure out tickers.
-    amounts_df = read_sql_query(
-        f"select * from {amounts_table} order by date desc limit 1"
-    )
+    amounts_df = read_sql_last(amounts_table)
     if ticker_aliases:
         amounts_df = amounts_df.rename(columns=ticker_aliases)
     if not ticker_prices:

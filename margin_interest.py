@@ -7,12 +7,8 @@ import margin_loan
 
 def chf_interest_as_percentage_of_usd():
     """Determine CHF interest paid as a percentage of if USD interest were paid."""
-    ibkr_rates_df = common.read_sql_table(
-        "interactive_brokers_margin_rates"
-    ).sort_index()
-    forex_df = common.read_sql_table("forex").sort_index()[["CHFUSD"]]
-    merged_df = common.reduce_merge_asof([ibkr_rates_df, forex_df]).dropna()
-    return merged_df.iloc[-1]["CHF"] / merged_df.iloc[-1]["USD"]
+    ibkr_rates_df = common.read_sql_last("interactive_brokers_margin_rates")
+    return ibkr_rates_df.iloc[-1]["CHF"] / ibkr_rates_df.iloc[-1]["USD"]
 
 
 def interest_comparison_df():

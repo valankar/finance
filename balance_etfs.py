@@ -45,11 +45,11 @@ def reconcile(etfs_df: pd.DataFrame, amount: int, total: float) -> pd.DataFrame:
 
 def get_swtsx_market_cap():
     """Get market cap distribution from swtsx_market_cap DB table."""
-    return common.read_sql_table("swtsx_market_cap").iloc[-1]
+    return common.read_sql_last("swtsx_market_cap").iloc[-1]
 
 
 def get_swygx_allocations() -> dict[str, float]:
-    swygx_holdings = common.read_sql_table("swygx_holdings").iloc[-1]
+    swygx_holdings = common.read_sql_last("swygx_holdings").iloc[-1]
     allocations = {}
     for etf_type in (
         "US_LARGE_CAP",
@@ -85,7 +85,7 @@ def get_desired_allocation() -> dict[str, Any] | None:
 
 def convert_ira_to_types(ira_df, etf_type_map: dict[str, list[str]]):
     """Convert SWYGX to types/categories."""
-    holdings = common.read_sql_table("swygx_holdings").iloc[-1]
+    holdings = common.read_sql_last("swygx_holdings").iloc[-1]
     for etf_type, etfs_list in etf_type_map.items():
         ira_df.loc[etf_type] = (
             ira_df.loc["SWYGX"].value

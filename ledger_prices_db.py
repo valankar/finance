@@ -18,12 +18,12 @@ def main():
     with common.temporary_file_move(common.LEDGER_PRICES_DB) as output_file:
         # Commodities
         for commodity_table in COMMODITY_TABLES:
-            series = common.read_sql_table(commodity_table).iloc[-1]
+            series = common.read_sql_last(commodity_table).iloc[-1]
             for ticker, price in series.items():
                 output_file.write(f"P {NOW} {ticker} ${price}\n")
 
         # Forex values
-        series = common.read_sql_table("forex").iloc[-1]
+        series = common.read_sql_last("forex").iloc[-1]
         for ticker, price in series.items():
             ticker = str(ticker).replace("USD", "")
             output_file.write(f"P {NOW} {ticker} ${price}\n")
