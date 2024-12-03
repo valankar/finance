@@ -17,6 +17,7 @@ import yahoofinancials
 import yahooquery
 import yfinance
 from joblib import Memory, expires_after
+from loguru import logger
 from playwright.sync_api import sync_playwright
 from sqlalchemy import create_engine
 from sqlalchemy import text as sqlalchemy_text
@@ -91,6 +92,24 @@ def log_function_result(name, success, error_string=None):
         ),
         "function_result",
     )
+
+
+@cache_decorator
+def get_ticker_option(
+    ticker: str, expiration: pd.Timestamp, contract_type: str, strike: float
+) -> float | None:
+    name = expiration.strftime(f"{ticker}%y%m%d{contract_type[0]}{int(strike*1000):08}")
+    option_chain = yahooquery.Ticker(ticker).option_chain
+    logger.info(f"Retrieving option quote {ticker=} {name=}")
+    try:
+        return option_chain.loc[lambda df: df["contractSymbol"] == name][  # type: ignore
+            "lastPrice"
+        ].iloc[-1]
+    except (IndexError, KeyError):
+        logger.error(
+            f"Failed to get options quote for {ticker=} {expiration=} {contract_type=} {strike=}"  # type: ignore
+        )
+        return None
 
 
 @cache_decorator

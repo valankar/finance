@@ -274,14 +274,19 @@ async def i_and_e_page():
     skel.delete()
 
 
-@ui.page("/stock_options", title="Stock Options")
-def stock_options_page():
-    """Stock options."""
-
+def get_stock_options_output() -> str:
     with contextlib.redirect_stdout(io.StringIO()) as output:
         with pandas_options():
             stock_options.main()
-            ui.html(f"<PRE>{output.getvalue()}</PRE>")
+            return output.getvalue()
+
+
+@ui.page("/stock_options", title="Stock Options")
+async def stock_options_page():
+    """Stock options."""
+    skel = ui.skeleton("QToolbar").classes("w-full")
+    await ui.context.client.connected()
+    ui.html(f"<PRE>{await run.io_bound(get_stock_options_output)}</PRE>")
     fig = plot.make_prices_section(
         common.read_sql_table("index_prices").sort_index(), "Index Prices"
     ).update_layout(margin=SUBPLOT_MARGIN)
@@ -297,6 +302,7 @@ def stock_options_page():
         )
 
     ui.plotly(fig).classes("w-full").style("height: 50vh")
+    skel.delete()
 
 
 @ui.page("/latest_values", title="Latest Values")

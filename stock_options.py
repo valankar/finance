@@ -5,7 +5,6 @@ import io
 import subprocess
 
 import pandas as pd
-import yahooquery
 
 import common
 import etfs
@@ -45,26 +44,23 @@ def get_options_quotes(dataframe: pd.DataFrame):
     tickers = dataframe["ticker"].unique()
     if not len(tickers):
         return dataframe
-    option_chain = yahooquery.Ticker(tickers).option_chain
     prices = []
     for idx, row in dataframe.iterrows():
-        name = idx[2].strftime(  # type: ignore
-            f'{row["ticker"]}%y%m%d{row["type"][0]}{int(row["strike"]*1000):08}'
-        )
-        price = 0
-        try:
-            price = option_chain.loc[lambda df: df["contractSymbol"] == name][  # type: ignore
-                "lastPrice"
-            ].iloc[-1]
-        except (IndexError, KeyError):
-            pass
+        if (
+            price := common.get_ticker_option(
+                row["ticker"],
+                idx[2],  # type: ignore
+                row["type"],
+                row["strike"],
+            )
+        ) is None:
+            price = 0
         prices.append(price)
     dataframe["quote"] = prices
     dataframe["value"] = dataframe["count"] * dataframe["quote"] * 100
     return dataframe
 
 
-@common.cache_decorator
 def options_df_with_value() -> pd.DataFrame:
     df = get_options_quotes(options_df())
     # Take the maximum of intrinsic_value and value, keeping sign.
