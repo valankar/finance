@@ -44,22 +44,31 @@ def get_options_value(broker: str) -> float:
         return 0
 
 
-def get_balances_ibkr() -> tuple[pd.DataFrame, pd.DataFrame]:
-    loan_df = load_loan_balance_df(LEDGER_LOAN_BALANCE_HISTORY_IBKR)
-    equity_df = load_ledger_equity_balance_df(LEDGER_BALANCE_HISTORY_IBKR)
-    loan_df.iloc[-1, loan_df.columns.get_loc("Loan Balance")] += get_options_value(  # type: ignore
-        "Interactive Brokers"
+def get_balances_broker(
+    broker: str, loan_balance_cmd: str, balance_cmd: str
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    loan_df = load_loan_balance_df(loan_balance_cmd)
+    equity_df = load_ledger_equity_balance_df(balance_cmd)
+    equity_df.iloc[-1, equity_df.columns.get_loc("Equity Balance")] += (  # type: ignore
+        get_options_value(broker)
     )
     return loan_df, equity_df
+
+
+def get_balances_ibkr() -> tuple[pd.DataFrame, pd.DataFrame]:
+    return get_balances_broker(
+        "Interactive Brokers",
+        LEDGER_LOAN_BALANCE_HISTORY_IBKR,
+        LEDGER_BALANCE_HISTORY_IBKR,
+    )
 
 
 def get_balances_schwab_nonpal() -> tuple[pd.DataFrame, pd.DataFrame]:
-    loan_df = load_loan_balance_df(LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL)
-    equity_df = load_ledger_equity_balance_df(LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL)
-    loan_df.iloc[-1, loan_df.columns.get_loc("Loan Balance")] += get_options_value(  # type: ignore
-        "Charles Schwab Brokerage"
+    return get_balances_broker(
+        "Charles Schwab Brokerage",
+        LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL,
+        LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL,
     )
-    return loan_df, equity_df
 
 
 def load_ledger_equity_balance_df(ledger_balance_cmd: str) -> pd.DataFrame:

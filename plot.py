@@ -598,10 +598,11 @@ def make_short_options_section(options_df: pd.DataFrame) -> Figure:
         if not len(df):
             return
         df.loc[:, "name"] = df["count"].astype(str) + " " + df["name"].astype(str)
-        df = df.set_index("name").sort_values("exercise_value")
+        df = df.set_index("name").sort_values("exercise_value", ascending=False)
         fig = go.Waterfall(
-            x=df.index,
-            y=df["exercise_value"],
+            measure=["relative"] * len(df.index) + ["total"],
+            x=list(df.index) + ["After Assignment"],
+            y=list(df["exercise_value"]) + [0],
         )
         section.add_trace(fig, row=1, col=col)
 

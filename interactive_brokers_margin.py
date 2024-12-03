@@ -4,6 +4,7 @@
 import subprocess
 
 import pandas as pd
+from loguru import logger
 
 import common
 import ledger_amounts
@@ -26,13 +27,14 @@ def get_ibkr_loan_balance(currency):
             )
         )
     )
-    if value > 0:
+    if value >= 0:
         return 1
     return abs(value)
 
 
 def get_interest_rate(currency, loan):
     """Get interest rate from IB."""
+    logger.info(f"Getting interest rate for {currency=} {loan=}")
     with common.run_with_browser_page(
         "https://www.interactivebrokers.com/en/trading/margin-rates.php"
     ) as page:
@@ -42,7 +44,7 @@ def get_interest_rate(currency, loan):
         page.locator("#int_calc_db_currency").select_option(currency)
         page.get_by_role("link", name="Calculate Blended Rate", exact=True).click()
         page.get_by_role("heading", name="%").click()
-        return float(page.get_by_role("heading", name="%").inner_text().strip("%"))
+        return float(page.locator("#int_calc_db_blendrate").inner_text().strip("%"))
 
 
 def main():

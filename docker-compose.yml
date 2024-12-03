@@ -57,8 +57,6 @@ services:
     healthcheck:
       test: &selenium-healthcheck [ "CMD", "/opt/bin/check-grid.sh", "--host", "0.0.0.0", "--port", "4444" ]
 
-  # Example use:
-  # SELENIUM_REMOTE_URL="http://localhost:4444" ./homes.py
   selenium-dev:
     image: selenium/standalone-chromium
     profiles: [ "scripts" ]

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Run daily finance functions."""
 
-import traceback
-
 import portalocker
+from loguru import logger
 from retry.api import retry_call
 
 import common
@@ -33,11 +32,11 @@ def main():
             swygx_holdings.main,
             wealthfront_cash_yield.main,
         ]:
+            logger.info(f"Running {method.__module__}.{method.__name__}")
             try:
                 retry_call(method, delay=30, tries=4)
-            # pylint: disable-next=broad-exception-caught
             except Exception:
-                traceback.print_exc()
+                logger.exception("Failed")
                 exceptions = True
         if exceptions:
             raise OneMethodFailed()
