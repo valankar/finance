@@ -2,6 +2,7 @@
 """Sell owned stock or options."""
 
 import argparse
+import typing
 from typing import Literal
 
 import pandas as pd
@@ -12,7 +13,7 @@ import ledger_amounts
 import stock_options
 
 
-def sell_stock(stock: str, value: int) -> pd.DataFrame:
+def sell_stock(stock: str, value: float) -> pd.DataFrame:
     etfs_df = etfs.get_etfs_df()
     current_price = etfs_df.loc[stock := stock.upper()]["current_price"]
     needed = value / current_price
@@ -46,8 +47,9 @@ def sell_stock_brokerage(brokerage: Literal["ibkr", "schwab"], value: int):
     # Take into account options assignment
     options_df = stock_options.options_df()
     if account in options_df.index.get_level_values(0):
-        options_df = options_df.xs(account)
-        options_df = stock_options.after_assignment_df(options_df)  # type: ignore
+        options_df = stock_options.after_assignment_df(
+            typing.cast(pd.DataFrame, options_df.xs(account))
+        )
         for etf in brokerage_df.columns:
             try:
                 brokerage_df[etf] = brokerage_df[etf].add(
@@ -58,7 +60,7 @@ def sell_stock_brokerage(brokerage: Literal["ibkr", "schwab"], value: int):
     print("\nShares at brokerage including ITM option assignment")
     print(brokerage_df, "\n")
     for etf_type, etfs_in_type in balance_etfs.ETF_TYPE_MAP.items():
-        to_sell = -rebalancing_df.loc[etf_type, "sell_only"]  # type: ignore
+        to_sell = -typing.cast(float, rebalancing_df.loc[etf_type, "sell_only"])
         if to_sell <= 0:
             continue
         for etf in etfs_in_type:
@@ -68,7 +70,7 @@ def sell_stock_brokerage(brokerage: Literal["ibkr", "schwab"], value: int):
                 # Only sell what is available.
                 sell_df.loc[etf, "shares_to_sell"] = min(
                     max_shares,
-                    sell_df.loc[etf, "shares_to_sell"],  # type: ignore
+                    typing.cast(float, sell_df.loc[etf, "shares_to_sell"]),
                 )
                 identical_etfs = brokerage_df.columns.intersection(etfs_in_type)
                 if len(identical_etfs) > 1:

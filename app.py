@@ -177,18 +177,23 @@ class IncomeExpenseGraphs:
             ui.plotly(await graph).classes("w-full").style("height: 50vh")
 
 
-@ui.page("/")
-async def main_page():
-    """Generate main UI."""
+def log_request():
     if request := ui.context.client.request:
         headers = request.headers
         logger.info(
-            "User: {user}, IP: {ip}, Country: {country}, User-Agent: {agent}",
+            "URL: {url} User: {user}, IP: {ip}, Country: {country}, User-Agent: {agent}",
+            url=request.url,
             user=headers.get("cf-access-authenticated-user-email", "unknown"),
             ip=headers.get("cf-connecting-ip", "unknown"),
             country=headers.get("cf-ipcountry", "unknown"),
             agent=headers.get("user-agent", "unknown"),
         )
+
+
+@ui.page("/")
+async def main_page():
+    """Generate main UI."""
+    log_request()
     # To avoid out of webgl context errors. See https://plotly.com/python/webgl-vs-svg/
     ui.add_body_html(
         '<script src="https://unpkg.com/virtual-webgl@1.0.6/src/virtual-webgl.js"></script>'
@@ -254,6 +259,7 @@ class MainGraphsImageOnly:
 
 @ui.page("/image_only")
 def main_page_image_only():
+    log_request()
     with ui.footer().classes("transparent q-py-none"):
         with ui.tabs().classes("w-full") as tabs:
             for timerange in RANGES:
@@ -267,6 +273,7 @@ def main_page_image_only():
 @ui.page("/i_and_e", title="Income & Expenses")
 async def i_and_e_page():
     """Generate income & expenses page."""
+    log_request()
     skel = ui.skeleton("QToolbar").classes("w-full")
     await ui.context.client.connected()
     graphs = IncomeExpenseGraphs()
@@ -284,6 +291,7 @@ def get_stock_options_output() -> str:
 @ui.page("/stock_options", title="Stock Options")
 async def stock_options_page():
     """Stock options."""
+    log_request()
     skel = ui.skeleton("QToolbar").classes("w-full")
     await ui.context.client.connected()
     ui.html(f"<PRE>{await run.io_bound(get_stock_options_output)}</PRE>")
@@ -308,6 +316,7 @@ async def stock_options_page():
 @ui.page("/latest_values", title="Latest Values")
 def latest_values_page():
     """Latest values."""
+    log_request()
     output = subprocess.check_output(f"{common.CODE_DIR}/latest_values.sh", text=True)
     ui.html(f"<PRE>{output}</PRE>")
 
@@ -316,6 +325,7 @@ def latest_values_page():
 @ui.page("/balance_etfs/{amount}", title="Balance ETFs")
 def balance_etfs_page(amount: int = 0):
     """Balance ETFs."""
+    log_request()
     with pandas_options():
         df = balance_etfs.get_rebalancing_df(amount=amount, otm=False)
         ui.html(f"<PRE>{df}</PRE>")

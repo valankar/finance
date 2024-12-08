@@ -1,3 +1,4 @@
+import typing
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Callable, Literal
@@ -65,7 +66,7 @@ def limit_and_resample_df(df: pd.DataFrame, selected_range: str) -> pd.DataFrame
         case _:
             window = "D"
     if window:
-        return df.resample(window).mean().interpolate()
+        return df.resample(window).last().interpolate()
     return df
 
 
@@ -216,14 +217,21 @@ def generate_all_graphs(
     ]
     new_graphs: Graphs = {"ranged": defaultdict(dict), "nonranged": {}}
     with parallel_config(n_jobs=-1):
-        for name, json in Parallel(return_as="generator_unordered")(  # type: ignore
-            delayed(plot_generate)(*args, layout) for args in nonranged_graphs_generate
+        for name, json in typing.cast(
+            tuple,
+            Parallel(return_as="generator_unordered")(
+                delayed(plot_generate)(*args, layout)
+                for args in nonranged_graphs_generate
+            ),
         ):
             new_graphs["nonranged"][name] = json
         for r in ranges:
-            for name, json in Parallel(return_as="generator_unordered")(  # type: ignore
-                delayed(plot_generate_ranged)(*args, r, layout)
-                for args in ranged_graphs_generate
+            for name, json in typing.cast(
+                tuple,
+                Parallel(return_as="generator_unordered")(
+                    delayed(plot_generate_ranged)(*args, r, layout)
+                    for args in ranged_graphs_generate
+                ),
             ):
                 new_graphs["ranged"][name][r] = json
 

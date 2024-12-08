@@ -3,6 +3,7 @@
 
 import io
 import subprocess
+import typing
 
 import pandas as pd
 
@@ -46,10 +47,11 @@ def get_options_quotes(dataframe: pd.DataFrame):
         return dataframe
     prices = []
     for idx, row in dataframe.iterrows():
+        idx = typing.cast(tuple, idx)
         if (
             price := common.get_ticker_option(
                 row["ticker"],
-                idx[2],  # type: ignore
+                idx[2],
                 row["type"],
                 row["strike"],
             )

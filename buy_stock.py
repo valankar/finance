@@ -2,6 +2,7 @@
 """Buy specific stocks or options."""
 
 import argparse
+import typing
 
 import pandas as pd
 
@@ -29,7 +30,7 @@ def buy_stock_any(value: int):
     print(rebalancing_df)
     new_df = pd.DataFrame()
     for etf_type, etfs_in_type in balance_etfs.ETF_TYPE_MAP.items():
-        to_buy = float(rebalancing_df.loc[etf_type, "buy_only"])  # type: ignore
+        to_buy = typing.cast(float, rebalancing_df.loc[etf_type, "buy_only"])
         if to_buy <= 0:
             continue
         for etf in etfs_in_type:

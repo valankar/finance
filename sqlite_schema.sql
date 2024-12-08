@@ -28,14 +28,14 @@ CREATE TABLE "schwab_etfs_amounts" (
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT, [SGOV] FLOAT);
 CREATE TABLE schwab_etfs_prices (
 	date DATETIME, 
 	"SCHA" FLOAT, 
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT, [SGOV] FLOAT);
 CREATE TABLE schwab_ira_amounts (
 	date DATETIME, 
 	"SWYGX" FLOAT
@@ -91,6 +91,14 @@ CREATE TABLE swtsx_market_cap (
 	"US_LARGE_CAP" FLOAT, 
 	"US_SMALL_CAP" FLOAT
 );
+CREATE TABLE interactive_brokers_margin_rates (
+	date DATETIME, 
+	"USD" FLOAT, 
+	"CHF" FLOAT
+);
+CREATE TABLE index_prices (
+	date DATETIME, 
+	"^SPX" FLOAT);
 CREATE INDEX ix_history_date ON history (date);
 CREATE INDEX ix_forex_date ON forex (date);
 CREATE INDEX ix_wealthfront_cash_yield_date ON wealthfront_cash_yield (date);
@@ -106,15 +114,7 @@ CREATE INDEX ix_real_estate_prices_date ON real_estate_prices (date);
 CREATE INDEX ix_real_estate_rents_date ON real_estate_rents (date);
 CREATE INDEX ix_swygx_holdings_date ON swygx_holdings (date);
 CREATE INDEX ix_swtsx_market_cap_date ON swtsx_market_cap (date);
-CREATE TABLE interactive_brokers_margin_rates (
-	date DATETIME, 
-	"USD" FLOAT, 
-	"CHF" FLOAT
-);
 CREATE INDEX ix_interactive_brokers_margin_rates_date ON interactive_brokers_margin_rates (date);
-CREATE TABLE index_prices (
-	date DATETIME, 
-	"^SPX" FLOAT);
 CREATE INDEX ix_index_prices_date ON index_prices (date);
 CREATE TABLE fedfunds (
 	date DATETIME, 

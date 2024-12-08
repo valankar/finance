@@ -25,7 +25,7 @@ ETF_TYPE_MAP = {
     "COMMODITIES_CRYPTO": ["COIN", "BITX", "MSTR"],
     "US_SMALL_CAP": ["SCHA"],
     "US_LARGE_CAP": ["SCHX"],
-    "US_BONDS": ["SCHO", "SCHR", "SCHZ", "SWAGX"],
+    "US_BONDS": ["SCHO", "SCHR", "SCHZ", "SGOV", "SWAGX"],
     "INTERNATIONAL_DEVELOPED": ["SCHF", "SWISX"],
     "INTERNATIONAL_EMERGING": ["SCHE"],
 }
@@ -70,15 +70,10 @@ def get_desired_allocation() -> dict[str, Any] | None:
     if sum(COMMODITIES_PERCENTAGE.values()) != 100:
         print("Sum of COMMODITIES_PERCENTAGE != 100")
         return None
-    allocation["COMMODITIES_GOLD"] = (
-        allocation["COMMODITIES"] * COMMODITIES_PERCENTAGE["GOLD"]
-    ) / 100
-    allocation["COMMODITIES_SILVER"] = (
-        allocation["COMMODITIES"] * COMMODITIES_PERCENTAGE["SILVER"]
-    ) / 100
-    allocation["COMMODITIES_CRYPTO"] = (
-        allocation["COMMODITIES"] * COMMODITIES_PERCENTAGE["CRYPTO"]
-    ) / 100
+    for commodity, percentage in COMMODITIES_PERCENTAGE.items():
+        allocation[f"COMMODITIES_{commodity}"] = (
+            allocation["COMMODITIES"] * percentage
+        ) / 100
     del allocation["COMMODITIES"]
     return allocation
 

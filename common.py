@@ -6,7 +6,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-import warnings
+import typing
 from contextlib import contextmanager
 from functools import reduce
 from pathlib import Path
@@ -63,7 +63,7 @@ PROPERTIES = (
 )
 
 cache_decorator = Memory(f"{PREFIX}cache", verbose=0).cache(
-    cache_validation_callback=expires_after(minutes=30)
+    cache_validation_callback=expires_after(hours=1)
 )
 cache_forever_decorator = Memory(f"{PREFIX}cache", verbose=0).cache()
 
@@ -99,15 +99,19 @@ def get_ticker_option(
     ticker: str, expiration: pd.Timestamp, contract_type: str, strike: float
 ) -> float | None:
     name = expiration.strftime(f"{ticker}%y%m%d{contract_type[0]}{int(strike*1000):08}")
-    option_chain = yahooquery.Ticker(ticker).option_chain
     logger.info(f"Retrieving option quote {ticker=} {name=}")
+    if not isinstance(
+        option_chain := yahooquery.Ticker(ticker).option_chain, pd.DataFrame
+    ):
+        logger.error(f"No option chain data found for {ticker=} {name=}")
+        return None
     try:
-        return option_chain.loc[lambda df: df["contractSymbol"] == name][  # type: ignore
+        return option_chain.loc[lambda df: df["contractSymbol"] == name][
             "lastPrice"
         ].iloc[-1]
     except (IndexError, KeyError):
         logger.error(
-            f"Failed to get options quote for {ticker=} {expiration=} {contract_type=} {strike=}"  # type: ignore
+            f"Failed to get options quote for {ticker=} {expiration=} {contract_type=} {strike=}"
         )
         return None
 
@@ -136,20 +140,21 @@ def get_ticker(ticker: str) -> float:
 
 def get_ticker_yahoofinancials(ticker: str) -> float:
     """Get ticker price via yahoofinancials library."""
-    return yahoofinancials.YahooFinancials(ticker).get_current_price()  # type: ignore
+    return typing.cast(
+        float, yahoofinancials.YahooFinancials(ticker).get_current_price()
+    )
 
 
 def get_ticker_yahooquery(ticker: str) -> float:
     """Get ticker price via yahooquery library."""
-    return yahooquery.Ticker(ticker).price[ticker]["regularMarketPrice"]  # type: ignore
+    return typing.cast(dict, yahooquery.Ticker(ticker).price)[ticker][
+        "regularMarketPrice"
+    ]
 
 
 def get_ticker_yfinance(ticker: str) -> float:
     """Get ticker price via yfinance library."""
-    with warnings.catch_warnings():
-        # See https://github.com/ranaroussi/yfinance/issues/1837
-        warnings.simplefilter(action="ignore", category=FutureWarning)
-        return yfinance.Ticker(ticker).history(period="5d")["Close"].iloc[-1]
+    return yfinance.Ticker(ticker).history(period="5d")["Close"].iloc[-1]
 
 
 def read_sql_table(table, index_col="date"):
@@ -289,7 +294,7 @@ def get_real_estate_df():
             "real_estate_prices",
         )[["name", "value"]]
         .groupby(["date", "name"])
-        .mean()
+        .last()
         .unstack("name")
     )
     price_df.columns = price_df.columns.get_level_values(1) + " Price"
@@ -297,7 +302,7 @@ def get_real_estate_df():
     rent_df = (
         read_sql_table("real_estate_rents")
         .groupby(["date", "name"])
-        .mean()
+        .last()
         .unstack("name")
     )
     rent_df.columns = rent_df.columns.get_level_values(1) + " Rent"
@@ -306,7 +311,7 @@ def get_real_estate_df():
         reduce_merge_asof([price_df, rent_df])
         .sort_index(axis=1)
         .resample("D")
-        .mean()
+        .last()
         .interpolate()
     )
 

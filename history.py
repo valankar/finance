@@ -17,7 +17,7 @@ LEDGER_COMMODITIES_CMD = (
     f"""{common.LEDGER_PREFIX} -J -n --limit 'commodity=~/^{COMMODITIES_REGEX}/' bal """
     '^"Assets:Investments"'
 )
-ETFS_REGEX = "(SCH|SW[AIT]|IBKR)"
+ETFS_REGEX = "(SCH|SW[AIT]|IBKR|SGOV)"
 LEDGER_ETFS_CMD = (
     f"""{common.LEDGER_PREFIX} --limit 'commodity=~/^{ETFS_REGEX}/' -J -n bal """
     '^"Assets:Investments:.*Broker.*"'

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Plot finance graphs."""
 
+import typing
 from functools import reduce
 from typing import Callable
 
@@ -250,63 +251,41 @@ def make_investing_allocation_section() -> Figure:
     """Make investing current and desired allocation pie graphs."""
     changes_section = make_subplots(
         rows=1,
-        cols=2,
-        subplot_titles=(
-            "Current",
-            "Desired",
-        ),
-        specs=[[{"type": "pie"}, {"type": "pie"}]],
+        cols=3,
+        subplot_titles=("Current", "Desired", "Rebalancing Required"),
+        specs=[[{"type": "pie"}, {"type": "pie"}, {"type": "xy"}]],
     )
     if (dataframe := balance_etfs.get_rebalancing_df(0, otm=False)) is None:
         return changes_section
 
-    # Current allocation
-    labels = [
-        "US Large Cap",
-        "US Small Cap",
-        "US Bonds",
-        "International Developed",
-        "International Emerging",
-        "Commodities Gold",
-        "Commodities Silver",
-        "Commodities Crypto",
-    ]
-    values = [
-        dataframe.loc["US_LARGE_CAP"]["value"],
-        dataframe.loc["US_SMALL_CAP"]["value"],
-        dataframe.loc["US_BONDS"]["value"],
-        dataframe.loc["INTERNATIONAL_DEVELOPED"]["value"],
-        dataframe.loc["INTERNATIONAL_EMERGING"]["value"],
-        dataframe.loc["COMMODITIES_GOLD"]["value"],
-        dataframe.loc["COMMODITIES_SILVER"]["value"],
-        dataframe.loc["COMMODITIES_CRYPTO"]["value"],
-    ]
-    pie_total = go.Pie(labels=labels, values=values)
+    label_col = (
+        ("US Large Cap", "US_LARGE_CAP"),
+        ("US Small Cap", "US_SMALL_CAP"),
+        ("US Bonds", "US_BONDS"),
+        ("International Developed", "INTERNATIONAL_DEVELOPED"),
+        ("International Emerging", "INTERNATIONAL_EMERGING"),
+        ("Gold", "COMMODITIES_GOLD"),
+        ("Silver", "COMMODITIES_SILVER"),
+        ("Crypto", "COMMODITIES_CRYPTO"),
+    )
+    values = [dataframe.loc[col]["value"] for _, col in label_col]
+    pie_total = go.Pie(labels=[name for name, _ in label_col], values=values)
     changes_section.add_trace(pie_total, row=1, col=1)
+    changes_section.update_traces(row=1, col=1, textinfo="percent+value")
 
     # Desired allocation
-    values = [
-        dataframe.loc["US_LARGE_CAP"]["value"]
-        + dataframe.loc["US_LARGE_CAP"]["usd_to_reconcile"],
-        dataframe.loc["US_SMALL_CAP"]["value"]
-        + dataframe.loc["US_SMALL_CAP"]["usd_to_reconcile"],
-        dataframe.loc["US_BONDS"]["value"]
-        + dataframe.loc["US_BONDS"]["usd_to_reconcile"],
-        dataframe.loc["INTERNATIONAL_DEVELOPED"]["value"]
-        + dataframe.loc["INTERNATIONAL_DEVELOPED"]["usd_to_reconcile"],
-        dataframe.loc["INTERNATIONAL_EMERGING"]["value"]
-        + dataframe.loc["INTERNATIONAL_EMERGING"]["usd_to_reconcile"],
-        dataframe.loc["COMMODITIES_GOLD"]["value"]
-        + dataframe.loc["COMMODITIES_GOLD"]["usd_to_reconcile"],
-        dataframe.loc["COMMODITIES_SILVER"]["value"]
-        + dataframe.loc["COMMODITIES_SILVER"]["usd_to_reconcile"],
-        dataframe.loc["COMMODITIES_CRYPTO"]["value"]
-        + dataframe.loc["COMMODITIES_CRYPTO"]["usd_to_reconcile"],
-    ]
-    pie_total = go.Pie(labels=labels, values=values)
+    dataframe["reconciled"] = dataframe["value"] + dataframe["usd_to_reconcile"]
+    values = [dataframe.loc[col]["reconciled"] for _, col in label_col]
+    pie_total = go.Pie(labels=[name for name, _ in label_col], values=values)
     changes_section.add_trace(pie_total, row=1, col=2)
+    changes_section.update_traces(row=1, col=2, textinfo="percent+value")
 
-    changes_section.update_traces(textinfo="percent+value")
+    # Rebalancing
+    values = [dataframe.loc[col]["usd_to_reconcile"] for _, col in label_col]
+    go.Figure(go.Bar(x=[name for name, _ in label_col], y=values)).for_each_trace(
+        lambda t: set_bar_chart_color(t, changes_section, 1, 3)
+    )
+    changes_section.update_traces(row=1, col=3, showlegend=False)
     centered_title(changes_section, "Investing Allocation")
     return changes_section
 
@@ -585,10 +564,12 @@ def make_short_options_section(options_df: pd.DataFrame) -> Figure:
     """Make short options moneyness/loss bar chart."""
     section = make_subplots(
         rows=1,
-        cols=2,
+        cols=4,
         subplot_titles=(
-            "OTM exercise values",
-            "ITM exercise values",
+            "Interactive Brokers OTM",
+            "Interactive Brokers ITM",
+            "Charles Schwab OTM",
+            "Charles Schwab ITM",
         ),
         vertical_spacing=0.07,
         horizontal_spacing=0.05,
@@ -597,22 +578,51 @@ def make_short_options_section(options_df: pd.DataFrame) -> Figure:
     def make_options_graph(df: pd.DataFrame, col: int):
         if not len(df):
             return
-        df.loc[:, "name"] = df["count"].astype(str) + " " + df["name"].astype(str)
-        df = df.set_index("name").sort_values("exercise_value", ascending=False)
+        df["name"] = df["count"].astype(str) + " " + df.index.get_level_values(0)
+        df = df.sort_values("exercise_value", ascending=False)
         fig = go.Waterfall(
             measure=["relative"] * len(df.index) + ["total"],
-            x=list(df.index) + ["After Assignment"],
+            x=list(df["name"]) + ["After Assignment"],
             y=list(df["exercise_value"]) + [0],
         )
         section.add_trace(fig, row=1, col=col)
 
-    dataframe = (
-        options_df.groupby(level="name")
-        .agg({"exercise_value": "sum", "count": "sum", "in_the_money": "first"})
-        .reset_index()
+    make_options_graph(
+        typing.cast(
+            pd.DataFrame,
+            options_df.xs("Interactive Brokers", level="account").loc[
+                lambda df: df["in_the_money"] != True  # noqa: E712
+            ],
+        ),
+        1,
     )
-    make_options_graph(dataframe[dataframe["in_the_money"] != True], 1)  # noqa: E712
-    make_options_graph(dataframe[dataframe["in_the_money"]], 2)
+    make_options_graph(
+        typing.cast(
+            pd.DataFrame,
+            options_df.xs("Interactive Brokers", level="account").loc[
+                lambda df: df["in_the_money"]
+            ],
+        ),
+        2,
+    )
+    make_options_graph(
+        typing.cast(
+            pd.DataFrame,
+            options_df.xs("Charles Schwab Brokerage", level="account").loc[
+                lambda df: df["in_the_money"] != True  # noqa: E712
+            ],
+        ),
+        3,
+    )
+    make_options_graph(
+        typing.cast(
+            pd.DataFrame,
+            options_df.xs("Charles Schwab Brokerage", level="account").loc[
+                lambda df: df["in_the_money"]
+            ],
+        ),
+        4,
+    )
     section.update_yaxes(title_text="USD", col=1)
     section.update_xaxes(title_text="")
     centered_title(section, "Options")
