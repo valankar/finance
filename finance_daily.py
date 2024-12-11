@@ -3,7 +3,6 @@
 
 import portalocker
 from loguru import logger
-from retry.api import retry_call
 
 import common
 import fedfunds
@@ -34,7 +33,7 @@ def main():
         ]:
             logger.info(f"Running {method.__module__}.{method.__name__}")
             try:
-                retry_call(method, delay=30, tries=4)
+                method()
             except Exception:
                 logger.exception("Failed")
                 exceptions = True

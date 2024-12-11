@@ -29,15 +29,6 @@ RANGES = ["All", "3y", "2y", "1y", "YTD", "6m", "3m", "1m", "1d"]
 DEFAULT_RANGE = "1y"
 
 
-@contextlib.contextmanager
-def pandas_options():
-    """Set pandas output options."""
-    with pd.option_context(
-        "display.max_rows", None, "display.max_columns", None, "display.width", 1000
-    ):
-        yield
-
-
 class MainGraphs:
     """Collection of all main graphs."""
 
@@ -283,7 +274,7 @@ async def i_and_e_page():
 
 def get_stock_options_output() -> str:
     with contextlib.redirect_stdout(io.StringIO()) as output:
-        with pandas_options():
+        with common.pandas_options():
             stock_options.main()
             return output.getvalue()
 
@@ -326,7 +317,7 @@ def latest_values_page():
 def balance_etfs_page(amount: int = 0):
     """Balance ETFs."""
     log_request()
-    with pandas_options():
+    with common.pandas_options():
         df = balance_etfs.get_rebalancing_df(amount=amount, otm=False)
         ui.html(f"<PRE>{df}</PRE>")
 

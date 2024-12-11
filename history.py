@@ -2,6 +2,7 @@
 """Write finance history."""
 
 import pandas as pd
+from loguru import logger
 
 import common
 import stock_options
@@ -67,7 +68,18 @@ def main():
         index=[pd.Timestamp.now()],
         columns=list(history_df_data.keys()),
     )
-    common.to_sql(history_df, "history")
+    if (
+        pd.concat([common.read_sql_last("history"), history_df], join="inner")
+        .diff()
+        .dropna()
+        .sum(axis=1)
+        .sum()
+    ):
+        with common.pandas_options():
+            logger.info(f"Writing history:\n{history_df}")
+        common.to_sql(history_df, "history")
+    else:
+        logger.info("History hot changed. Not writing new entry.")
 
 
 if __name__ == "__main__":

@@ -63,9 +63,18 @@ PROPERTIES = (
 )
 
 cache_decorator = Memory(f"{PREFIX}cache", verbose=0).cache(
-    cache_validation_callback=expires_after(hours=1)
+    cache_validation_callback=expires_after(minutes=30)
 )
 cache_forever_decorator = Memory(f"{PREFIX}cache", verbose=0).cache()
+
+
+@contextmanager
+def pandas_options():
+    """Set pandas output options."""
+    with pd.option_context(
+        "display.max_rows", None, "display.max_columns", None, "display.width", 1000
+    ):
+        yield
 
 
 def get_property(name: str) -> Property | None:

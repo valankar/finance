@@ -1,12 +1,12 @@
 import typing
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Callable, Literal
+from typing import Callable, Literal, Mapping
 
 import pandas as pd
 import plotly.io as pio
 from dateutil.relativedelta import relativedelta
-from joblib import Parallel, delayed, parallel_config
+from joblib import Memory, Parallel, delayed, parallel_config
 from loguru import logger
 from plotly.graph_objects import Figure
 
@@ -249,6 +249,14 @@ def generate_all_graphs(
     )
 
 
+def use_cached_graphs(metadata: Mapping) -> bool:
+    latest = common.read_sql_table("history").loc[lambda df: ~df.duplicated()].index[-1]
+    return pd.Timestamp.fromtimestamp(metadata["time"]) > latest
+
+
+@Memory(f"{common.PREFIX}cache", verbose=0).cache(
+    cache_validation_callback=use_cached_graphs
+)
 def clear_and_generate(
     cache_call_args: tuple[tuple[tuple[str, str], ...], list[str], dict[str, int]],
 ) -> None:

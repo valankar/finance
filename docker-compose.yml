@@ -9,7 +9,7 @@ services:
     labels: &labels
       com.centurylinklabs.watchtower.no-pull: true
     restart: unless-stopped
-    networks:
+    networks: &networks
       - cloudflare
 
   accounts_hourly:
@@ -18,6 +18,7 @@ services:
     container_name: accounts_hourly
     volumes: *volumes
     labels: *labels
+    networks: *networks
     command: "/app/code/accounts/finance_hourly.py"
 
   accounts_daily:
@@ -28,6 +29,7 @@ services:
     environment: &daily_environment
       - FRED_API_KEY=${FRED_API_KEY}
     labels: *labels
+    networks: *networks
     depends_on:
       selenium:
         condition: service_healthy
@@ -40,6 +42,7 @@ services:
     volumes: *volumes
     environment: *daily_environment
     labels: *labels
+    networks: *networks
     depends_on:
       selenium:
         condition: service_healthy
@@ -52,6 +55,7 @@ services:
     shm_size: 2g
     environment: &selenium_environment
       - SE_ENABLE_TRACING=false
+    networks: *networks
     ports:
       - "7900:7900"
     healthcheck:
@@ -63,6 +67,7 @@ services:
     container_name: selenium-dev
     shm_size: 2g
     environment: *selenium_environment
+    networks: *networks
     ports:
       - "7901:7900"
       - "4444:4444"
