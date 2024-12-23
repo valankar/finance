@@ -287,7 +287,7 @@ async def stock_options_page():
     await ui.context.client.connected()
     ui.html(f"<PRE>{await run.io_bound(get_stock_options_output)}</PRE>")
     fig = plot.make_prices_section(
-        common.read_sql_table("index_prices").sort_index(), "Index Prices"
+        common.read_sql_table("index_prices"), "Index Prices"
     ).update_layout(margin=SUBPLOT_MARGIN)
 
     options_df = stock_options.options_df_raw().loc[
@@ -318,7 +318,7 @@ def balance_etfs_page(amount: int = 0):
     """Balance ETFs."""
     log_request()
     with common.pandas_options():
-        df = balance_etfs.get_rebalancing_df(amount=amount, otm=False)
+        df = balance_etfs.get_rebalancing_df(amount=amount)
         ui.html(f"<PRE>{df}</PRE>")
 
 

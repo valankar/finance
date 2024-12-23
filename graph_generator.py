@@ -116,10 +116,10 @@ def generate_all_graphs(
     logger.info("Generating graphs")
     start_time = datetime.now()
     dataframes = {
-        "all": common.read_sql_table("history").sort_index(),
+        "all": common.read_sql_table("history"),
         "real_estate": common.get_real_estate_df(),
-        "prices": (common.read_sql_table("schwab_etfs_prices").sort_index()),
-        "forex": common.read_sql_table("forex").sort_index(),
+        "prices": common.read_sql_table("schwab_etfs_prices"),
+        "forex": common.read_sql_table("forex"),
         "interest_rate": plot.get_interest_rate_df(),
         "options": stock_options.options_df(),
     }

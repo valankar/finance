@@ -76,7 +76,7 @@ def options_df_with_value() -> pd.DataFrame:
 def add_contract_price(dataframe: pd.DataFrame) -> pd.DataFrame:
     prices = []
     for idx, row in dataframe.iterrows():
-        name = idx[1].replace("/", r"\/")  # type: ignore
+        name = typing.cast(tuple, idx)[1].replace("/", r"\/")
         total = common.get_ledger_balance(
             f"""{common.LEDGER_PREFIX} -J -s reg --limit='commodity=~/"{name}"/'"""
         )

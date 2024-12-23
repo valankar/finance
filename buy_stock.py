@@ -22,9 +22,7 @@ def buy_stock(stock: str, value: float) -> pd.DataFrame:
 
 def buy_stock_any(value: int):
     # Find how much to balance
-    if (
-        rebalancing_df := balance_etfs.get_rebalancing_df(amount=value, otm=False)
-    ) is None:
+    if (rebalancing_df := balance_etfs.get_rebalancing_df(amount=value)) is None:
         print("Cannot get rebalancing dataframe")
         return
     print(rebalancing_df)

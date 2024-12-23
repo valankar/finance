@@ -5,6 +5,7 @@ import re
 import statistics
 
 import pandas as pd
+from retry import retry
 
 import common
 
@@ -18,6 +19,7 @@ def integerize_value(value):
     return int(value.translate(str.maketrans("", "", "$,")))
 
 
+@retry(tries=4, delay=30)
 def get_redfin_estimate(url_path):
     """Get home value from Redfin."""
     with common.run_with_browser_page(f"https://www.redfin.com{url_path}") as page:
@@ -26,6 +28,7 @@ def get_redfin_estimate(url_path):
         )
 
 
+@retry(tries=4, delay=30)
 def get_zillow_estimates(url_path):
     """Get home and rent value from Zillow."""
     with common.run_with_browser_page(f"https://www.zillow.com{url_path}") as page:

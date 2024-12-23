@@ -92,17 +92,6 @@ def get_tickers(tickers: Sequence[str]) -> Mapping:
     return ticker_dict
 
 
-def log_function_result(name, success, error_string=None):
-    """Log the success or failure of a function."""
-    to_sql(
-        pd.DataFrame(
-            {"name": name, "success": success, "error": error_string},
-            index=[pd.Timestamp.now()],
-        ),
-        "function_result",
-    )
-
-
 @cache_decorator
 def get_ticker_option(
     ticker: str, expiration: pd.Timestamp, contract_type: str, strike: float
@@ -134,16 +123,13 @@ def get_ticker(ticker: str) -> float:
         get_ticker_yfinance,
     )
     for method in get_ticker_methods:
-        name = method.__name__
+        logger.info(f"Running {method.__name__}({ticker=})")
         with multiprocessing.Pool(processes=1) as pool:
             async_result = pool.apply_async(method, (ticker,))
             try:
                 return async_result.get(timeout=GET_TICKER_TIMEOUT)
-            except multiprocessing.TimeoutError:
-                log_function_result(name, False, "Timeout")
-            # pylint: disable-next=broad-exception-caught
-            except Exception as ex:
-                log_function_result(name, False, str(ex))
+            except Exception:
+                logger.exception("Failed")
     raise GetTickerError("No more methods to get ticker price")
 
 
@@ -296,32 +282,23 @@ def load_sqlite_and_rename_col(table, rename_cols=None):
     return dataframe
 
 
-def get_real_estate_df():
-    """Get real estate price and rent data from sqlite."""
+def get_real_estate_df() -> pd.DataFrame:
     price_df = (
-        read_sql_table(
-            "real_estate_prices",
-        )[["name", "value"]]
-        .groupby(["date", "name"])
-        .last()
-        .unstack("name")
+        read_sql_table("real_estate_prices")[["name", "value"]]
+        .pivot(columns="name", values="value")
+        .add_suffix(" Price")
     )
-    price_df.columns = price_df.columns.get_level_values(1) + " Price"
-    price_df.columns.name = "variable"
     rent_df = (
-        read_sql_table("real_estate_rents")
-        .groupby(["date", "name"])
-        .last()
-        .unstack("name")
+        read_sql_table("real_estate_rents")[["name", "value"]]
+        .pivot(columns="name", values="value")
+        .add_suffix(" Rent")
     )
-    rent_df.columns = rent_df.columns.get_level_values(1) + " Rent"
-    rent_df.columns.name = "variable"
     return (
         reduce_merge_asof([price_df, rent_df])
-        .sort_index(axis=1)
         .resample("D")
         .last()
         .interpolate()
+        .sort_index(axis=1)
     )
 
 

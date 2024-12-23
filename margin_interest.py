@@ -22,10 +22,8 @@ def interest_comparison_df():
         .ffill()
     )
 
-    ibkr_rates_df = common.read_sql_table(
-        "interactive_brokers_margin_rates"
-    ).sort_index()
-    forex_df = common.read_sql_table("forex").sort_index()[["CHFUSD"]]
+    ibkr_rates_df = common.read_sql_table("interactive_brokers_margin_rates")
+    forex_df = common.read_sql_table("forex")[["CHFUSD"]]
     merged_df = common.reduce_merge_asof([balance_df, ibkr_rates_df, forex_df]).dropna()
 
     merged_df["CHF Interest"] = merged_df["Loan Balance"] * (

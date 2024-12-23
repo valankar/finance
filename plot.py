@@ -255,7 +255,7 @@ def make_investing_allocation_section() -> Figure:
         subplot_titles=("Current", "Desired", "Rebalancing Required"),
         specs=[[{"type": "pie"}, {"type": "pie"}, {"type": "xy"}]],
     )
-    if (dataframe := balance_etfs.get_rebalancing_df(0, otm=False)) is None:
+    if (dataframe := balance_etfs.get_rebalancing_df(0)) is None:
         return changes_section
 
     label_col = (
@@ -587,42 +587,18 @@ def make_short_options_section(options_df: pd.DataFrame) -> Figure:
         )
         section.add_trace(fig, row=1, col=col)
 
-    make_options_graph(
-        typing.cast(
-            pd.DataFrame,
-            options_df.xs("Interactive Brokers", level="account").loc[
-                lambda df: df["in_the_money"] != True  # noqa: E712
-            ],
-        ),
-        1,
-    )
-    make_options_graph(
-        typing.cast(
-            pd.DataFrame,
-            options_df.xs("Interactive Brokers", level="account").loc[
-                lambda df: df["in_the_money"]
-            ],
-        ),
-        2,
-    )
-    make_options_graph(
-        typing.cast(
-            pd.DataFrame,
-            options_df.xs("Charles Schwab Brokerage", level="account").loc[
-                lambda df: df["in_the_money"] != True  # noqa: E712
-            ],
-        ),
-        3,
-    )
-    make_options_graph(
-        typing.cast(
-            pd.DataFrame,
-            options_df.xs("Charles Schwab Brokerage", level="account").loc[
-                lambda df: df["in_the_money"]
-            ],
-        ),
-        4,
-    )
+    col = 1
+    for broker in ("Interactive Brokers", "Charles Schwab Brokerage"):
+        for itm in (False, True):
+            if broker in options_df.index.get_level_values("account"):
+                broker_df: pd.DataFrame = typing.cast(
+                    pd.DataFrame, options_df.xs(broker, level="account")
+                )
+                make_options_graph(
+                    broker_df.loc[lambda df: df["in_the_money"] == itm],
+                    col,
+                )
+            col += 1
     section.update_yaxes(title_text="USD", col=1)
     section.update_xaxes(title_text="")
     centered_title(section, "Options")

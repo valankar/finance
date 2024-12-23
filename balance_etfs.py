@@ -108,7 +108,7 @@ def convert_etfs_to_types(etfs_df, etf_type_map: dict[str, list[str]]):
     return etfs_df.loc[etf_type_map.keys()]
 
 
-def get_desired_df(amount: int, otm: bool) -> pd.DataFrame | None:
+def get_desired_df(amount: int, otm: bool, long_calls: bool) -> pd.DataFrame | None:
     """Get dataframe, cost to get to desired allocation."""
     if not (desired_allocation := get_desired_allocation()):
         return None
@@ -119,10 +119,15 @@ def get_desired_df(amount: int, otm: bool) -> pd.DataFrame | None:
     etfs_df = pd.read_csv(
         etfs.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "value"]
     ).fillna(0)
-    # Take into account options assignment
-    options_df = stock_options.options_df()
-    if not otm:
-        options_df = options_df.loc[lambda df: df["in_the_money"]]
+    if long_calls:
+        query = "((count > 0) or (count < 0))"
+    else:
+        query = "(count < 0)"
+    if otm:
+        query += " & ~in_the_money"
+    else:
+        query += " & in_the_money"
+    options_df = stock_options.options_df().query(query)
     itm_df = stock_options.after_assignment_df(options_df)
     etfs_df["value"] = etfs_df["value"].add(itm_df["value_change"], fill_value=0)
     ira_df = pd.read_csv(
@@ -171,10 +176,13 @@ def get_sell_only_df(allocation_df: pd.DataFrame, amount: int) -> pd.DataFrame:
 
 def get_rebalancing_df(
     amount: int,
-    otm: bool = True,
+    otm: bool = False,
+    long_calls: bool = False,
 ) -> pd.DataFrame | None:
     """Get rebalancing dataframe."""
-    if (allocation_df := get_desired_df(amount=amount, otm=otm)) is None:
+    if (
+        allocation_df := get_desired_df(amount=amount, otm=otm, long_calls=long_calls)
+    ) is None:
         return None
     if amount > 0:
         allocation_df = get_buy_only_df(allocation_df, amount)
@@ -190,8 +198,13 @@ def main():
     )
     parser.add_argument("--value", default=0, type=int)
     parser.add_argument("--otm", default=False, action=argparse.BooleanOptionalAction)
+    parser.add_argument(
+        "--long-calls", default=False, action=argparse.BooleanOptionalAction
+    )
     args = parser.parse_args()
-    print(get_rebalancing_df(amount=args.value, otm=args.otm))
+    print(
+        get_rebalancing_df(amount=args.value, otm=args.otm, long_calls=args.long_calls)
+    )
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import common
 import fedfunds
 import homes
 import interactive_brokers_margin
+import resample_table
 import swtsx_market_cap
 import swvxx_yield
 import swygx_holdings
@@ -30,6 +31,7 @@ def main():
             swvxx_yield.main,
             swygx_holdings.main,
             wealthfront_cash_yield.main,
+            resample_table.resample_all_tables,
         ]:
             logger.info(f"Running {method.__module__}.{method.__name__}")
             try:
