@@ -15,8 +15,6 @@ from prefixed import Float
 
 import balance_etfs
 import common
-import i_and_e
-import margin_interest
 import margin_loan
 
 COLOR_GREEN = "DarkGreen"
@@ -381,35 +379,15 @@ def make_forex_section(forex_df: pd.DataFrame, title: str) -> Figure:
 
 def make_interest_rate_section(interest_df: pd.DataFrame) -> Figure:
     """Make interest rate section."""
-    section = make_subplots(
-        rows=1,
-        cols=2,
-        subplot_titles=(
-            "Interest Rates",
-            "IBKR Forex Margin Interest Comparison",
-        ),
-    )
-    px.line(
+    fig = px.line(
         interest_df,
         x=interest_df.index,
         y=interest_df.columns,
-    ).for_each_trace(lambda t: section.add_trace(t, row=1, col=1))
-    margin_df, margin_chart = make_margin_comparison_chart()
-    margin_chart.for_each_trace(lambda t: section.add_trace(t, row=1, col=2))
-    section.add_annotation(
-        text=(
-            "Cost of CHF loan as percentage of USD loan: "
-            + f"{margin_interest.chf_interest_as_percentage_of_usd()*100:.2f}%"
-        ),
-        x=str(margin_df.index[len(margin_df.index) // 3]),
-        y=margin_df.max(axis=None),
-        showarrow=False,
-        row=1,
-        col=2,
+        title="Interest Rates",
     )
-    section.update_yaxes(title_text="Percent", col=1)
-    section.update_xaxes(title_text="")
-    return section
+    fig.update_yaxes(title_text="Percent")
+    fig.update_xaxes(title_text="")
+    return fig
 
 
 def make_loan_section() -> Figure:
@@ -426,39 +404,26 @@ def make_loan_section() -> Figure:
         horizontal_spacing=0.05,
     )
 
-    def add_remaining_annotation(
-        equity: float, loan: float, row: int, col: int, percent: int
-    ):
-        loan_remaining = equity * (percent / 100) + loan
-        section.add_annotation(
-            text=f"Distance to {percent}%: {loan_remaining:,.0f}",
-            showarrow=False,
-            x="Loan",
-            y=equity * 0.1,
-            row=row,
-            col=col,
-        )
-
     def add_loan_graph(
-        get_balances: Callable[[], tuple[pd.DataFrame, pd.DataFrame]],
+        get_balances: Callable[[], pd.DataFrame],
         col: int,
         percent: int,
     ):
-        loan_balance_df, equity_balance_df = get_balances()
+        df = get_balances()
         fig = go.Waterfall(
             measure=["relative", "relative", "total"],
             x=["Equity", "Loan", "Equity - Loan"],
             y=[
-                equity_balance_df.iloc[-1]["Equity Balance"],
-                loan_balance_df.iloc[-1]["Loan Balance"],
+                df.iloc[-1]["Equity Balance"],
+                df.iloc[-1]["Loan Balance"],
                 0,
             ],
         )
         section.add_trace(fig, row=1, col=col)
         for percent_hline in (30, 50):
             percent_balance = (
-                equity_balance_df.iloc[-1]["Equity Balance"]
-                - equity_balance_df.iloc[-1][f"{percent_hline}% Equity Balance"]
+                df.iloc[-1]["Equity Balance"]
+                - df.iloc[-1][f"{percent_hline}% Equity Balance"]
             )
             section.add_hline(
                 y=percent_balance,
@@ -468,12 +433,14 @@ def make_loan_section() -> Figure:
                 row=1,  # type: ignore
                 col=col,  # type: ignore
             )
-        add_remaining_annotation(
-            equity_balance_df.iloc[-1]["Equity Balance"],
-            loan_balance_df.iloc[-1]["Loan Balance"],
-            1,
-            col,
-            percent,
+        remaining = df.iloc[-1][f"Distance to {percent}%"]
+        section.add_annotation(
+            text=f"Distance to {percent}%: {remaining:,.0f}",
+            showarrow=False,
+            x="Loan",
+            y=df.iloc[-1]["Equity Balance"] * 0.1,
+            row=1,
+            col=col,
         )
 
     add_loan_graph(
@@ -546,20 +513,6 @@ def make_total_bar_yoy(daily_df: pd.DataFrame, column: str) -> Figure:
     return yearly_bar
 
 
-def make_margin_comparison_chart() -> tuple[pd.DataFrame, Figure]:
-    """Make margin comparison bar chart."""
-    dataframe = margin_interest.interest_comparison_df().abs()
-    chart = px.histogram(
-        dataframe,
-        x=dataframe.index,
-        y=dataframe.columns,
-        barmode="group",
-        title="IBKR Forex Margin Interest Comparison",
-    )
-    i_and_e.configure_monthly_chart(chart)
-    return dataframe, chart
-
-
 def make_short_options_section(options_df: pd.DataFrame) -> Figure:
     """Make short options moneyness/loss bar chart."""
     section = make_subplots(
@@ -578,7 +531,8 @@ def make_short_options_section(options_df: pd.DataFrame) -> Figure:
     def make_options_graph(df: pd.DataFrame, col: int):
         if not len(df):
             return
-        df["name"] = df["count"].astype(str) + " " + df.index.get_level_values(0)
+        df = df.copy()
+        df.loc[:, "name"] = df["count"].astype(str) + " " + df.index.get_level_values(0)
         df = df.sort_values("exercise_value", ascending=False)
         fig = go.Waterfall(
             measure=["relative"] * len(df.index) + ["total"],

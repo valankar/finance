@@ -6,6 +6,7 @@ import contextlib
 import io
 import os.path
 import subprocess
+import typing
 from datetime import datetime, timedelta
 from typing import Awaitable, ClassVar, Iterable
 from zoneinfo import ZoneInfo
@@ -285,19 +286,24 @@ async def stock_options_page():
     log_request()
     skel = ui.skeleton("QToolbar").classes("w-full")
     await ui.context.client.connected()
-    ui.html(f"<PRE>{await run.io_bound(get_stock_options_output)}</PRE>")
+    output = await run.io_bound(get_stock_options_output)
+    ui.html(f"<PRE>{output}</PRE>")
+    options_df = await run.io_bound(
+        lambda: stock_options.remove_box_spreads(stock_options.options_df()).query(
+            'ticker == "SPX"'
+        )
+    )
     fig = plot.make_prices_section(
-        common.read_sql_table("index_prices"), "Index Prices"
+        common.read_sql_table("index_prices")[["^SPX"]], "Index Prices"
     ).update_layout(margin=SUBPLOT_MARGIN)
-
-    options_df = stock_options.options_df_raw().loc[
-        lambda df: (df["ticker"] == "SPX") & (df["count"].abs() > 1)
-    ]
-    for _, row in options_df.iterrows():
+    for index, row in options_df.iterrows():
+        _, name, _ = typing.cast(tuple, index)
         fig.add_hline(
             y=row["strike"],
-            annotation_text=f"{row['count']} {row['name']}",
+            annotation_text=f"{row['count']} {name}",
             annotation_position="top left",
+            line_dash="dot",
+            line_color="gray",
         )
 
     ui.plotly(fig).classes("w-full").style("height: 50vh")

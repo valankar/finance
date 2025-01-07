@@ -40,6 +40,10 @@ GET_TICKER_TIMEOUT = 30
 PLOTLY_THEME = "plotly_dark"
 
 
+CURRENCIES_REGEX = r"^(\\$|CHF|EUR|GBP|SGD|SWVXX)$"
+OPTIONS_LOAN_REGEX = '^("SPX|"SMI) '
+
+
 class GetTickerError(Exception):
     """Error getting ticker."""
 
@@ -93,25 +97,44 @@ def get_tickers(tickers: Sequence[str]) -> Mapping:
 
 
 @cache_decorator
-def get_ticker_option(
-    ticker: str, expiration: pd.Timestamp, contract_type: str, strike: float
-) -> float | None:
-    name = expiration.strftime(f"{ticker}%y%m%d{contract_type[0]}{int(strike*1000):08}")
-    logger.info(f"Retrieving option quote {ticker=} {name=}")
+def get_option_chain(ticker: str) -> pd.DataFrame | None:
+    """Get option chain for a ticker."""
+    logger.info(f"Retrieving option chain for {ticker=}")
     if not isinstance(
         option_chain := yahooquery.Ticker(ticker).option_chain, pd.DataFrame
     ):
-        logger.error(f"No option chain data found for {ticker=} {name=}")
+        logger.error(f"No option chain data found for {ticker=}")
         return None
-    try:
-        return option_chain.loc[lambda df: df["contractSymbol"] == name][
-            "lastPrice"
-        ].iloc[-1]
-    except (IndexError, KeyError):
-        logger.error(
-            f"Failed to get options quote for {ticker=} {expiration=} {contract_type=} {strike=}"
+    return option_chain
+
+
+def get_ticker_option(
+    ticker: str, expiration: pd.Timestamp, contract_type: str, strike: float
+) -> float | None:
+    option_tickers = [ticker]
+    if ticker == "SPX":
+        option_tickers.append(f"{ticker}W")
+        ticker = "^SPX"
+    if ticker == "SMI":
+        return None
+    if (option_chain := get_option_chain(ticker)) is None:
+        return None
+    errors = []
+    for option_ticker in option_tickers:
+        name = expiration.strftime(
+            f"{option_ticker}%y%m%d{contract_type[0]}{int(strike*1000):08}"
         )
-        return None
+        try:
+            return option_chain.loc[lambda df: df["contractSymbol"] == name][
+                "lastPrice"
+            ].iloc[-1]
+        except (IndexError, KeyError):
+            errors.append(
+                f"Failed to get options quote for {ticker=} {expiration=} {contract_type=} {strike=} {name=}"
+            )
+    if errors:
+        logger.error("\n".join(errors))
+    return None
 
 
 @cache_decorator

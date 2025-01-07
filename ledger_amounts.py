@@ -18,9 +18,9 @@ LEDGER_BALANCE_CMD = (
 LEDGER_BALANCE_MULTI_CURRENCY_CMD = (
     f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} " "-c -n -J bal"
 )
-# Should not include SWVXX.
-ETFS_REGEX = "(SCH|SW[AIT]|GLD|SGOL|SGOV|SIVR|IBKR|COIN|BITX|MSTR)"
-LEDGER_LIMIT_ETFS = f'--limit "commodity=~/^{ETFS_REGEX}/"'
+LEDGER_LIMIT_ETFS = (
+    f"""--limit 'commodity!~/{common.CURRENCIES_REGEX}/ and commodity=~/^[A-Z]+/'"""
+)
 
 
 def get_commodity_df(ledger_args: str) -> pd.DataFrame | None:

@@ -39,15 +39,18 @@ def main():
             )
 
         # Stock options
-        options_df = stock_options.options_df_with_value()
+        options_df = stock_options.options_df(with_value=True)
         options_written = set()
         for idx, row in options_df.iterrows():
             idx = typing.cast(tuple, idx)
             name = idx[1]
             if name in options_written:
                 continue
-            value = row["value"] / row["count"]
-            output_file.write(f'P {NOW} "{name}" ${value}\n')
+            if row["ticker"] not in ("SPX", "SMI"):
+                value = row["value"] / row["count"]
+            else:
+                value = row["intrinsic_value"] / row["count"]
+            output_file.write(f'P {NOW} "{name}" ${value:.2f}\n')
             options_written.add(name)
 
 

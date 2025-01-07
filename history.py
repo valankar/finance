@@ -5,22 +5,22 @@ import pandas as pd
 from loguru import logger
 
 import common
+import ledger_amounts
 import stock_options
 from common import get_ledger_balance
 
 LEDGER_LIQUID_CMD = (
-    f"""{common.LEDGER_PREFIX} --limit 'commodity=~/^(SWVXX|\\\\$|CHF|GBP|SGD|"SPX)/' """
+    f"{common.LEDGER_PREFIX} --limit 'commodity=~/{common.CURRENCIES_REGEX}/ or commodity=~/{common.OPTIONS_LOAN_REGEX}/' "
     "--limit 'not(account=~/(Retirement|Precious Metals|Zurcher)/)' -J "
-    "-n bal \\(^assets or ^liabilities\\)"
+    "-n bal ^assets ^liabilities"
 )
-COMMODITIES_REGEX = "(GLD|SGOL|SIVR|COIN|BITX|MSTR)"
+COMMODITIES_REGEX = "^(GLDM|SGOL|SIVR|COIN|BITX|MSTR)$"
 LEDGER_COMMODITIES_CMD = (
-    f"""{common.LEDGER_PREFIX} -J -n --limit 'commodity=~/^{COMMODITIES_REGEX}/' bal """
+    f"""{common.LEDGER_PREFIX} -J -n --limit 'commodity=~/{COMMODITIES_REGEX}/' bal """
     '^"Assets:Investments"'
 )
-ETFS_REGEX = "(SCH|SW[AIT]|IBKR|SGOV)"
 LEDGER_ETFS_CMD = (
-    f"""{common.LEDGER_PREFIX} --limit 'commodity=~/^{ETFS_REGEX}/' -J -n bal """
+    f"""{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} --limit 'commodity!~/{COMMODITIES_REGEX}/' -J -n bal """
     '^"Assets:Investments:.*Broker.*"'
 )
 LEDGER_IRA_CMD = (
@@ -37,11 +37,15 @@ LEDGER_ZURCHER_CMD = f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Zurcher Kantona
 
 def main():
     """Main."""
-    options_df = stock_options.options_df_with_value()
-    commodities_options = options_df[options_df["ticker"].str.match(COMMODITIES_REGEX)][
-        "value"
-    ].sum()
-    etfs_options = options_df[options_df["ticker"].str.match(ETFS_REGEX)]["value"].sum()
+    options_df = stock_options.options_df(with_value=True)
+    commodities_options = options_df.query(
+        f"ticker.str.fullmatch('{COMMODITIES_REGEX}')"
+    )["value"].sum()
+    etfs_options = options_df.query(
+        f"not ticker.str.fullmatch('{COMMODITIES_REGEX}') and not ticker.str.fullmatch('SMI|SPX')"
+    )["value"].sum()
+    logger.info(f"Commodities options: {commodities_options}")
+    logger.info(f"ETFs options: {etfs_options}")
     commodities = get_ledger_balance(LEDGER_COMMODITIES_CMD) + commodities_options
     etfs = get_ledger_balance(LEDGER_ETFS_CMD) + etfs_options
     total_investing = commodities + etfs
@@ -68,14 +72,14 @@ def main():
         index=[pd.Timestamp.now()],
         columns=list(history_df_data.keys()),
     )
-    if (
+    diff_df = (
         pd.concat([common.read_sql_last("history"), history_df], join="inner")
         .diff()
         .dropna()
-        .sum(axis=1)
-        .sum()
-    ):
+    )
+    if diff_df.sum(axis=1).sum():
         with common.pandas_options():
+            logger.info(f"History difference:\n{diff_df}")
             logger.info(f"Writing history:\n{history_df}")
         common.to_sql(history_df, "history")
     else:

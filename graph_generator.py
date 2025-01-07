@@ -121,7 +121,7 @@ def generate_all_graphs(
         "prices": common.read_sql_table("schwab_etfs_prices"),
         "forex": common.read_sql_table("forex"),
         "interest_rate": plot.get_interest_rate_df(),
-        "options": stock_options.options_df(),
+        "options": stock_options.remove_box_spreads(stock_options.options_df()),
     }
     nonranged_graphs_generate = [
         (
