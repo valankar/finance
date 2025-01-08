@@ -35,7 +35,7 @@ sqlite-utils add-column web/sqlite.db index_prices ${TICKER} float
 sqlite-utils schema web/sqlite.db > sqlite_schema.sql
 ```
 
-Update `history.py` (commodities) and `balance_etfs.py` to include new ticker.
+Update `common.py` (`COMMODITIES_REGEX`) and `balance_etfs.py` to include new ticker.
 
 ## Debugging playright
 

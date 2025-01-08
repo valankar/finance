@@ -3,7 +3,6 @@
 
 import io
 import subprocess
-from typing import Callable
 
 import pandas as pd
 
@@ -11,37 +10,24 @@ import common
 import ledger_amounts
 import stock_options
 
-LEDGER_LOAN_BALANCE_HISTORY_IBKR = (
-    f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^(\\$|CHF|"SPX|"SMI)/' -J -E bal ^Assets:Investments:'Interactive Brokers'"""
-)
+LEDGER_LOAN_BALANCE_HISTORY_IBKR = f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'Interactive Brokers'"
 LEDGER_BALANCE_HISTORY_IBKR = (
     f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} "
     + "-J -E bal ^Assets:Investments:'Interactive Brokers'"
-)
-LEDGER_LOAN_BALANCE_CHF = (
-    f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} -c "
-    + r"""--limit 'commodity=~/^CHF$/' -J -E bal ^Assets:Investments:'Interactive Brokers'"""
 )
 LEDGER_BALANCE_HISTORY_SCHWAB_NONPAL = (
     f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} "
     + "-J -E bal ^Assets:Investments:'Charles Schwab Brokerage'"
 )
-LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL = (
-    f"{common.LEDGER_PREFIX} "
-    + r"""--limit 'commodity=~/^(\\$|"SPX)/' -J -E -b 2024-03-26 bal ^Assets:Investments:'Charles Schwab Brokerage'"""
-)
+LEDGER_LOAN_BALANCE_HISTORY_SCHWAB_NONPAL = f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'Charles Schwab Brokerage'"
 
 
 def get_options_value(broker: str) -> float:
-    try:
-        options_df = stock_options.options_df(with_value=True).query(
-            f'(account == "{broker}") & (ticker != ["SPX", "SMI"])'
-        )
-        options_value = options_df["value"].sum()
-        return options_value
-    except KeyError:
-        return 0
+    options_df = stock_options.options_df(with_value=True).query(
+        f'(account == "{broker}") & (ticker != ["SPX", "SMI"])'
+    )
+    options_value = options_df["value"].sum()
+    return options_value
 
 
 def get_balances_broker(
@@ -107,17 +93,14 @@ def load_loan_balance_df(ledger_loan_balance_cmd: str) -> pd.DataFrame:
     return loan_balance_df
 
 
-def display_loan(title: str, get_balances: Callable[[], pd.DataFrame]):
-    df = get_balances()
-    print(title)
-    print(df)
-
-
 def main():
     """Main."""
-    display_loan("Interactive Brokers", get_balances_ibkr)
-    print()
-    display_loan("Charles Schwab", get_balances_schwab_nonpal)
+    for title, get_balances in [
+        ("Interactive Brokers", get_balances_ibkr),
+        ("Charles Schwab", get_balances_schwab_nonpal),
+    ]:
+        df = get_balances()
+        print(title, "\n", df, "\n")
 
 
 if __name__ == "__main__":

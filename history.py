@@ -9,22 +9,17 @@ import ledger_amounts
 import stock_options
 from common import get_ledger_balance
 
-LEDGER_LIQUID_CMD = (
-    f"{common.LEDGER_PREFIX} --limit 'commodity=~/{common.CURRENCIES_REGEX}/ or commodity=~/{common.OPTIONS_LOAN_REGEX}/' "
-    "--limit 'not(account=~/(Retirement|Precious Metals|Zurcher)/)' -J "
-    "-n bal ^assets ^liabilities"
-)
-COMMODITIES_REGEX = "^(GLDM|SGOL|SIVR|COIN|BITX|MSTR)$"
+LEDGER_LIQUID_CMD = f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} --limit 'not(account=~/(Retirement|Precious Metals|Zurcher)/)' -J -n bal ^assets ^liabilities"
 LEDGER_COMMODITIES_CMD = (
-    f"""{common.LEDGER_PREFIX} -J -n --limit 'commodity=~/{COMMODITIES_REGEX}/' bal """
+    f"""{common.LEDGER_PREFIX} -J -n --limit 'commodity=~/{common.COMMODITIES_REGEX}/' bal """
     '^"Assets:Investments"'
 )
 LEDGER_ETFS_CMD = (
-    f"""{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} --limit 'commodity!~/{COMMODITIES_REGEX}/' -J -n bal """
+    f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} --limit 'commodity!~/{common.COMMODITIES_REGEX}/' -J -n bal "
     '^"Assets:Investments:.*Broker.*"'
 )
 LEDGER_IRA_CMD = (
-    f"""{common.LEDGER_PREFIX} --limit 'commodity=~/^SWYGX/' -J -n bal """
+    f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -n bal "
     '^"Assets:Investments:Retirement:Charles Schwab IRA"'
 )
 LEDGER_REAL_ESTATE_CMD = f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Real Estate"'
@@ -39,10 +34,10 @@ def main():
     """Main."""
     options_df = stock_options.options_df(with_value=True)
     commodities_options = options_df.query(
-        f"ticker.str.fullmatch('{COMMODITIES_REGEX}')"
+        f"ticker.str.fullmatch('{common.COMMODITIES_REGEX}')"
     )["value"].sum()
     etfs_options = options_df.query(
-        f"not ticker.str.fullmatch('{COMMODITIES_REGEX}') and not ticker.str.fullmatch('SMI|SPX')"
+        f"not ticker.str.fullmatch('{common.COMMODITIES_REGEX}') and not ticker.str.fullmatch('SMI|SPX')"
     )["value"].sum()
     logger.info(f"Commodities options: {commodities_options}")
     logger.info(f"ETFs options: {etfs_options}")

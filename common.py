@@ -38,10 +38,10 @@ LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
 GET_TICKER_TIMEOUT = 30
 PLOTLY_THEME = "plotly_dark"
-
-
 CURRENCIES_REGEX = r"^(\\$|CHF|EUR|GBP|SGD|SWVXX)$"
+COMMODITIES_REGEX = "^(GLDM|SGOL|SIVR|COIN|BITX|MSTR)$"
 OPTIONS_LOAN_REGEX = '^("SPX|"SMI) '
+LEDGER_CURRENCIES_OPTIONS_CMD = f"{LEDGER_PREFIX} --limit 'commodity=~/{CURRENCIES_REGEX}/ or commodity=~/{OPTIONS_LOAN_REGEX}/'"
 
 
 class GetTickerError(Exception):
