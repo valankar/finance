@@ -42,6 +42,7 @@ CURRENCIES_REGEX = r"^(\\$|CHF|EUR|GBP|SGD|SWVXX)$"
 COMMODITIES_REGEX = "^(GLDM|SGOL|SIVR|COIN|BITX|MSTR)$"
 OPTIONS_LOAN_REGEX = '^("SPX|"SMI) '
 LEDGER_CURRENCIES_OPTIONS_CMD = f"{LEDGER_PREFIX} --limit 'commodity=~/{CURRENCIES_REGEX}/ or commodity=~/{OPTIONS_LOAN_REGEX}/'"
+BROKERAGES = ("Interactive Brokers", "Charles Schwab Brokerage")
 
 
 class GetTickerError(Exception):
@@ -119,21 +120,16 @@ def get_ticker_option(
         return None
     if (option_chain := get_option_chain(ticker)) is None:
         return None
-    errors = []
     for option_ticker in option_tickers:
         name = expiration.strftime(
-            f"{option_ticker}%y%m%d{contract_type[0]}{int(strike*1000):08}"
+            f"{option_ticker}%y%m%d{contract_type[0]}{int(strike * 1000):08}"
         )
         try:
             return option_chain.loc[lambda df: df["contractSymbol"] == name][
                 "lastPrice"
             ].iloc[-1]
         except (IndexError, KeyError):
-            errors.append(
-                f"Failed to get options quote for {ticker=} {expiration=} {contract_type=} {strike=} {name=}"
-            )
-    if errors:
-        logger.error("\n".join(errors))
+            pass
     return None
 
 
@@ -338,4 +334,4 @@ def get_ledger_balance(command):
 
 
 if __name__ == "__main__":
-    print(f'{get_ticker("SWYGX")}')
+    print(f"{get_ticker('SWYGX')}")

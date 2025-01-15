@@ -3,8 +3,11 @@
 
 import re
 import statistics
+import typing
+from datetime import datetime
 
 import pandas as pd
+from loguru import logger
 from retry import retry
 
 import common
@@ -58,12 +61,19 @@ def write_rents_table(name, value):
 
 def main():
     """Main."""
+    df = common.read_sql_table("real_estate_prices")
     for p in common.PROPERTIES:
+        age = datetime.now() - typing.cast(
+            datetime, df.query("name == @p.name").iloc[-1].name
+        )
+        if age.days < 1:
+            logger.info(f"Skipping {p.name} as it was last updated {age} ago")
+            continue
         redfin = get_redfin_estimate(p.redfin_url)
         zillow, zillow_rent = get_zillow_estimates(p.zillow_url)
         average = round(statistics.mean([redfin, zillow]))
         if not average:
-            print(f"Found 0 average price for {p.name}")
+            logger.error(f"Found 0 average price for {p.name}")
             continue
         with common.temporary_file_move(f"{common.PREFIX}{p.file}") as output_file:
             output_file.write(str(average))

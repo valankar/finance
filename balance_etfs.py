@@ -108,28 +108,30 @@ def convert_etfs_to_types(etfs_df, etf_type_map: dict[str, list[str]]):
     return etfs_df.loc[etf_type_map.keys()]
 
 
-def get_desired_df(amount: int, otm: bool, long_calls: bool) -> pd.DataFrame | None:
+def get_desired_df(
+    amount: int, include_options: bool, otm: bool, long_calls: bool
+) -> pd.DataFrame | None:
     """Get dataframe, cost to get to desired allocation."""
     if not (desired_allocation := get_desired_allocation()):
         return None
     if (s := round(sum(desired_allocation.values()))) != 100:
         print(f"Sum of percents in desired allocation {s} != 100")
         return None
-
     etfs_df = pd.read_csv(
         etfs.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "value"]
     ).fillna(0)
-    if long_calls:
-        query = "((count > 0) or (count < 0))"
-    else:
-        query = "(count < 0)"
-    if otm:
-        query += " & ~in_the_money"
-    else:
-        query += " & in_the_money"
-    options_df = stock_options.options_df().query(query)
-    itm_df = stock_options.after_assignment_df(options_df)
-    etfs_df["value"] = etfs_df["value"].add(itm_df["value_change"], fill_value=0)
+    if include_options:
+        if long_calls:
+            query = "((count > 0) or (count < 0))"
+        else:
+            query = "(count < 0)"
+        if otm:
+            query += " & ~in_the_money"
+        else:
+            query += " & in_the_money"
+        options_df = stock_options.options_df().query(query)
+        itm_df = stock_options.after_assignment_df(options_df)
+        etfs_df["value"] = etfs_df["value"].add(itm_df["value_change"], fill_value=0)
     ira_df = pd.read_csv(
         schwab_ira.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "value"]
     ).fillna(0)
@@ -176,12 +178,18 @@ def get_sell_only_df(allocation_df: pd.DataFrame, amount: int) -> pd.DataFrame:
 
 def get_rebalancing_df(
     amount: int,
+    include_options: bool = True,
     otm: bool = False,
     long_calls: bool = False,
 ) -> pd.DataFrame | None:
     """Get rebalancing dataframe."""
     if (
-        allocation_df := get_desired_df(amount=amount, otm=otm, long_calls=long_calls)
+        allocation_df := get_desired_df(
+            amount=amount,
+            include_options=include_options,
+            otm=otm,
+            long_calls=long_calls,
+        )
     ) is None:
         return None
     if amount > 0:
@@ -197,13 +205,21 @@ def main():
         description="Rebalance ETFs",
     )
     parser.add_argument("--value", default=0, type=int)
+    parser.add_argument(
+        "--include-options", default=False, action=argparse.BooleanOptionalAction
+    )
     parser.add_argument("--otm", default=False, action=argparse.BooleanOptionalAction)
     parser.add_argument(
         "--long-calls", default=False, action=argparse.BooleanOptionalAction
     )
     args = parser.parse_args()
     print(
-        get_rebalancing_df(amount=args.value, otm=args.otm, long_calls=args.long_calls)
+        get_rebalancing_df(
+            amount=args.value,
+            include_options=args.include_options,
+            otm=args.otm,
+            long_calls=args.long_calls,
+        )
     )
 
 

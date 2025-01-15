@@ -58,8 +58,11 @@ def main():
         print(buy_stock(args.ticker, args.value).round(2))
     else:
         if (buy_df := buy_stock_any(args.value)) is not None:
-            print(buy_df.round(2))
-            print(f"Total value to buy: {buy_df['value_to_buy'].sum():.2f}")
+            buy_df = buy_df.round(2)
+            print(buy_df)
+            print(
+                f"Total value to buy: {buy_df.drop_duplicates(subset='value_to_buy')['value_to_buy'].sum():.2f}"
+            )
 
 
 if __name__ == "__main__":

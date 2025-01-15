@@ -3,7 +3,6 @@
 
 import typing
 from functools import reduce
-from typing import Callable
 
 import pandas as pd
 import plotly.express as px
@@ -253,7 +252,7 @@ def make_investing_allocation_section() -> Figure:
         subplot_titles=("Current", "Desired", "Rebalancing Required"),
         specs=[[{"type": "pie"}, {"type": "pie"}, {"type": "xy"}]],
     )
-    if (dataframe := balance_etfs.get_rebalancing_df(0)) is None:
+    if (dataframe := balance_etfs.get_rebalancing_df(0, include_options=False)) is None:
         return changes_section
 
     label_col = (
@@ -395,21 +394,20 @@ def make_loan_section() -> Figure:
 
     section = make_subplots(
         rows=1,
-        cols=2,
+        cols=3,
         subplot_titles=(
             "Interactive Brokers",
-            "Charles Schwab",
+            "Charles Schwab Brokerage",
+            "Charles Schwab PAL Brokerage",
         ),
         vertical_spacing=0.07,
         horizontal_spacing=0.05,
     )
 
     def add_loan_graph(
-        get_balances: Callable[[], pd.DataFrame],
+        df: pd.DataFrame,
         col: int,
-        percent: int,
     ):
-        df = get_balances()
         fig = go.Waterfall(
             measure=["relative", "relative", "total"],
             x=["Equity", "Loan", "Equity - Loan"],
@@ -420,7 +418,7 @@ def make_loan_section() -> Figure:
             ],
         )
         section.add_trace(fig, row=1, col=col)
-        for percent_hline in (30, 50):
+        for i, percent_hline in enumerate((30, 50), start=1):
             percent_balance = (
                 df.iloc[-1]["Equity Balance"]
                 - df.iloc[-1][f"{percent_hline}% Equity Balance"]
@@ -433,26 +431,19 @@ def make_loan_section() -> Figure:
                 row=1,  # type: ignore
                 col=col,  # type: ignore
             )
-        remaining = df.iloc[-1][f"Distance to {percent}%"]
-        section.add_annotation(
-            text=f"Distance to {percent}%: {remaining:,.0f}",
-            showarrow=False,
-            x="Loan",
-            y=df.iloc[-1]["Equity Balance"] * 0.1,
-            row=1,
-            col=col,
-        )
+            remaining = df.iloc[-1][f"Distance to {percent_hline}%"]
+            section.add_annotation(
+                text=f"Distance to {percent_hline}%: {remaining:,.0f}",
+                showarrow=False,
+                x="Loan",
+                y=df.iloc[-1]["Equity Balance"] * (i / 10),
+                row=1,
+                col=col,
+            )
 
-    add_loan_graph(
-        margin_loan.get_balances_ibkr,
-        1,
-        30,
-    )
-    add_loan_graph(
-        margin_loan.get_balances_schwab_nonpal,
-        2,
-        30,
-    )
+    for i, broker in enumerate(margin_loan.LOAN_BROKERAGES, start=1):
+        if (df := margin_loan.get_balances_broker(broker.name)) is not None:
+            add_loan_graph(df, i)
 
     section.update_yaxes(matches=None)
     section.update_yaxes(title_text="USD", col=1)
@@ -542,7 +533,7 @@ def make_short_options_section(options_df: pd.DataFrame) -> Figure:
         section.add_trace(fig, row=1, col=col)
 
     col = 1
-    for broker in ("Interactive Brokers", "Charles Schwab Brokerage"):
+    for broker in common.BROKERAGES:
         for itm in (False, True):
             if broker in options_df.index.get_level_values("account"):
                 broker_df: pd.DataFrame = typing.cast(

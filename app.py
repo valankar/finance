@@ -5,6 +5,7 @@ import asyncio
 import contextlib
 import io
 import os.path
+import re
 import subprocess
 import typing
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ import pandas as pd
 import plotly.io as pio
 from loguru import logger
 from nicegui import run, ui
+from nicegui.elements.table import Table
 from plotly.graph_objects import Figure
 
 import balance_etfs
@@ -115,7 +117,9 @@ class MainGraphs:
                 "next_generation_time",
             ]:
                 self.ui_stats_labels[label] = ui.label()
+        with ui.row().classes("flex justify-center w-full"):
             ui.link("Static Images", "/image_only")
+            common_links()
         await self.update_stats_labels()
 
     async def update(self) -> None:
@@ -167,6 +171,11 @@ class IncomeExpenseGraphs:
         """Create all graphs."""
         for graph in self.get_graphs():
             ui.plotly(await graph).classes("w-full").style("height: 50vh")
+
+
+def common_links():
+    ui.link("Stock Options", "/stock_options")
+    ui.link("Transactions", "/transactions")
 
 
 def log_request():
@@ -240,6 +249,7 @@ class MainGraphsImageOnly:
                     f"Latest image timestamp: {self.latest_timestamp.strftime('%c')}"
                 )
                 ui.link("Dynamic graphs", "/")
+                common_links()
 
     def update(self) -> None:
         for name, _ in MainGraphs.LAYOUT:
@@ -276,8 +286,38 @@ async def i_and_e_page():
 def get_stock_options_output() -> str:
     with contextlib.redirect_stdout(io.StringIO()) as output:
         with common.pandas_options():
-            stock_options.main()
+            stock_options.main(show_spreads=False)
             return output.getvalue()
+
+
+def make_complex_options_table(
+    bull_put_spreads: list[pd.DataFrame], box_spreads: list[pd.DataFrame]
+):
+    rows = []
+    for spreads, spread_type in ((bull_put_spreads, "Bull Put"), (box_spreads, "Box")):
+        for spread_df in spreads:
+            account, count, ticker, expiration, low_strike, high_strike = (
+                stock_options.get_spread_details(spread_df)
+            )
+            name = f"{ticker} {low_strike:.0f}/{high_strike:.0f}"
+            total = f"{spread_df['intrinsic_value'].sum():.0f}"
+            risk = ""
+            if spread_type == "Bull Put":
+                risk = f"{spread_df['exercise_value'].sum():.0f}"
+            rows.append(
+                {
+                    "account": account,
+                    "name": name,
+                    "expiration": expiration,
+                    "type": spread_type,
+                    "count": count,
+                    "intrinsic value": total,
+                    "risk": risk,
+                }
+            )
+    if rows:
+        ui.label("Spreads")
+        ui.table(rows=rows)
 
 
 @ui.page("/stock_options", title="Stock Options")
@@ -288,10 +328,12 @@ async def stock_options_page():
     await ui.context.client.connected()
     output = await run.io_bound(get_stock_options_output)
     ui.html(f"<PRE>{output}</PRE>")
-    options_df = await run.io_bound(
-        lambda: stock_options.remove_box_spreads(stock_options.options_df()).query(
-            'ticker == "SPX"'
-        )
+    all_options, _, box_spreads, bull_put_spreads = await run.io_bound(
+        stock_options.get_options_and_spreads
+    )
+    make_complex_options_table(bull_put_spreads, box_spreads)
+    options_df = stock_options.remove_spreads(all_options, box_spreads).query(
+        'ticker == "SPX"'
     )
     fig = plot.make_prices_section(
         common.read_sql_table("index_prices")[["^SPX"]], "Index Prices"
@@ -326,6 +368,84 @@ def balance_etfs_page(amount: int = 0):
     with common.pandas_options():
         df = balance_etfs.get_rebalancing_df(amount=amount)
         ui.html(f"<PRE>{df}</PRE>")
+
+
+def floatify(string: str) -> float:
+    return float(re.sub(r"[^\d\.-]", "", string))
+
+
+def body_cell_slot(table: Table, column: str, color: str, condition: str):
+    table.add_slot(
+        f"body-cell-{column}",
+        (
+            rf"""<q-td key="{column}" :props="props">"""
+            rf"""<q-label :class="{condition} ? 'text-{color}' : ''">"""
+            "{{ props.value }}"
+            "</q-label>"
+            "</q-td>"
+        ),
+    )
+
+
+@ui.page("/transactions", title="Transactions")
+async def transactions_page():
+    log_request()
+    skel = ui.skeleton("QToolbar").classes("w-full")
+    await ui.context.client.connected()
+    expiration_values = await run.io_bound(
+        lambda: stock_options.get_expiration_values(
+            stock_options.options_df().query("in_the_money == True")
+        )
+    )
+    columns = 2
+    if await ui.run_javascript("window.innerWidth;", timeout=10) < 1000:
+        columns = 1
+    with ui.grid(columns=columns):
+        for account, currency in (
+            ("Charles Schwab Brokerage", r"\\$"),
+            ("Interactive Brokers", r"\\$"),
+            ("UBS Personal", "CHF"),
+        ):
+            with ui.column(align_items="center"):
+                ui.label(account)
+                ledger_cmd = rf"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/^{currency}$/' --tail 10 --csv-format '%D,%P,%t,%T\n' -n csv"
+                df = pd.read_csv(
+                    io.StringIO(
+                        subprocess.check_output(
+                            f"{ledger_cmd} '{account}'", text=True, shell=True
+                        )
+                    ),
+                    header=0,
+                    names=["Date", "Payee", "Amount", "Balance"],
+                    parse_dates=["Date"],
+                    converters={"Amount": floatify, "Balance": floatify},
+                )
+                if account in expiration_values:
+                    vals = []
+                    for val in expiration_values[account]:
+                        vals.append(
+                            (pd.Timestamp(val[0]), "Options Expiration", val[1])
+                        )
+                    exp_df = pd.DataFrame(
+                        data=vals, columns=["Date", "Payee", "Amount"]
+                    )
+                    df = (
+                        pd.concat([df, exp_df])
+                        .sort_values("Date")
+                        .reset_index(drop=True)
+                    )
+                    for i in range(1, len(df)):
+                        df.loc[i, "Balance"] = (
+                            df.loc[i - 1, "Balance"] + df.loc[i, "Amount"]
+                        )  # type: ignore
+                df["Days"] = -(pd.Timestamp.now() - df["Date"]).dt.days  # type: ignore
+                table = ui.table.from_pandas(df.round(2))
+                body_cell_slot(table, "Days", "green", "Number(props.value) > 0")
+                body_cell_slot(
+                    table, "Date", "green", "new Date(props.value) > new Date()"
+                )
+                body_cell_slot(table, "Balance", "red", "Number(props.value) < 0")
+    skel.delete()
 
 
 if __name__ in {"__main__", "__mp_main__"}:

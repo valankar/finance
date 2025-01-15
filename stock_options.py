@@ -4,6 +4,8 @@
 import io
 import subprocess
 import typing
+from collections import defaultdict
+from datetime import date
 
 import pandas as pd
 
@@ -107,6 +109,7 @@ def options_df(with_value: bool = False) -> pd.DataFrame:
     joined_df = pd.merge(calls_puts_df, etfs_df, on="ticker").set_index(
         ["account", "name", "expiration"]
     )
+    joined_df["in_the_money"] = False
     joined_df.loc[joined_df["type"] == "CALL", "in_the_money"] = (
         joined_df["strike"] < joined_df["current_price"]
     )
@@ -199,23 +202,39 @@ def after_assignment_df(itm_df: pd.DataFrame) -> pd.DataFrame:
     return etfs_df.dropna()
 
 
-def after_assignment(itm_df):
-    """Output balances after assignment."""
-    etfs_df = after_assignment_df(itm_df)
-    print(etfs_df.round(2))
-    etfs_value_change = etfs_df["value_change"].sum()
-    liquidity_change = etfs_df["liquidity_change"].sum()
-    print(f"ETFs value change: {etfs_value_change:.0f}")
-    print(f"ETFs liquidity change: {liquidity_change}")
-    print("  Balance change:")
-    for broker in ["Charles Schwab Brokerage", "Interactive Brokers"]:
+def get_expiration_values(
+    itm_df: pd.DataFrame,
+) -> typing.Mapping[str, list[tuple[date, float]]]:
+    expiration_values = defaultdict(list)
+    for broker in common.BROKERAGES:
         if broker in itm_df.index.get_level_values(0):
-            print(f"    {broker}")
             broker_df = itm_df.xs(broker)
             for expiration in broker_df.index.get_level_values(1).unique():
-                print(
-                    f"      Expiration: {expiration.date()}: {broker_df.xs(expiration, level="expiration")['exercise_value'].sum():.0f}"
+                expiration_values[broker].append(
+                    (
+                        expiration.date(),
+                        broker_df.xs(expiration, level="expiration")[
+                            "exercise_value"
+                        ].sum(),
+                    )
                 )
+    return expiration_values
+
+
+def after_assignment(itm_df):
+    """Output balances after assignment."""
+    if len(etfs_df := after_assignment_df(itm_df)):
+        print(etfs_df.round(2))
+        etfs_value_change = etfs_df["value_change"].sum()
+        liquidity_change = etfs_df["liquidity_change"].sum()
+        print(f"ETFs value change: {etfs_value_change:.0f}")
+        print(f"ETFs liquidity change: {liquidity_change:.0f}")
+    print("  Balance change:")
+    for broker in sorted(values := get_expiration_values(itm_df)):
+        expiration_values = values[broker]
+        print(f"    {broker}")
+        for expiration, value in expiration_values:
+            print(f"      Expiration: {expiration}: {value:.0f}")
     print()
 
 
@@ -284,29 +303,66 @@ def remove_box_spreads(options_df: pd.DataFrame) -> pd.DataFrame:
     return remove_spreads(options_df, find_box_spreads(options_df))
 
 
-def main():
-    """Main."""
+def get_spread_details(
+    spread_df: pd.DataFrame,
+) -> tuple[str, int, str, date, float, float]:
+    low_strike = spread_df["strike"].min()
+    high_strike = spread_df["strike"].max()
+    count = int(spread_df["count"].max())
+    row = spread_df.iloc[0]
+    index = spread_df.index[0]
+    return index[0], count, row["ticker"], index[2].date(), low_strike, high_strike
+
+
+def summarize_box(box_df: pd.DataFrame):
+    account, count, ticker, expiration, low_strike, high_strike = get_spread_details(
+        box_df
+    )
+    print(f"{account}")
+    print(f"{count} {ticker} {expiration} {low_strike:.0f}/{high_strike:.0f} Box")
+    total = box_df.query("in_the_money == True")["exercise_value"].sum()
+    print(f"Exercise value: {total:.0f}", end="")
+    if count > 1:
+        print(f" ({total / count:.0f} per contract)", end="")
+    print("\n")
+
+
+def summarize_bull_put(bull_put_df: pd.DataFrame):
+    account, count, ticker, expiration, low_strike, high_strike = get_spread_details(
+        bull_put_df
+    )
+    print(f"{account}")
+    print(f"{count} {ticker} {expiration} {low_strike:.0f}/{high_strike:.0f} Bull Put")
+    total = bull_put_df.query("in_the_money == True")["exercise_value"].sum()
+    print(f"Exercise value: {total:.0f}")
+    print(f"Maximum risk: {bull_put_df['exercise_value'].sum():.0f}\n")
+
+
+def get_options_and_spreads() -> tuple[
+    pd.DataFrame, pd.DataFrame, list[pd.DataFrame], list[pd.DataFrame]
+]:
     all_options = options_df(with_value=True)
     box_spreads = find_box_spreads(all_options)
-    options = remove_spreads(all_options, box_spreads)
-    bull_put_spreads = find_bull_put_spreads(options)
-    options = remove_spreads(options, bull_put_spreads)
-    print("Out of the money")
-    print(
-        options.query("in_the_money == False").drop(
-            columns=["intrinsic_value", "min_contract_price"]
-        )
-    )
-    print("\nIn the money")
-    print(options.query("in_the_money == True"), "\n")
+    pruned_options = remove_spreads(all_options, box_spreads)
+    bull_put_spreads = find_bull_put_spreads(pruned_options)
+    pruned_options = remove_spreads(pruned_options, bull_put_spreads)
+    return all_options, pruned_options, box_spreads, bull_put_spreads
+
+
+def main(show_spreads: bool = True):
+    """Main."""
+    all_options, options, box_spreads, bull_put_spreads = get_options_and_spreads()
+    if len(otm_df := options.query("in_the_money == False")):
+        print("Out of the money")
+        print(otm_df.drop(columns=["intrinsic_value", "min_contract_price"]), "\n")
+    if len(itm_df := options.query("in_the_money == True")):
+        print("In the money")
+        print(itm_df, "\n")
     print(
         "Balances after in the money options assigned (includes spreads not shown above)"
     )
-    try:
-        after_assignment(all_options.query("in_the_money == True"))
-    except KeyError:
-        pass
-    for broker in ["Charles Schwab Brokerage", "Interactive Brokers"]:
+    after_assignment(all_options.query("in_the_money == True"))
+    for broker in common.BROKERAGES:
         if broker in options.index.get_level_values(0):
             print(f"{broker}")
             print(f"  Short put exposure: {short_put_exposure(options, broker):.0f}")
@@ -315,19 +371,16 @@ def main():
             )
             print(options.xs(broker, level="account"), "\n")
 
-    if bull_put_spreads:
-        print("Bull put spreads")
-        for spread in bull_put_spreads:
-            print(spread)
-            total = spread.query("in_the_money == True")["exercise_value"].sum()
-            print(f"Exercise value: {total:.0f}\n")
+    if show_spreads:
+        if bull_put_spreads:
+            print("Bull put spreads")
+            for spread in bull_put_spreads:
+                summarize_bull_put(spread)
 
-    if box_spreads:
-        print("Box spreads")
-        for box in box_spreads:
-            print(box)
-            total = box.query("in_the_money == True")["exercise_value"].sum()
-            print(f"Exercise value: {total:.0f}")
+        if box_spreads:
+            print("Box spreads")
+            for box in box_spreads:
+                summarize_box(box)
 
 
 if __name__ == "__main__":
