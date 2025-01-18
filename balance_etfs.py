@@ -178,7 +178,7 @@ def get_sell_only_df(allocation_df: pd.DataFrame, amount: int) -> pd.DataFrame:
 
 def get_rebalancing_df(
     amount: int,
-    include_options: bool = True,
+    include_options: bool = False,
     otm: bool = False,
     long_calls: bool = False,
 ) -> pd.DataFrame | None:

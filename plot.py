@@ -252,7 +252,7 @@ def make_investing_allocation_section() -> Figure:
         subplot_titles=("Current", "Desired", "Rebalancing Required"),
         specs=[[{"type": "pie"}, {"type": "pie"}, {"type": "xy"}]],
     )
-    if (dataframe := balance_etfs.get_rebalancing_df(0, include_options=False)) is None:
+    if (dataframe := balance_etfs.get_rebalancing_df(0)) is None:
         return changes_section
 
     label_col = (

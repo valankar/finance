@@ -295,6 +295,8 @@ def find_box_spreads(options_df: pd.DataFrame) -> list[pd.DataFrame]:
 def remove_spreads(
     options_df: pd.DataFrame, spreads: list[pd.DataFrame]
 ) -> pd.DataFrame:
+    if len(spreads) == 0:
+        return options_df
     return options_df[~options_df.isin(pd.concat(spreads))].dropna()
 
 

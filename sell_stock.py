@@ -61,11 +61,7 @@ def sell_stock_brokerage(
     brokerage: Literal["ibkr", "schwab"], value: int
 ) -> Optional[pd.DataFrame]:
     # Find how much to balance
-    if (
-        rebalancing_df := balance_etfs.get_rebalancing_df(
-            amount=-value, include_options=False
-        )
-    ) is None:
+    if (rebalancing_df := balance_etfs.get_rebalancing_df(amount=-value)) is None:
         print("Cannot get rebalancing dataframe")
         return None
     if "sell_only" not in rebalancing_df.columns:
@@ -117,7 +113,14 @@ def sell_stock_brokerage(
         ) is not None:
             sell_df = pd.concat([sell_df, new_sell_df])
         i += 1
-    return sell_df.query("shares_to_sell > 0")
+        if i > 50:
+            print(
+                f"Reached 50 iterations without selling enough: {remaining:.0f} remaining"
+            )
+            break
+    if sell_df is not None:
+        return sell_df.query("shares_to_sell > 0")
+    return None
 
 
 def main():
