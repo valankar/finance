@@ -2,6 +2,7 @@
 """Store holdings of SWYGX."""
 
 import pandas as pd
+from loguru import logger
 
 import common
 
@@ -23,7 +24,9 @@ def save_holdings():
             )
 
     if len(holdings) != 9:
-        print(f"Failed to get SWYGX holdings: only {len(holdings)} found: {holdings}")
+        logger.error(
+            f"Failed to get SWYGX holdings: only {len(holdings)} found: {holdings}"
+        )
         raise GetHoldingsError
     holdings_df = pd.DataFrame(
         holdings,

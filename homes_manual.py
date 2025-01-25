@@ -7,6 +7,7 @@ import statistics
 import pandas as pd
 
 import common
+import homes
 
 
 def write_prices_table(name, redfin, zillow):
@@ -33,7 +34,7 @@ def main():
     parser.add_argument("--rent", required=True, type=int)
     args = parser.parse_args()
     average = round(statistics.mean([args.redfin_price, args.zillow_price]))
-    if p := common.get_property(args.name):
+    if p := homes.get_property(args.name):
         with common.temporary_file_move(f"{common.PREFIX}{p.file}") as output_file:
             output_file.write(str(average))
         write_prices_table(args.name, args.redfin_price, args.zillow_price)

@@ -21,58 +21,59 @@ class LoanBrokerage(NamedTuple):
 
 LOAN_BROKERAGES = (
     LoanBrokerage(
-        name="Interactive Brokers",
-        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'Interactive Brokers'",
-        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'Interactive Brokers'",
+        name=(broker_name := "Interactive Brokers"),
+        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'{broker_name}'",
+        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'",
     ),
     LoanBrokerage(
-        name="Charles Schwab Brokerage",
-        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'Charles Schwab Brokerage'",
-        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'Charles Schwab Brokerage'",
+        name=(broker_name := "Charles Schwab Brokerage"),
+        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'{broker_name}'",
+        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'",
     ),
     LoanBrokerage(
-        name="Charles Schwab PAL Brokerage",
+        name=(broker_name := "Charles Schwab PAL Brokerage"),
         loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Liabilities:'Charles Schwab PAL'",
-        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'Charles Schwab PAL Brokerage'",
+        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'",
     ),
 )
 
 
-def get_loan_brokerage(name: str) -> Optional[LoanBrokerage]:
+def get_loan_brokerage(broker: LoanBrokerage) -> Optional[LoanBrokerage]:
     for brokerage in LOAN_BROKERAGES:
-        if brokerage.name == name:
+        if brokerage.name == broker.name:
             return brokerage
     return None
 
 
-def get_options_value(broker: str) -> float:
+def get_options_value(broker: LoanBrokerage) -> float:
     _, options, _, bull_put_spreads = stock_options.get_options_and_spreads()
-    options_value = options.query(f"account == '{broker}'")["value"].sum()
+    options_value = options.query(f"account == '{broker.name}'")["value"].sum()
     # SPX bull put spreads
     options_value += sum(
         map(
-            lambda x: x.query(f"account == '{broker}' and ticker == 'SPX'")[
+            lambda x: x.query(f"account == '{broker.name}' and ticker == 'SPX'")[
                 "intrinsic_value"
             ].sum(),
             bull_put_spreads,
         )
     )
     if options_value:
-        logger.info(f"Options value for {broker}: {options_value}")
+        logger.info(f"Options value for {broker.name}: {options_value}")
     return options_value
 
 
-def get_balances_broker(broker: str) -> Optional[pd.DataFrame]:
+def get_balances_broker(broker: LoanBrokerage) -> Optional[pd.DataFrame]:
     if (brokerage := get_loan_brokerage(broker)) is None:
         return None
-    loan_df = load_loan_balance_df(brokerage.loan_balance_cmd)
-    equity_df = load_ledger_equity_balance_df(brokerage.balance_cmd)
+    loan_df = load_loan_balance_df(brokerage)
+    equity_df = load_ledger_equity_balance_df(brokerage)
     equity_df.iloc[-1, equity_df.columns.get_loc("Equity Balance")] += (  # type: ignore
         get_options_value(broker)
     )
     equity_df["30% Equity Balance"] = equity_df["Equity Balance"] * 0.3
     equity_df["50% Equity Balance"] = equity_df["Equity Balance"] * 0.5
     equity_df["Loan Balance"] = loan_df.iloc[-1]["Loan Balance"]
+    equity_df["Total"] = equity_df["Equity Balance"] + equity_df["Loan Balance"]
     equity_df["Distance to 30%"] = (
         equity_df["Loan Balance"] + equity_df["30% Equity Balance"]
     )
@@ -82,10 +83,12 @@ def get_balances_broker(broker: str) -> Optional[pd.DataFrame]:
     return equity_df
 
 
-def load_ledger_equity_balance_df(ledger_balance_cmd: str) -> pd.DataFrame:
+def load_ledger_equity_balance_df(brokerage: LoanBrokerage) -> pd.DataFrame:
     """Get dataframe of equity balance."""
     equity_balance_df = pd.read_csv(
-        io.StringIO(subprocess.check_output(ledger_balance_cmd, shell=True, text=True)),
+        io.StringIO(
+            subprocess.check_output(brokerage.balance_cmd, shell=True, text=True)
+        ),
         sep=" ",
         index_col=0,
         parse_dates=True,
@@ -94,11 +97,11 @@ def load_ledger_equity_balance_df(ledger_balance_cmd: str) -> pd.DataFrame:
     return equity_balance_df
 
 
-def load_loan_balance_df(ledger_loan_balance_cmd: str) -> pd.DataFrame:
+def load_loan_balance_df(brokerage: LoanBrokerage) -> pd.DataFrame:
     """Get dataframe of margin loan balance."""
     loan_balance_df = pd.read_csv(
         io.StringIO(
-            subprocess.check_output(ledger_loan_balance_cmd, shell=True, text=True)
+            subprocess.check_output(brokerage.loan_balance_cmd, shell=True, text=True)
         ),
         sep=" ",
         index_col=0,
@@ -112,7 +115,7 @@ def load_loan_balance_df(ledger_loan_balance_cmd: str) -> pd.DataFrame:
 def main():
     """Main."""
     for brokerage in LOAN_BROKERAGES:
-        if (df := get_balances_broker(brokerage.name)) is not None:
+        if (df := get_balances_broker(brokerage)) is not None:
             print(brokerage.name, "\n", df.round(2), "\n")
 
 

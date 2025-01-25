@@ -14,6 +14,7 @@ from prefixed import Float
 
 import balance_etfs
 import common
+import homes
 import margin_loan
 
 COLOR_GREEN = "DarkGreen"
@@ -193,7 +194,7 @@ def make_real_estate_section(real_estate_df: pd.DataFrame) -> Figure:
     section.update_yaxes(col=2, showticklabels=True)
     section.update_yaxes(col=1, title_text="USD")
     section.update_traces(showlegend=False)
-    for i, p in enumerate(reversed(common.PROPERTIES)):
+    for i, p in enumerate(reversed(homes.PROPERTIES)):
         add_hline_current(section, real_estate_df, f"{p.name} Price", i + 1, 1)
         add_hline_current(section, real_estate_df, f"{p.name} Rent", i + 1, 2)
     return section
@@ -203,7 +204,7 @@ def make_real_estate_profit_bar(real_estate_df: pd.DataFrame) -> go.Bar:
     """Bar chart of real estate profit."""
     values = []
     percent = []
-    cols = [f"{home.name} Price" for home in common.PROPERTIES]
+    cols = [f"{home.name} Price" for home in homes.PROPERTIES]
     for home in cols:
         values.append(
             real_estate_df.iloc[-1][home]
@@ -223,7 +224,7 @@ def make_real_estate_profit_bar_yearly(real_estate_df: pd.DataFrame) -> go.Bar:
     """Bar chart of real estate profit yearly."""
     values = []
     percent = []
-    cols = [f"{home.name} Price" for home in common.PROPERTIES]
+    cols = [f"{home.name} Price" for home in homes.PROPERTIES]
     for home in cols:
         time_diff = (
             real_estate_df[home].index[-1] - real_estate_df[home].first_valid_index()
@@ -320,7 +321,7 @@ def make_allocation_profit_section(
     pie_total.update_layout(title="Asset Allocation", title_x=0.5)
     pie_total.for_each_trace(lambda t: changes_section.add_trace(t, row=1, col=1))
 
-    cols = [f"{home.name} Price" for home in common.PROPERTIES]
+    cols = [f"{home.name} Price" for home in homes.PROPERTIES]
     for home in cols:
         real_estate_df[f"{home} Percent Change"] = (
             (
@@ -389,17 +390,37 @@ def make_interest_rate_section(interest_df: pd.DataFrame) -> Figure:
     return fig
 
 
+def make_brokerage_total_section(brokerage_df: pd.DataFrame) -> Figure:
+    df = brokerage_df.xs("Total", axis=1)
+    section = make_subplots(
+        rows=1,
+        cols=len(margin_loan.LOAN_BROKERAGES),
+        subplot_titles=[x.name for x in margin_loan.LOAN_BROKERAGES],
+        vertical_spacing=0.07,
+        horizontal_spacing=0.05,
+    )
+    for i, broker in enumerate(margin_loan.LOAN_BROKERAGES, start=1):
+        fig = px.line(
+            df,
+            x=df.index,
+            y=broker.name,
+        )
+        fig.for_each_trace(lambda t: section.add_trace(t, row=1, col=i))
+    section.update_yaxes(matches=None)
+    section.update_yaxes(title_text="USD", col=1)
+    section.update_traces(showlegend=False)
+    section.update_xaxes(title_text="")
+    centered_title(section, "Brokerage Values")
+    return section
+
+
 def make_loan_section() -> Figure:
     """Make section with margin loans."""
 
     section = make_subplots(
         rows=1,
-        cols=3,
-        subplot_titles=(
-            "Interactive Brokers",
-            "Charles Schwab Brokerage",
-            "Charles Schwab PAL Brokerage",
-        ),
+        cols=len(margin_loan.LOAN_BROKERAGES),
+        subplot_titles=[x.name for x in margin_loan.LOAN_BROKERAGES],
         vertical_spacing=0.07,
         horizontal_spacing=0.05,
     )
@@ -442,7 +463,7 @@ def make_loan_section() -> Figure:
             )
 
     for i, broker in enumerate(margin_loan.LOAN_BROKERAGES, start=1):
-        if (df := margin_loan.get_balances_broker(broker.name)) is not None:
+        if (df := margin_loan.get_balances_broker(broker)) is not None:
             add_loan_graph(df, i)
 
     section.update_yaxes(matches=None)

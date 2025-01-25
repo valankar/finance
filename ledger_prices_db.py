@@ -5,6 +5,7 @@ import typing
 from datetime import datetime
 
 import common
+import homes
 import stock_options
 
 COMMODITY_TABLES = [
@@ -32,7 +33,7 @@ def main():
 
         # Properties
         real_estate_df = common.get_real_estate_df()
-        for p in common.PROPERTIES:
+        for p in homes.PROPERTIES:
             col = f"{p.name} Price"
             output_file.write(
                 f'P {NOW} "{p.address}" ${real_estate_df[col].iloc[-1]}\n'

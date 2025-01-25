@@ -51,6 +51,7 @@ class MainGraphs:
         ("forex", "45vh"),
         ("interest_rate", "45vh"),
         ("loan", "45vh"),
+        ("brokerage_total", "45vh"),
         ("short_options", "50vh"),
         ("daily_indicator", "45vh"),
     )

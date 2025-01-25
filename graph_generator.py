@@ -10,6 +10,7 @@ from joblib import Memory, Parallel, delayed, parallel_config
 from loguru import logger
 from plotly.graph_objects import Figure
 
+import brokerages
 import common
 import plot
 import stock_options
@@ -117,6 +118,7 @@ def generate_all_graphs(
     start_time = datetime.now()
     dataframes = {
         "all": common.read_sql_table("history"),
+        "brokerages": brokerages.load_df(),
         "real_estate": common.get_real_estate_df(),
         "prices": common.read_sql_table("schwab_etfs_prices"),
         "forex": common.read_sql_table("forex"),
@@ -214,6 +216,12 @@ def generate_all_graphs(
                 limit_and_resample_df(dataframes["interest_rate"], range)
             ).update_layout(margin=subplot_margin),
         ),
+        (
+            "brokerage_total",
+            lambda range: plot.make_brokerage_total_section(
+                limit_and_resample_df(dataframes["brokerages"], range)
+            ).update_layout(margin=subplot_margin),
+        ),
     ]
     new_graphs: Graphs = {"ranged": defaultdict(dict), "nonranged": {}}
     with parallel_config(n_jobs=-1):
@@ -250,6 +258,7 @@ def generate_all_graphs(
 
 
 def use_cached_graphs(metadata: Mapping) -> bool:
+    """Do not update graphs if history has not changed since last update."""
     latest = common.read_sql_table("history").loc[lambda df: ~df.duplicated()].index[-1]
     return pd.Timestamp.fromtimestamp(metadata["time"]) > latest
 

@@ -10,7 +10,7 @@ import typing
 from contextlib import contextmanager
 from functools import reduce
 from pathlib import Path
-from typing import Mapping, NamedTuple, Sequence
+from typing import Mapping, Sequence
 
 import pandas as pd
 import yahoofinancials
@@ -49,26 +49,11 @@ class GetTickerError(Exception):
     """Error getting ticker."""
 
 
-class Property(NamedTuple):
-    name: str
-    file: str
-    redfin_url: str
-    zillow_url: str
-    address: str
-
-
-PROPERTIES = (
-    Property(
-        name="Some Real Estate",
-        file="prop1.txt",
-        redfin_url="URL",
-        zillow_url="URL",
-        address="ADDRESS",
-    ),
-)
-
-cache_decorator = Memory(f"{PREFIX}cache", verbose=0).cache(
+cache_half_hourly_decorator = Memory(f"{PREFIX}cache", verbose=0).cache(
     cache_validation_callback=expires_after(minutes=30)
+)
+cache_daily_decorator = Memory(f"{PREFIX}cache", verbose=0).cache(
+    cache_validation_callback=expires_after(days=1)
 )
 cache_forever_decorator = Memory(f"{PREFIX}cache", verbose=0).cache()
 
@@ -82,13 +67,6 @@ def pandas_options():
         yield
 
 
-def get_property(name: str) -> Property | None:
-    for p in PROPERTIES:
-        if p.name == name:
-            return p
-    return None
-
-
 def get_tickers(tickers: Sequence[str]) -> Mapping:
     """Get prices for a list of tickers."""
     ticker_dict = {}
@@ -97,7 +75,7 @@ def get_tickers(tickers: Sequence[str]) -> Mapping:
     return ticker_dict
 
 
-@cache_decorator
+@cache_half_hourly_decorator
 def get_option_chain(ticker: str) -> pd.DataFrame | None:
     """Get option chain for a ticker."""
     logger.info(f"Retrieving option chain for {ticker=}")
@@ -133,7 +111,7 @@ def get_ticker_option(
     return None
 
 
-@cache_decorator
+@cache_half_hourly_decorator
 def get_ticker(ticker: str) -> float:
     """Get ticker prices by trying various methods."""
     get_ticker_methods = (
@@ -282,6 +260,7 @@ def run_with_browser_page(url):
             page.goto(url)
             yield page
         finally:
+            page.screenshot(path=f"{PREFIX}/screenshot.png", full_page=True)
             browser.close()
 
 
