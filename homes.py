@@ -19,6 +19,7 @@ class Property(typing.NamedTuple):
     zillow_url: str
     address: str
 
+
 PROPERTIES = (
     Property(
         name="Some Real Estate",
