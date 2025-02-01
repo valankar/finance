@@ -13,7 +13,6 @@ import common
 # Auto-generated columns in SQLite.
 TABLES_DROP_COLUMNS = {
     "history": ["total", "total_no_homes"],
-    "real_estate_prices": ["value"],
 }
 
 TABLES_WIDE = {
@@ -32,9 +31,9 @@ TABLES_WIDE = {
 }
 
 TABLES_LONG_GROUPBY = {
-    "brokerage_totals": "Brokerage",
-    "real_estate_prices": "name",
-    "real_estate_rents": "name",
+    "brokerage_totals": ["Brokerage"],
+    "real_estate_prices": ["name", "site"],
+    "real_estate_rents": ["name", "site"],
 }
 
 
@@ -61,7 +60,7 @@ def resample_table(table: str, drop_cols: Optional[list[str]]):
     rewrite_table(table, df)
 
 
-def resample_long_table(table: str, groupby: str, drop_cols: Optional[list[str]]):
+def resample_long_table(table: str, groupby: list[str], drop_cols: Optional[list[str]]):
     """Resample a dataframe which is in long format."""
     logger.info(f"Resampling long table {table}")
     df = common.read_sql_table(table)
@@ -71,7 +70,7 @@ def resample_long_table(table: str, groupby: str, drop_cols: Optional[list[str]]
         df.groupby(groupby)
         .resample("D")
         .last()
-        .reset_index(1)
+        .reset_index(len(groupby))
         .set_index("date")
         .dropna()
     )

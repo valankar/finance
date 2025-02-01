@@ -32,7 +32,7 @@ def main():
             output_file.write(f"P {NOW} {ticker} ${price}\n")
 
         # Properties
-        real_estate_df = common.get_real_estate_df()
+        real_estate_df = homes.get_real_estate_df()
         for p in homes.PROPERTIES:
             col = f"{p.name} Price"
             output_file.write(

@@ -280,26 +280,6 @@ def load_sqlite_and_rename_col(table, rename_cols=None):
     return dataframe
 
 
-def get_real_estate_df() -> pd.DataFrame:
-    price_df = (
-        read_sql_table("real_estate_prices")[["name", "value"]]
-        .pivot(columns="name", values="value")
-        .add_suffix(" Price")
-    )
-    rent_df = (
-        read_sql_table("real_estate_rents")[["name", "value"]]
-        .pivot(columns="name", values="value")
-        .add_suffix(" Rent")
-    )
-    return (
-        reduce_merge_asof([price_df, rent_df])
-        .resample("D")
-        .last()
-        .interpolate()
-        .sort_index(axis=1)
-    )
-
-
 def get_ledger_balance(command):
     """Get account balance from ledger."""
     try:

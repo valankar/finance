@@ -12,6 +12,7 @@ from plotly.graph_objects import Figure
 
 import brokerages
 import common
+import homes
 import plot
 import stock_options
 
@@ -119,7 +120,7 @@ def generate_all_graphs(
     dataframes = {
         "all": common.read_sql_table("history"),
         "brokerages": brokerages.load_df(),
-        "real_estate": common.get_real_estate_df(),
+        "real_estate": homes.get_real_estate_df(),
         "prices": common.read_sql_table("schwab_etfs_prices"),
         "forex": common.read_sql_table("forex"),
         "interest_rate": plot.get_interest_rate_df(),

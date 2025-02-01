@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Get estimated home values."""
 
+import argparse
 import re
-import statistics
 import typing
 
 import pandas as pd
@@ -31,6 +31,39 @@ PROPERTIES = (
 )
 
 
+def get_real_estate_df() -> pd.DataFrame:
+    df = common.read_sql_table("real_estate_prices")
+    redfin = (
+        df.query("site == 'Redfin'")
+        .drop(columns="site")
+        .pivot_table(index="date", columns="name", values="value")
+    )
+    zillow = (
+        df.query("site == 'Zillow'")
+        .drop(columns="site")
+        .pivot_table(index="date", columns="name", values="value")
+    )
+    merged = pd.merge_asof(
+        redfin,
+        zillow,
+        left_index=True,
+        right_index=True,
+        suffixes=(" Redfin", " Zillow"),
+        direction="nearest",
+    )
+    for p in PROPERTIES:
+        merged[p.name] = merged[[f"{p.name} Redfin", f"{p.name} Zillow"]].mean(axis=1)
+    price_df = merged[[p.name for p in PROPERTIES]].add_suffix(" Price")
+    rent_df = (
+        common.read_sql_table("real_estate_rents")
+        .pivot_table(index="date", columns="name", values="value")
+        .add_suffix(" Rent")
+    )
+    return (
+        common.reduce_merge_asof([price_df, rent_df]).interpolate().sort_index(axis=1)
+    )
+
+
 def get_property(name: str) -> Property | None:
     for p in PROPERTIES:
         if p.name == name:
@@ -42,7 +75,6 @@ def integerize_value(value):
     return int(re.sub(r"\D", "", value))
 
 
-@common.cache_daily_decorator
 def get_redfin_estimate(url_path):
     """Get home value from Redfin."""
     logger.info(f"Getting Redfin estimate for {url_path}")
@@ -52,7 +84,6 @@ def get_redfin_estimate(url_path):
         )
 
 
-@common.cache_daily_decorator
 def get_zillow_estimates(url_path):
     """Get home and rent value from Zillow."""
     logger.info(f"Getting Zillow estimate for {url_path}")
@@ -71,42 +102,62 @@ def get_zillow_estimates(url_path):
         return [integerize_value(price), integerize_value(rent)]
 
 
-def write_prices_table(name, redfin, zillow):
+def write_prices_table(name, value, site):
     """Write prices to sqlite."""
     home_df = pd.DataFrame(
-        {"name": name, "redfin_value": redfin, "zillow_value": zillow},
+        {"name": name, "value": value, "site": site},
         index=[pd.Timestamp.now()],
     )
-    common.to_sql(home_df, "real_estate_prices", foreign_key=True)
+    common.to_sql(home_df, "real_estate_prices")
 
 
-def write_rents_table(name, value):
+def write_rents_table(name, value, site):
     """Write rents to sqlite."""
-    home_df = pd.DataFrame({"name": name, "value": value}, index=[pd.Timestamp.now()])
-    common.to_sql(home_df, "real_estate_rents", foreign_key=True)
-
-
-def process_home(p: Property) -> bool:
-    redfin = get_redfin_estimate(p.redfin_url)
-    zillow, zillow_rent = get_zillow_estimates(p.zillow_url)
-    average = round(statistics.mean([redfin, zillow]))
-    if not average:
-        logger.error(f"Found 0 average price for {p.name}")
-        return False
-    with common.temporary_file_move(f"{common.PREFIX}{p.file}") as output_file:
-        output_file.write(str(average))
-    write_prices_table(p.name, redfin, zillow)
-    write_rents_table(
-        p.name,
-        zillow_rent,
+    home_df = pd.DataFrame(
+        {"name": name, "value": value, "site": site}, index=[pd.Timestamp.now()]
     )
-    return True
+    common.to_sql(home_df, "real_estate_rents")
+
+
+def process_redfin(p: Property):
+    redfin = get_redfin_estimate(p.redfin_url)
+    write_prices_table(p.name, redfin, "Redfin")
+
+
+def process_zillow(p: Property):
+    zillow, zillow_rent = get_zillow_estimates(p.zillow_url)
+    write_prices_table(p.name, zillow, "Zillow")
+    write_rents_table(p.name, zillow_rent, "Zillow")
+
+
+def process_home(p: Property):
+    process_redfin(p)
+    process_zillow(p)
 
 
 def main():
     """Main."""
-    for p in PROPERTIES:
-        process_home(p)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--name", required=True)
+    parser.add_argument("--redfin-price", required=False, type=int)
+    parser.add_argument("--zillow-price", required=False, type=int)
+    parser.add_argument("--zillow-rent", required=False, type=int)
+    parser.add_argument(
+        "--process-home", default=False, action=argparse.BooleanOptionalAction
+    )
+    args = parser.parse_args()
+    if p := get_property(args.name):
+        if args.process_home:
+            process_home(p)
+            return
+        if args.redfin_price:
+            write_prices_table(p.name, args.redfin_price, "Redfin")
+        if args.zillow_price:
+            write_prices_table(p.name, args.zillow_price, "Zillow")
+        if args.zillow_rent:
+            write_rents_table(p.name, args.zillow_rent, "Zillow")
+    else:
+        print(f"Property {args.name} is unknown")
 
 
 if __name__ == "__main__":

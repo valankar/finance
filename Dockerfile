@@ -25,5 +25,6 @@ ENTRYPOINT []
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ledger sqlite3
 ENV HOME="/app"
-CMD [ "/app/code/accounts/app.py" ]
+CMD [ "/app/code/accounts/docker_start.sh" ]
 EXPOSE 8080/tcp
+EXPOSE 8081/tcp

@@ -64,9 +64,6 @@ CREATE TABLE "toshl_expenses_export_2023-01-01" (
 	"Main currency" TEXT, 
 	"Description" TEXT
 );
-CREATE TABLE real_estate(name TEXT PRIMARY KEY NOT NULL);
-CREATE TABLE real_estate_prices(date DATETIME, name TEXT NOT NULL REFERENCES real_estate(name), redfin_value BIGINT, zillow_value BIGINT, value BIGINT generated always as ((redfin_value+zillow_value)/2));
-CREATE TABLE real_estate_rents(date DATETIME, name TEXT NOT NULL REFERENCES real_estate(name), value BIGINT);
 CREATE TABLE sqlite_stat1(tbl,idx,stat);
 CREATE TABLE swygx_holdings (
 	date DATETIME, 
@@ -93,6 +90,17 @@ CREATE TABLE interactive_brokers_margin_rates (
 CREATE TABLE index_prices (
 	date DATETIME, 
 	"^SPX" FLOAT, [^SSMI] FLOAT);
+CREATE TABLE brokerage_totals (
+	date DATETIME, 
+	"Equity Balance" FLOAT, 
+	"30% Equity Balance" FLOAT, 
+	"50% Equity Balance" FLOAT, 
+	"Loan Balance" FLOAT, 
+	"Total" FLOAT, 
+	"Distance to 30%" FLOAT, 
+	"Distance to 50%" FLOAT, 
+	"Brokerage" TEXT
+);
 CREATE TABLE fedfunds (
 	date DATETIME, 
 	percent FLOAT
@@ -111,11 +119,24 @@ CREATE INDEX ix_schwab_ira_amounts_date ON schwab_ira_amounts (date);
 CREATE INDEX ix_schwab_ira_prices_date ON schwab_ira_prices (date);
 CREATE INDEX "ix_toshl_income_export_2023-01-01_Date" ON "toshl_income_export_2023-01-01" ("Date");
 CREATE INDEX "ix_toshl_expenses_export_2023-01-01_Date" ON "toshl_expenses_export_2023-01-01" ("Date");
-CREATE INDEX ix_real_estate_prices_date ON real_estate_prices (date);
-CREATE INDEX ix_real_estate_rents_date ON real_estate_rents (date);
 CREATE INDEX ix_swygx_holdings_date ON swygx_holdings (date);
 CREATE INDEX ix_swtsx_market_cap_date ON swtsx_market_cap (date);
 CREATE INDEX ix_interactive_brokers_margin_rates_date ON interactive_brokers_margin_rates (date);
 CREATE INDEX ix_index_prices_date ON index_prices (date);
+CREATE INDEX ix_brokerage_totals_date ON brokerage_totals (date);
 CREATE INDEX ix_fedfunds_date ON fedfunds (date);
 CREATE INDEX ix_sofr_date ON sofr (date);
+CREATE TABLE real_estate_prices (
+	date DATETIME, 
+	name TEXT, 
+	value BIGINT, 
+	site TEXT
+);
+CREATE INDEX ix_real_estate_prices_date ON real_estate_prices (date);
+CREATE TABLE real_estate_rents (
+	date DATETIME, 
+	name TEXT, 
+	value BIGINT, 
+	site TEXT
+);
+CREATE INDEX ix_real_estate_rents_date ON real_estate_rents (date);

@@ -24,38 +24,40 @@ class DailyMethod(NamedTuple):
     method: Callable
 
 
-METHODS = (
-    DailyMethod(name="Fedfunds", method=fedfunds.main),
-    DailyMethod(
-        name="Interactive Brokers Margin", method=interactive_brokers_margin.main
-    ),
-    DailyMethod(
-        name=f"Real Estate: {homes.PROPERTIES[0].name}",
-        method=lambda: homes.process_home(homes.PROPERTIES[0]),
-    ),
-    DailyMethod(
-        name=f"Real Estate: {homes.PROPERTIES[1].name}",
-        method=lambda: homes.process_home(homes.PROPERTIES[1]),
-    ),
-    DailyMethod(
-        name=f"Real Estate: {homes.PROPERTIES[2].name}",
-        method=lambda: homes.process_home(homes.PROPERTIES[2]),
-    ),
-    DailyMethod(name="SWTSX Market Cap", method=swtsx_market_cap.main),
-    DailyMethod(name="SWVXX Yield", method=swvxx_yield.main),
-    DailyMethod(name="SWYGX Holdings", method=swygx_holdings.main),
-    DailyMethod(name="Wealthfront Cash Yield", method=wealthfront_cash_yield.main),
-    DailyMethod(name="Resample Tables", method=resample_table.resample_all_tables),
-)
-
-
 class MethodFailed(Exception):
     """One of the methods failed with exception."""
 
 
+def make_property_daily_methods() -> list[DailyMethod]:
+    methods = []
+    for p in homes.PROPERTIES:
+        methods.append(
+            DailyMethod(
+                name=f"Real Estate Redfin: {p.name}",
+                method=lambda: homes.process_redfin(p),
+            )
+        )
+    return methods
+
+
+def make_daily_methods() -> list[DailyMethod]:
+    return [
+        DailyMethod(name="Fedfunds", method=fedfunds.main),
+        DailyMethod(
+            name="Interactive Brokers Margin", method=interactive_brokers_margin.main
+        ),
+        *make_property_daily_methods(),
+        DailyMethod(name="SWTSX Market Cap", method=swtsx_market_cap.main),
+        DailyMethod(name="SWVXX Yield", method=swvxx_yield.main),
+        DailyMethod(name="SWYGX Holdings", method=swygx_holdings.main),
+        DailyMethod(name="Wealthfront Cash Yield", method=wealthfront_cash_yield.main),
+        DailyMethod(name="Resample Tables", method=resample_table.resample_all_tables),
+    ]
+
+
 @common.cache_daily_decorator
 def run_method(name: str):
-    for method in METHODS:
+    for method in make_daily_methods():
         if method.name == name:
             logger.info(f"Running {name}")
             return method.method()
@@ -64,7 +66,7 @@ def run_method(name: str):
 
 def methods_run_needed() -> bool:
     needs_run = []
-    for method in METHODS:
+    for method in make_daily_methods():
         # This is fixed in https://github.com/joblib/joblib/pull/1584, but not yet released.
         call_id = (run_method.func_id, run_method._get_args_id(method.name))
         if not run_method._is_in_cache_and_valid(call_id):
@@ -87,7 +89,7 @@ def main():
             sys.exit()
     with portalocker.Lock(common.LOCKFILE, timeout=common.LOCKFILE_TIMEOUT):
         failed_methods = []
-        for method in METHODS:
+        for method in make_daily_methods():
             try:
                 run_method(method.name)
             except Exception:

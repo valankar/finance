@@ -79,7 +79,9 @@ def centered_title(fig: Figure, title: str):
 
 
 def make_daily_indicator(hourly_df: pd.DataFrame) -> Figure:
-    df = hourly_df[hourly_df.index[-1] + relativedelta(days=-1) :]
+    df = hourly_df.loc[
+        (hourly_df.index[-1] + relativedelta(days=-1)).strftime("%Y-%m-%d") :
+    ]
     fig = go.Figure()
     for col, (column, title) in enumerate(
         [

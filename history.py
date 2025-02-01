@@ -72,7 +72,7 @@ def main():
         .diff()
         .dropna()
     )
-    if diff_df.sum(axis=1).sum():
+    if abs(diff_df.sum(axis=1).sum()) > 1:
         with common.pandas_options():
             logger.info(f"History difference:\n{diff_df}")
             logger.info(f"Writing history:\n{history_df}")
