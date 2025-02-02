@@ -37,11 +37,13 @@ def get_real_estate_df() -> pd.DataFrame:
         df.query("site == 'Redfin'")
         .drop(columns="site")
         .pivot_table(index="date", columns="name", values="value")
+        .interpolate()
     )
     zillow = (
         df.query("site == 'Zillow'")
         .drop(columns="site")
         .pivot_table(index="date", columns="name", values="value")
+        .interpolate()
     )
     merged = pd.merge_asof(
         redfin,

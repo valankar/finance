@@ -2,7 +2,7 @@
 """Balance portfolio based on SWYGX."""
 
 import argparse
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -19,6 +19,8 @@ COMMODITIES_PERCENTAGE = {
     "SILVER": 5,
     "CRYPTO": 33,
 }
+# Minimum required percentage of commodities. This eats into the US_BONDS percentage.
+COMMODITIES_PERCENTAGE_FLOOR = 8
 ETF_TYPE_MAP = {
     "COMMODITIES_GOLD": ["GLDM", "SGOL"],
     "COMMODITIES_SILVER": ["SIVR"],
@@ -67,6 +69,11 @@ def get_swygx_allocations() -> dict[str, float]:
 def get_desired_allocation() -> dict[str, Any] | None:
     allocation = get_swygx_allocations()
     allocation["COMMODITIES"] = 100 - sum(allocation.values())
+    if allocation["COMMODITIES"] < COMMODITIES_PERCENTAGE_FLOOR:
+        allocation["US_BONDS"] -= (
+            COMMODITIES_PERCENTAGE_FLOOR - allocation["COMMODITIES"]
+        )
+        allocation["COMMODITIES"] = COMMODITIES_PERCENTAGE_FLOOR
     if sum(COMMODITIES_PERCENTAGE.values()) != 100:
         print("Sum of COMMODITIES_PERCENTAGE != 100")
         return None
@@ -75,6 +82,12 @@ def get_desired_allocation() -> dict[str, Any] | None:
             allocation["COMMODITIES"] * percentage
         ) / 100
     del allocation["COMMODITIES"]
+    if sum(allocation.values()) != 100:
+        print("Sum of desired percentages != 100")
+        return None
+    if any([x < 0 for x in allocation.values()]):
+        print("Desired percentages has negative value")
+        return None
     return allocation
 
 
@@ -109,7 +122,11 @@ def convert_etfs_to_types(etfs_df, etf_type_map: dict[str, list[str]]):
 
 
 def get_desired_df(
-    amount: int, include_options: bool, otm: bool, long_calls: bool
+    amount: int,
+    include_options: bool,
+    otm: bool,
+    long_calls: bool,
+    adjustment: dict[str, int],
 ) -> pd.DataFrame | None:
     """Get dataframe, cost to get to desired allocation."""
     if not (desired_allocation := get_desired_allocation()):
@@ -139,6 +156,8 @@ def get_desired_df(
     mf_df = convert_etfs_to_types(etfs_df, ETF_TYPE_MAP) + convert_ira_to_types(
         ira_df, ETF_TYPE_MAP
     )
+    for category, adjust in adjustment.items():
+        mf_df.loc[category] += adjust
     total = mf_df["value"].sum()
     mf_df["current_percent"] = (mf_df["value"] / total) * 100
     mf_df = mf_df.join(wanted_df, how="outer").fillna(0).sort_index()
@@ -181,6 +200,7 @@ def get_rebalancing_df(
     include_options: bool = False,
     otm: bool = False,
     long_calls: bool = False,
+    adjustment: Optional[dict[str, int]] = None,
 ) -> pd.DataFrame | None:
     """Get rebalancing dataframe."""
     if (
@@ -189,6 +209,7 @@ def get_rebalancing_df(
             include_options=include_options,
             otm=otm,
             long_calls=long_calls,
+            adjustment=adjustment or {},
         )
     ) is None:
         return None
@@ -212,15 +233,26 @@ def main():
     parser.add_argument(
         "--long-calls", default=False, action=argparse.BooleanOptionalAction
     )
+    parser.add_argument("--commodities-percentage-floor", type=int)
+    parser.add_argument("--adjustment", nargs="*", default=[])
     args = parser.parse_args()
-    print(
-        get_rebalancing_df(
+    if args.commodities_percentage_floor:
+        global COMMODITIES_PERCENTAGE_FLOOR
+        COMMODITIES_PERCENTAGE_FLOOR = args.commodities_percentage_floor
+    adjustment: dict[str, int] = {}
+    for a in args.adjustment:
+        category, amount = a.split("=")
+        adjustment[category] = int(amount)
+    if (
+        df := get_rebalancing_df(
             amount=args.value,
             include_options=args.include_options,
             otm=args.otm,
             long_calls=args.long_calls,
+            adjustment=adjustment,
         )
-    )
+    ) is not None:
+        print(df)
 
 
 if __name__ == "__main__":

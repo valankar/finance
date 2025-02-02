@@ -204,7 +204,8 @@ class LedgerAdd(App):
                 args.append(f"and {search}")
         if commodity:
             args.append(f"--limit 'commodity=~/{commodity}/'")
-        ledger_cmd = f"{common.LEDGER_PREFIX} --tail 10 print {' '.join(args)}"
+        ledger_prefix = common.LEDGER_PREFIX.replace("-c ", "")
+        ledger_cmd = f"{ledger_prefix} --tail 10 print {' '.join(args)}"
         self.query_one(LedgerEntries).parse_from_ledger_cmd(ledger_cmd)
 
     @on(Input.Changed, "#price")
