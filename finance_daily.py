@@ -3,6 +3,7 @@
 
 import argparse
 import sys
+from functools import partial
 from typing import Callable, NamedTuple
 
 import portalocker
@@ -34,7 +35,7 @@ def make_property_daily_methods() -> list[DailyMethod]:
         methods.append(
             DailyMethod(
                 name=f"Real Estate Redfin: {p.name}",
-                method=lambda: homes.process_redfin(p),
+                method=partial(homes.process_redfin, p),
             )
         )
     return methods
