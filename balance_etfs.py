@@ -236,7 +236,7 @@ def main():
     parser.add_argument("--commodities-percentage-floor", type=int)
     parser.add_argument("--adjustment", nargs="*", default=[])
     args = parser.parse_args()
-    if args.commodities_percentage_floor:
+    if args.commodities_percentage_floor is not None:
         global COMMODITIES_PERCENTAGE_FLOOR
         COMMODITIES_PERCENTAGE_FLOOR = args.commodities_percentage_floor
     adjustment: dict[str, int] = {}

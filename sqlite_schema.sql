@@ -28,14 +28,14 @@ CREATE TABLE "schwab_etfs_amounts" (
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT, [SGOV] FLOAT, [VV] FLOAT);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT, [SGOV] FLOAT, [VV] FLOAT, [PLTR] FLOAT);
 CREATE TABLE schwab_etfs_prices (
 	date DATETIME, 
 	"SCHA" FLOAT, 
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT, [SGOV] FLOAT, [VV] FLOAT);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT, [SGOV] FLOAT, [VV] FLOAT, [PLTR] FLOAT);
 CREATE TABLE schwab_ira_amounts (
 	date DATETIME, 
 	"SWYGX" FLOAT
@@ -101,6 +101,18 @@ CREATE TABLE brokerage_totals (
 	"Distance to 50%" FLOAT, 
 	"Brokerage" TEXT
 );
+CREATE TABLE real_estate_prices (
+	date DATETIME, 
+	name TEXT, 
+	value BIGINT, 
+	site TEXT
+);
+CREATE TABLE real_estate_rents (
+	date DATETIME, 
+	name TEXT, 
+	value BIGINT, 
+	site TEXT
+);
 CREATE TABLE fedfunds (
 	date DATETIME, 
 	percent FLOAT
@@ -124,19 +136,7 @@ CREATE INDEX ix_swtsx_market_cap_date ON swtsx_market_cap (date);
 CREATE INDEX ix_interactive_brokers_margin_rates_date ON interactive_brokers_margin_rates (date);
 CREATE INDEX ix_index_prices_date ON index_prices (date);
 CREATE INDEX ix_brokerage_totals_date ON brokerage_totals (date);
+CREATE INDEX ix_real_estate_prices_date ON real_estate_prices (date);
+CREATE INDEX ix_real_estate_rents_date ON real_estate_rents (date);
 CREATE INDEX ix_fedfunds_date ON fedfunds (date);
 CREATE INDEX ix_sofr_date ON sofr (date);
-CREATE TABLE real_estate_prices (
-	date DATETIME, 
-	name TEXT, 
-	value BIGINT, 
-	site TEXT
-);
-CREATE INDEX ix_real_estate_prices_date ON real_estate_prices (date);
-CREATE TABLE real_estate_rents (
-	date DATETIME, 
-	name TEXT, 
-	value BIGINT, 
-	site TEXT
-);
-CREATE INDEX ix_real_estate_rents_date ON real_estate_rents (date);

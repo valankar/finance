@@ -8,9 +8,79 @@ from collections import defaultdict
 from datetime import date
 
 import pandas as pd
+import yahooquery
+from joblib import Parallel, delayed
+from loguru import logger
 
 import common
 import etfs
+
+
+class TickerOption(typing.NamedTuple):
+    ticker: str
+    expiration: pd.Timestamp
+    contract_type: str
+    strike: float
+
+
+class SpreadDetails(typing.NamedTuple):
+    account: str
+    count: int
+    ticker: str
+    ticker_price: float
+    expiration: date
+    low_strike: float
+    high_strike: float
+
+
+def cache_option_chains():
+    get_option_chains(list(options_df_raw()["ticker"].unique()))
+
+
+def get_option_chains(
+    tickers: typing.Sequence[str],
+) -> typing.Mapping[str, typing.Optional[pd.DataFrame]]:
+    option_dfs = Parallel(n_jobs=-1)(delayed(get_option_chain)(t) for t in tickers)
+    ticker_dict = {}
+    for ticker, df in zip(tickers, option_dfs):
+        ticker_dict[ticker] = df
+    return ticker_dict
+
+
+@common.cache_half_hourly_decorator
+def get_option_chain(ticker: str) -> pd.DataFrame | None:
+    """Get option chain for a ticker."""
+    if ticker == "SPX":
+        ticker = "^SPX"
+    if ticker == "SMI":
+        return None
+    logger.info(f"Retrieving option chain for {ticker=}")
+    if not isinstance(
+        option_chain := yahooquery.Ticker(ticker).option_chain, pd.DataFrame
+    ):
+        logger.error(f"No option chain data found for {ticker=}")
+        return None
+    return option_chain
+
+
+def get_ticker_option(t: TickerOption) -> float | None:
+    ticker = t.ticker
+    option_tickers = [ticker]
+    if ticker == "SPX":
+        option_tickers.append(f"{ticker}W")
+    if (option_chain := get_option_chain(ticker)) is None:
+        return None
+    for option_ticker in option_tickers:
+        name = t.expiration.strftime(
+            f"{option_ticker}%y%m%d{t.contract_type[0]}{int(t.strike * 1000):08}"
+        )
+        try:
+            return option_chain.loc[lambda df: df["contractSymbol"] == name][
+                "lastPrice"
+            ].iloc[-1]
+        except (IndexError, KeyError):
+            pass
+    return None
 
 
 def options_df_raw() -> pd.DataFrame:
@@ -56,11 +126,13 @@ def add_options_quotes(options_df: pd.DataFrame):
     for idx, row in options_df.iterrows():
         idx = typing.cast(tuple, idx)
         if (
-            price := common.get_ticker_option(
-                row["ticker"],
-                idx[2],
-                row["type"],
-                row["strike"],
+            price := get_ticker_option(
+                TickerOption(
+                    ticker=row["ticker"],
+                    expiration=idx[2],
+                    contract_type=row["type"],
+                    strike=row["strike"],
+                )
             )
         ) is None:
             price = 0
@@ -242,21 +314,20 @@ def find_bull_put_spreads(options_df: pd.DataFrame) -> list[pd.DataFrame]:
     """Find bull put spreads. Remove box spreads before calling."""
     dataframes = []
     for index, row in options_df.iterrows():
-        ticker = row["ticker"]
-        if ticker == "SPX":
-            # Find a long PUT
-            if row["type"] == "PUT" and row["count"] > 0:
-                # The long PUT
-                low_long_put = options_df.query(
-                    'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count > 0'
-                )
-                # Find a short PUT at higher strike, same expiration and broker
-                high_short_put = options_df.query(
-                    'ticker == @ticker & type == "PUT" & strike > @row["strike"] & expiration == @index[2] & account == @index[0] & count < 0'
-                )
-                found = pd.concat([low_long_put, high_short_put])
-                if len(found) == 2:
-                    dataframes.append(found)
+        ticker = row["ticker"]  # noqa: F841
+        # Find a long PUT
+        if row["type"] == "PUT" and row["count"] > 0:
+            # The long PUT
+            low_long_put = options_df.query(
+                'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count > 0'
+            )
+            # Find a short PUT at higher strike, same expiration and broker
+            high_short_put = options_df.query(
+                'ticker == @ticker & type == "PUT" & strike > @row["strike"] & expiration == @index[2] & account == @index[0] & count < 0'
+            )
+            found = pd.concat([low_long_put, high_short_put])
+            if len(found) == 2:
+                dataframes.append(found)
     return dataframes
 
 
@@ -307,37 +378,46 @@ def remove_box_spreads(options_df: pd.DataFrame) -> pd.DataFrame:
 
 def get_spread_details(
     spread_df: pd.DataFrame,
-) -> tuple[str, int, str, date, float, float]:
+) -> SpreadDetails:
     low_strike = spread_df["strike"].min()
     high_strike = spread_df["strike"].max()
     count = int(spread_df["count"].max())
     row = spread_df.iloc[0]
     index = spread_df.index[0]
-    return index[0], count, row["ticker"], index[2].date(), low_strike, high_strike
+    return SpreadDetails(
+        account=index[0],
+        count=count,
+        ticker=row["ticker"],
+        ticker_price=row["current_price"],
+        expiration=index[2].date(),
+        low_strike=low_strike,
+        high_strike=high_strike,
+    )
 
 
 def summarize_box(box_df: pd.DataFrame):
-    account, count, ticker, expiration, low_strike, high_strike = get_spread_details(
-        box_df
+    d = get_spread_details(box_df)
+    print(f"{d.account}")
+    print(
+        f"{d.count} {d.ticker} {d.expiration} {d.low_strike:.0f}/{d.high_strike:.0f} Box"
     )
-    print(f"{account}")
-    print(f"{count} {ticker} {expiration} {low_strike:.0f}/{high_strike:.0f} Box")
     total = box_df.query("in_the_money == True")["exercise_value"].sum()
     print(f"Exercise value: {total:.0f}", end="")
-    if count > 1:
-        print(f" ({total / count:.0f} per contract)", end="")
+    if d.count > 1:
+        print(f" ({total / d.count:.0f} per contract)", end="")
     print("\n")
 
 
 def summarize_bull_put(bull_put_df: pd.DataFrame):
-    account, count, ticker, expiration, low_strike, high_strike = get_spread_details(
-        bull_put_df
+    d = get_spread_details(bull_put_df)
+    print(f"{d.account}")
+    print(
+        f"{d.count} {d.ticker} {d.expiration} {d.low_strike:.0f}/{d.high_strike:.0f} Bull Put"
     )
-    print(f"{account}")
-    print(f"{count} {ticker} {expiration} {low_strike:.0f}/{high_strike:.0f} Bull Put")
     total = bull_put_df.query("in_the_money == True")["exercise_value"].sum()
     print(f"Exercise value: {total:.0f}")
-    print(f"Maximum risk: {bull_put_df['exercise_value'].sum():.0f}\n")
+    print(f"Maximum risk: {bull_put_df['exercise_value'].sum():.0f}")
+    print(f"Ticker price: {d.ticker_price}\n")
 
 
 def get_options_and_spreads() -> tuple[

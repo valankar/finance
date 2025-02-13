@@ -16,12 +16,15 @@ import ledger_amounts
 import ledger_prices_db
 import push_web
 import schwab_ira
+import stock_options
 from app import MainGraphs
 
 
 @common.cache_half_hourly_decorator
 def run_all(graphs_only: bool = False):
     if not graphs_only:
+        common.cache_ticker_prices()
+        stock_options.cache_option_chains()
         ledger_amounts.main()
         etfs.main()
         index_prices.main()

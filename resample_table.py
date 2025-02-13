@@ -56,7 +56,7 @@ def resample_table(table: str, drop_cols: Optional[list[str]]):
     df = common.read_sql_table(table)
     if drop_cols:
         df = df.drop(columns=drop_cols)
-    df = df.resample("D").last()
+    df = df.resample("D").last().interpolate()
     rewrite_table(table, df)
 
 

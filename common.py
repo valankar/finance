@@ -16,7 +16,7 @@ import pandas as pd
 import yahoofinancials
 import yahooquery
 import yfinance
-from joblib import Memory, expires_after
+from joblib import Memory, Parallel, delayed, expires_after
 from loguru import logger
 from playwright.sync_api import sync_playwright
 from sqlalchemy import create_engine
@@ -69,46 +69,20 @@ def pandas_options():
 
 def get_tickers(tickers: Sequence[str]) -> Mapping:
     """Get prices for a list of tickers."""
+    prices = Parallel(n_jobs=-1)(delayed(get_ticker)(t) for t in tickers)
     ticker_dict = {}
-    for ticker in tickers:
-        ticker_dict[ticker] = get_ticker(ticker)
+    for ticker, price in zip(tickers, prices):
+        ticker_dict[ticker] = price
     return ticker_dict
 
 
-@cache_half_hourly_decorator
-def get_option_chain(ticker: str) -> pd.DataFrame | None:
-    """Get option chain for a ticker."""
-    logger.info(f"Retrieving option chain for {ticker=}")
-    if not isinstance(
-        option_chain := yahooquery.Ticker(ticker).option_chain, pd.DataFrame
-    ):
-        logger.error(f"No option chain data found for {ticker=}")
-        return None
-    return option_chain
-
-
-def get_ticker_option(
-    ticker: str, expiration: pd.Timestamp, contract_type: str, strike: float
-) -> float | None:
-    option_tickers = [ticker]
-    if ticker == "SPX":
-        option_tickers.append(f"{ticker}W")
-        ticker = "^SPX"
-    if ticker == "SMI":
-        return None
-    if (option_chain := get_option_chain(ticker)) is None:
-        return None
-    for option_ticker in option_tickers:
-        name = expiration.strftime(
-            f"{option_ticker}%y%m%d{contract_type[0]}{int(strike * 1000):08}"
-        )
-        try:
-            return option_chain.loc[lambda df: df["contractSymbol"] == name][
-                "lastPrice"
-            ].iloc[-1]
-        except (IndexError, KeyError):
-            pass
-    return None
+def cache_ticker_prices():
+    tickers = []
+    for table in ["schwab_etfs_prices", "schwab_ira_prices", "index_prices"]:
+        tickers.extend(read_sql_last(table).columns)
+    for col in read_sql_last("forex").columns:
+        tickers.append(f"{col}=X")
+    get_tickers(tickers)
 
 
 @cache_half_hourly_decorator

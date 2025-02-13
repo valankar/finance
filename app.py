@@ -23,6 +23,7 @@ import balance_etfs
 import common
 import graph_generator
 import i_and_e
+import ledger_ui
 import plot
 import stock_options
 
@@ -284,6 +285,17 @@ async def i_and_e_page():
     skel.delete()
 
 
+@ui.page("/ledger", title="Ledger")
+async def ledger_page():
+    """Generate income & expenses page."""
+    log_request()
+    await ui.context.client.connected()
+    columns = 2
+    if await ui.run_javascript("window.innerWidth;", timeout=10) < 1000:
+        columns = 1
+    ledger_ui.LedgerUI().main_page(columns)
+
+
 def get_stock_options_output() -> str:
     with contextlib.redirect_stdout(io.StringIO()) as output:
         with common.pandas_options():
@@ -297,23 +309,22 @@ def make_complex_options_table(
     rows = []
     for spreads, spread_type in ((bull_put_spreads, "Bull Put"), (box_spreads, "Box")):
         for spread_df in spreads:
-            account, count, ticker, expiration, low_strike, high_strike = (
-                stock_options.get_spread_details(spread_df)
-            )
-            name = f"{ticker} {low_strike:.0f}/{high_strike:.0f}"
+            d = stock_options.get_spread_details(spread_df)
+            name = f"{d.ticker} {d.low_strike:.0f}/{d.high_strike:.0f}"
             total = f"{spread_df['intrinsic_value'].sum():.0f}"
             risk = ""
             if spread_type == "Bull Put":
                 risk = f"{spread_df['exercise_value'].sum():.0f}"
             rows.append(
                 {
-                    "account": account,
+                    "account": d.account,
                     "name": name,
-                    "expiration": expiration,
+                    "expiration": d.expiration,
                     "type": spread_type,
-                    "count": count,
+                    "count": d.count,
                     "intrinsic value": total,
-                    "risk": risk,
+                    "maximum loss": risk,
+                    "ticker price": d.ticker_price,
                 }
             )
     if rows:

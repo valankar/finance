@@ -48,7 +48,15 @@ def get_loan_brokerage(broker: LoanBrokerage) -> Optional[LoanBrokerage]:
 def get_options_value(broker: LoanBrokerage) -> float:
     _, options, _, bull_put_spreads = stock_options.get_options_and_spreads()
     options_value = options.query(f"account == '{broker.name}'")["value"].sum()
-    # SPX bull put spreads
+    options_value += sum(
+        map(
+            lambda x: x.query(f"account == '{broker.name}' and ticker != 'SPX'")[
+                "value"
+            ].sum(),
+            bull_put_spreads,
+        )
+    )
+    # SPX bull put spreads handled differently.
     options_value += sum(
         map(
             lambda x: x.query(f"account == '{broker.name}' and ticker == 'SPX'")[

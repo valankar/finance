@@ -1,60 +1,47 @@
 #!/usr/bin/env python3
 
-
 import asyncio
-import re
 import subprocess
 from datetime import datetime
-from typing import NamedTuple, Optional
+from typing import Optional
 
-from dateutil import parser
 from textual import on, work
 from textual.app import App, ComposeResult
-from textual.containers import Center
+from textual.containers import Center, Vertical
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import (
     Button,
-    Footer,
     Input,
     Label,
     ListItem,
     ListView,
+    Log,
     MaskedInput,
     TextArea,
 )
 
-import common
-
-
-class LedgerEntry(NamedTuple):
-    header: str
-    full: list[str]
+import ledger_ops
 
 
 class LedgerEntries(Widget):
-    ledger_entries: reactive[list[LedgerEntry]] = reactive([], recompose=True)
+    ledger_entries: reactive[list[ledger_ops.LedgerEntry]] = reactive(
+        [], recompose=True
+    )
 
     class Selected(Message):
-        def __init__(self, entry: LedgerEntry):
+        def __init__(self, entry: ledger_ops.LedgerEntry):
             self.entry = entry
             super().__init__()
 
     def compose(self) -> ComposeResult:
-        items = [ListItem(Label(entry.header)) for entry in self.ledger_entries]
+        items = [ListItem(Label(entry.header())) for entry in self.ledger_entries]
         yield ListView(*items)
 
     def clear(self):
         self.ledger_entries.clear()
         self.mutate_reactive(LedgerEntries.ledger_entries)
-
-    def parse_ledger_output(self, output: str) -> list[LedgerEntry]:
-        entries = []
-        for entry in output.split("\n\n"):
-            lines = entry.split("\n")
-            entries.append(LedgerEntry(header=lines[0], full=lines))
-        return entries
 
     @work(exclusive=True)
     async def parse_from_ledger_cmd(self, ledger_cmd):
@@ -63,7 +50,9 @@ class LedgerEntries(Widget):
             ledger_cmd, stdout=subprocess.PIPE
         )
         output, _ = await process.communicate()
-        self.ledger_entries = list(reversed(self.parse_ledger_output(output.decode())))
+        self.ledger_entries = list(
+            reversed(ledger_ops.parse_ledger_output(output.decode()))
+        )
         self.mutate_reactive(LedgerEntries.ledger_entries)
 
     @on(ListView.Highlighted)
@@ -74,22 +63,28 @@ class LedgerEntries(Widget):
 
 
 class ModifiedLedgerEntry(Widget):
-    original_entry: reactive[LedgerEntry | None] = reactive(None, recompose=True)
-    modified_entry: reactive[LedgerEntry | None] = reactive(None, recompose=True)
+    original_entry: reactive[ledger_ops.LedgerEntry | None] = reactive(
+        None, recompose=True
+    )
+    modified_entry: reactive[ledger_ops.LedgerEntry | None] = reactive(
+        None, recompose=True
+    )
 
     def compose(self) -> ComposeResult:
         content = ""
         if self.modified_entry:
-            content = "\n".join(self.modified_entry.full)
+            content = self.modified_entry.full_str()
         elif self.original_entry:
-            content = "\n".join(self.original_entry.full)
+            content = self.original_entry.full_str()
         yield TextArea(content, show_line_numbers=True)
 
     def get_textarea_content(self) -> str:
         return self.query_one(TextArea).text
 
     def set_original_modified(
-        self, orig: Optional[LedgerEntry], modified: Optional[LedgerEntry]
+        self,
+        orig: Optional[ledger_ops.LedgerEntry],
+        modified: Optional[ledger_ops.LedgerEntry],
     ):
         self.original_entry = orig
         self.modified_entry = modified
@@ -97,37 +92,15 @@ class ModifiedLedgerEntry(Widget):
     def modify_ledger(self, date_str: str, price: str):
         if not self.original_entry:
             return
-        output_lines = self.original_entry.full.copy()
-        if date_str:
-            line = f"{date_str} {' '.join(output_lines[0].split()[1:])}"
-            output_lines[0] = line
-        if len(price):
-            try:
-                float(price)
-            except ValueError:
-                pass
-            else:
-                price = f"${price}"
-            new_output = []
-            found = False
-            for line in output_lines:
-                if not found and any(x in line for x in ["Expenses:", "Liabilities:"]):
-                    old_price = re.split(r"\s{2,}", line)[-1]
-                    new_output.append(line.replace(old_price, price))
-                    found = True
-                else:
-                    new_output.append(line)
-            output_lines = new_output
-        if not len(output_lines[-1]):
-            output_lines.pop()
-        self.modified_entry = LedgerEntry(header=output_lines[0], full=output_lines)
+        if new_entry := ledger_ops.modify_ledger(self.original_entry, date_str, price):
+            self.modified_entry = new_entry
 
 
 class LedgerAdd(App):
     CSS_PATH = "ledger_add.tcss"
 
     def compose(self) -> ComposeResult:
-        with Center():
+        with Vertical():
             yield Input(placeholder="Payee", id="payee", classes="run_ledger")
             yield Input(placeholder="Price", id="price")
             yield Input(placeholder="Commodity", id="commodity", classes="run_ledger")
@@ -140,12 +113,14 @@ class LedgerAdd(App):
             yield Input(
                 placeholder="Other search term", id="search", classes="run_ledger"
             )
-        with Center():
-            yield Button("Write Ledger Entry", id="write_ledger", disabled=True)
-            yield Button("Reset", id="reset")
+        with Vertical():
+            with Center():
+                yield Button("Write Ledger Entry", id="write_ledger", disabled=True)
+            with Center():
+                yield Button("Reset", id="reset")
+            yield Log()
         yield LedgerEntries(id="ledger_entries")
         yield ModifiedLedgerEntry()
-        yield Footer()
 
     @on(Button.Pressed, "#reset")
     async def reset(self):
@@ -156,34 +131,20 @@ class LedgerAdd(App):
         self.query_one(ModifiedLedgerEntry).set_original_modified(None, None)
         self.query_one("#write_ledger", Button).disabled = True
 
+    def log_message(self, message):
+        self.log(message)
+        self.query_one(Log).write_line(message)
+
     @on(Button.Pressed, "#write_ledger")
     def write_ledger(self):
-        new_entry = self.query_one(ModifiedLedgerEntry).get_textarea_content()
+        new_entry = ledger_ops.parse_ledger_entry(
+            self.query_one(ModifiedLedgerEntry).get_textarea_content().split("\n")
+        )
         if not new_entry:
-            self.log("No ledger output to write")
+            self.log_message("Failed to parse ledger entry")
             return
-        new_entry += "\n"
-        new_entry_date = parser.parse(new_entry.split("\n")[0].split()[0])
-        self.log(f"New entry date: {new_entry_date}")
-        with open(f"{common.LEDGER_DAT}", "r") as f:
-            contents = f.readlines()
-        needs_insert = False
-        for i, text in enumerate(contents):
-            if text and text[0].isdigit():
-                entry_date = parser.parse(text.split()[0])
-                if entry_date > new_entry_date:
-                    needs_insert = True
-                    break
-        if needs_insert:
-            self.log(f"Insert at line {i}")
-            contents.insert(i, new_entry)
-            with open(f"{common.LEDGER_DAT}", "w") as f:
-                f.write("".join(contents))
-        else:
-            self.log("Appending to end of ledger")
-            with open(f"{common.LEDGER_DAT}", "a") as f:
-                f.write(new_entry)
-
+        for log in new_entry.write():
+            self.log_message(log)
         self.run_ledger_cmd()
 
     @on(Input.Changed, ".run_ledger")
@@ -194,18 +155,7 @@ class LedgerAdd(App):
         if not any(map(len, [commodity, payee, search])):
             self.reset_output()
             return
-        args = []
-        if payee:
-            args.append(f"payee {payee}")
-        if search:
-            if not payee:
-                args.append(search)
-            else:
-                args.append(f"and {search}")
-        if commodity:
-            args.append(f"--limit 'commodity=~/{commodity}/'")
-        ledger_prefix = common.LEDGER_PREFIX.replace("-c ", "")
-        ledger_cmd = f"{ledger_prefix} --tail 10 print {' '.join(args)}"
+        ledger_cmd = ledger_ops.make_ledger_command(payee, commodity, search)
         self.query_one(LedgerEntries).parse_from_ledger_cmd(ledger_cmd)
 
     @on(Input.Changed, "#price")
