@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 from dateutil import parser
-from loguru import logger
 
 import common
 
@@ -26,8 +25,26 @@ class LedgerEntry:
     def full_str(self) -> str:
         return "\n".join(self.full_list())
 
-    def write(self) -> list[str]:
+    def validate(self) -> tuple[bool, str]:
+        ledger_cmd = f"{common.LEDGER_BIN} -f -"
+        try:
+            output = subprocess.check_output(
+                ledger_cmd,
+                input=self.full_str(),
+                shell=True,
+                text=True,
+                stderr=subprocess.PIPE,
+            )
+            return True, output
+        except subprocess.CalledProcessError as e:
+            return False, e.stderr
+
+    def write(self) -> tuple[bool, list[str]]:
         logs = []
+        validated, output = self.validate()
+        if not validated:
+            logs.append(output)
+            return False, logs
         new_entry_date = parser.parse(self.date)
         logs.append(f"New entry date: {new_entry_date}")
         with open(f"{common.LEDGER_DAT}", "r") as f:
@@ -48,7 +65,7 @@ class LedgerEntry:
             logs.append("Appending to end of ledger")
             with open(f"{common.LEDGER_DAT}", "a") as f:
                 f.write(self.full_str() + "\n")
-        return logs
+        return True, logs
 
 
 def modify_ledger(
@@ -125,7 +142,6 @@ def get_ledger_entries(
     search: Optional[str] = None,
 ) -> list[LedgerEntry]:
     ledger_cmd = make_ledger_command(payee, commodity, search)
-    logger.info(f"Run: {ledger_cmd}")
     return parse_ledger_output(
         subprocess.check_output(ledger_cmd, shell=True, text=True)
     )

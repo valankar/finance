@@ -2,6 +2,7 @@
 """Methods for stock options."""
 
 import io
+import re
 import subprocess
 import typing
 from collections import defaultdict
@@ -14,6 +15,7 @@ from loguru import logger
 
 import common
 import etfs
+import ledger_ops
 
 
 class TickerOption(typing.NamedTuple):
@@ -31,10 +33,6 @@ class SpreadDetails(typing.NamedTuple):
     expiration: date
     low_strike: float
     high_strike: float
-
-
-def cache_option_chains():
-    get_option_chains(list(options_df_raw()["ticker"].unique()))
 
 
 def get_option_chains(
@@ -63,12 +61,14 @@ def get_option_chain(ticker: str) -> pd.DataFrame | None:
     return option_chain
 
 
-def get_ticker_option(t: TickerOption) -> float | None:
+def get_ticker_option(
+    t: TickerOption, option_chain: typing.Optional[pd.DataFrame]
+) -> float | None:
     ticker = t.ticker
     option_tickers = [ticker]
     if ticker == "SPX":
         option_tickers.append(f"{ticker}W")
-    if (option_chain := get_option_chain(ticker)) is None:
+    if option_chain is None:
         return None
     for option_ticker in option_tickers:
         name = t.expiration.strftime(
@@ -88,7 +88,7 @@ def options_df_raw() -> pd.DataFrame:
         f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/ (CALL|PUT)/' bal "
         + '--no-total --flat --balance-format "%(partial_account)\n%(strip(T))\n"'
     )
-    chfusd = common.read_sql_last("forex")["CHFUSD"].iloc[-1]
+    chfusd = common.get_latest_forex()["CHFUSD"]
     entries = []
     for line in io.StringIO(subprocess.check_output(cmd, shell=True, text=True)):
         if line[0].isalpha():
@@ -122,19 +122,21 @@ def add_options_quotes(options_df: pd.DataFrame):
     tickers = options_df["ticker"].unique()
     if not len(tickers):
         return options_df
+    option_chains = get_option_chains(tickers.tolist())
     prices = []
     for idx, row in options_df.iterrows():
-        idx = typing.cast(tuple, idx)
-        if (
-            price := get_ticker_option(
-                TickerOption(
-                    ticker=row["ticker"],
-                    expiration=idx[2],
-                    contract_type=row["type"],
-                    strike=row["strike"],
-                )
-            )
-        ) is None:
+        expiration = typing.cast(tuple, idx)[2]
+        ticker = row["ticker"]
+        price = get_ticker_option(
+            TickerOption(
+                ticker=ticker,
+                expiration=expiration,
+                contract_type=row["type"],
+                strike=row["strike"],
+            ),
+            option_chains[ticker],
+        )
+        if price is None:
             price = 0
         prices.append(price)
     options_df["quote"] = prices
@@ -154,15 +156,37 @@ def add_value(options_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def convert_to_usd(amount: str) -> float:
+    chfusd = common.get_latest_forex()["CHFUSD"]
+    if amount.startswith("$"):
+        return float(amount[1:])
+    elif amount.endswith(" CHF"):
+        return float(amount.split()[0]) * chfusd
+    return 0
+
+
 def add_contract_price(options_df: pd.DataFrame) -> pd.DataFrame:
     prices = []
     for idx, row in options_df.iterrows():
         broker: str = typing.cast(tuple, idx)[0]
-        name = typing.cast(tuple, idx)[1].replace("/", r"\/")
-        total = common.get_ledger_balance(
-            f"""{common.LEDGER_PREFIX} -J -s reg --limit='commodity=~/"{name}"/' '{broker}'"""
+        name = typing.cast(tuple, idx)[1]
+        name_escaped = name.replace("/", r"\/")
+        entries = ledger_ops.get_ledger_entries(
+            commodity=f'"{name_escaped}"', search=broker
         )
-        prices.append(total / (row["count"] * row["multiplier"]))
+        fees = 0.0
+        total = 0.0
+        for entry in entries:
+            for line in entry.full_list():
+                if "Expenses:Broker:Fees" in line:
+                    amount = line.split(maxsplit=1)[-1]
+                    fees += convert_to_usd(amount)
+                elif name in line:
+                    s = re.split(r"\s{2,}", line.lstrip())
+                    count = int(s[1].split()[0])
+                    amount = s[1].split("@")[-1].lstrip()
+                    total += convert_to_usd(amount) * count
+        prices.append((total + fees) / (row["count"] * row["multiplier"]))
     options_df["contract_price"] = prices
     return options_df
 
@@ -174,6 +198,7 @@ def add_index_prices(etfs_df: pd.DataFrame) -> pd.DataFrame:
     return etfs_df
 
 
+@common.cache_half_hourly_decorator
 def options_df(with_value: bool = False) -> pd.DataFrame:
     """Get call and put dataframe."""
     calls_puts_df = options_df_raw()
@@ -306,7 +331,9 @@ def after_assignment(itm_df):
         expiration_values = values[broker]
         print(f"    {broker}")
         for expiration, value in expiration_values:
-            print(f"      Expiration: {expiration}: {value:.0f}")
+            print(
+                f"      Expiration: {expiration} ({(expiration - date.today()).days}d): {value:.0f}"
+            )
     print()
 
 

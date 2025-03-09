@@ -143,9 +143,11 @@ class LedgerAdd(App):
         if not new_entry:
             self.log_message("Failed to parse ledger entry")
             return
-        for log in new_entry.write():
+        status, logs = new_entry.write()
+        for log in logs:
             self.log_message(log)
-        self.run_ledger_cmd()
+        if status:
+            self.run_ledger_cmd()
 
     @on(Input.Changed, ".run_ledger")
     def run_ledger_cmd(self):

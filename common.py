@@ -39,7 +39,7 @@ LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X 
 GET_TICKER_TIMEOUT = 30
 PLOTLY_THEME = "plotly_dark"
 CURRENCIES_REGEX = r"^(\\$|CHF|EUR|GBP|SGD|SWVXX)$"
-COMMODITIES_REGEX = "^(GLDM|SGOL|SIVR|COIN|BITX|MSTR)$"
+COMMODITIES_REGEX = "^(GLD|GLDM|SGOL|SIVR|COIN|BITX|MSTR)$"
 OPTIONS_LOAN_REGEX = '^("SPX|"SMI) '
 LEDGER_CURRENCIES_OPTIONS_CMD = f"{LEDGER_PREFIX} --limit 'commodity=~/{CURRENCIES_REGEX}/ or commodity=~/{OPTIONS_LOAN_REGEX}/'"
 BROKERAGES = ("Interactive Brokers", "Charles Schwab Brokerage")
@@ -121,6 +121,10 @@ def get_ticker_yahooquery(ticker: str) -> float:
 def get_ticker_yfinance(ticker: str) -> float:
     """Get ticker price via yfinance library."""
     return yfinance.Ticker(ticker).history(period="5d")["Close"].iloc[-1]
+
+
+def get_latest_forex() -> pd.Series:
+    return read_sql_last("forex").iloc[-1]
 
 
 def read_sql_table(table, index_col="date"):

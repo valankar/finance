@@ -8,14 +8,14 @@ import os.path
 import re
 import subprocess
 import typing
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Awaitable, ClassVar, Iterable
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.io as pio
 from loguru import logger
-from nicegui import run, ui
+from nicegui import app, run, ui
 from nicegui.elements.table import Table
 from plotly.graph_objects import Figure
 
@@ -240,7 +240,9 @@ class MainGraphsImageOnly:
                     f"{common.PREFIX}/{name}-{self.selected_range}.png",
                 ]:
                     if os.path.exists(path):
-                        self.ui_image[name] = ui.image(path)
+                        self.ui_image[name] = ui.image(
+                            f"/images/{os.path.basename(path)}"
+                        )
                         if (
                             ts := datetime.fromtimestamp(os.path.getmtime(path))
                         ) > self.latest_timestamp:
@@ -319,7 +321,7 @@ def make_complex_options_table(
                 {
                     "account": d.account,
                     "name": name,
-                    "expiration": d.expiration,
+                    "expiration": f"{d.expiration} ({(d.expiration - date.today()).days}d)",
                     "type": spread_type,
                     "count": d.count,
                     "intrinsic value": total,
@@ -329,7 +331,7 @@ def make_complex_options_table(
             )
     if rows:
         ui.label("Spreads")
-        ui.table(rows=rows)
+        ui.table(rows=sorted(rows, key=lambda x: x["expiration"]))
 
 
 @ui.page("/stock_options", title="Stock Options")
@@ -462,6 +464,7 @@ async def transactions_page():
 
 if __name__ in {"__main__", "__mp_main__"}:
     pio.templates.default = common.PLOTLY_THEME
+    app.add_static_files("/images", common.PREFIX)
     ui.run(
         title="Accounts",
         dark=True,

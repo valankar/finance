@@ -21,15 +21,16 @@ COMMODITIES_PERCENTAGE = {
 }
 # Minimum required percentage of commodities. This eats into the US_BONDS percentage.
 COMMODITIES_PERCENTAGE_FLOOR = 8
+# See https://testfol.io/?s=fkCyZLoXExo
 ETF_TYPE_MAP = {
-    "COMMODITIES_GOLD": ["GLDM", "SGOL"],
+    "COMMODITIES_GOLD": ["GLD", "GLDM", "SGOL"],
     "COMMODITIES_SILVER": ["SIVR"],
     "COMMODITIES_CRYPTO": ["COIN", "BITX", "MSTR"],
-    "US_SMALL_CAP": ["SCHA"],
-    "US_LARGE_CAP": ["SCHX", "VV"],
-    "US_BONDS": ["SCHO", "SCHR", "SCHZ", "SGOV", "SWAGX"],
-    "INTERNATIONAL_DEVELOPED": ["SCHF", "SWISX"],
-    "INTERNATIONAL_EMERGING": ["SCHE"],
+    "US_SMALL_CAP": ["SCHA", "VB"],
+    "US_LARGE_CAP": ["SCHX", "VOO", "VV"],
+    "US_BONDS": ["BND", "SCHO", "SCHR", "SCHZ", "SGOV", "SWAGX"],
+    "INTERNATIONAL_DEVELOPED": ["SCHF", "SWISX", "VEA"],
+    "INTERNATIONAL_EMERGING": ["SCHE", "VWO"],
 }
 # These get expanded out into US_SMALL_CAP and US_LARGE_CAP according to allocation
 # of SWTSX.

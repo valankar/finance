@@ -2,6 +2,7 @@
 
 cd $HOME/code/accounts
 docker compose up accounts_hourly --abort-on-container-exit --force-recreate
+RETVAL=$?
 
 # If there was a daily failure or it needs a run, re-run it.
 NEEDS_RUN=0
@@ -16,3 +17,5 @@ fi
 if [ $NEEDS_RUN -eq 1 ]; then
     docker compose up accounts_daily selenium --abort-on-container-exit --force-recreate
 fi
+
+exit $RETVAL

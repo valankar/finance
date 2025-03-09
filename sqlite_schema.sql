@@ -28,14 +28,14 @@ CREATE TABLE "schwab_etfs_amounts" (
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT, [SGOV] FLOAT, [VV] FLOAT, [PLTR] FLOAT);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT, [SGOV] FLOAT, [VV] FLOAT, [PLTR] FLOAT, [AMD] FLOAT, [GLD] FLOAT);
 CREATE TABLE schwab_etfs_prices (
 	date DATETIME, 
 	"SCHA" FLOAT, 
 	"SCHF" FLOAT, 
 	"SCHR" FLOAT, 
 	"SCHX" FLOAT
-, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT, [SGOV] FLOAT, [VV] FLOAT, [PLTR] FLOAT);
+, [SWTSX] FLOAT, [SWISX] FLOAT, [SWAGX] FLOAT, [SCHZ] FLOAT, [IBKR] FLOAT, [SCHB] FLOAT, [GLDM] FLOAT, [SGOL] FLOAT, [SIVR] FLOAT, [SCHE] FLOAT, [SCHO] FLOAT, [COIN] FLOAT, [BITX] FLOAT, [MSTR] FLOAT, [SGOV] FLOAT, [VV] FLOAT, [PLTR] FLOAT, [AMD] FLOAT, [GLD] FLOAT);
 CREATE TABLE schwab_ira_amounts (
 	date DATETIME, 
 	"SWYGX" FLOAT
@@ -65,18 +65,6 @@ CREATE TABLE "toshl_expenses_export_2023-01-01" (
 	"Description" TEXT
 );
 CREATE TABLE sqlite_stat1(tbl,idx,stat);
-CREATE TABLE swygx_holdings (
-	date DATETIME, 
-	"SCHX" FLOAT, 
-	"SCHF" FLOAT, 
-	"SCHZ" FLOAT, 
-	"SCHH" FLOAT, 
-	"SCHA" FLOAT, 
-	"SCHE" FLOAT, 
-	"USD" FLOAT, 
-	"SCHO" FLOAT, 
-	"SVUXX" FLOAT
-, SGUXX FLOAT);
 CREATE TABLE swtsx_market_cap (
 	date DATETIME, 
 	"US_LARGE_CAP" FLOAT, 
@@ -113,6 +101,18 @@ CREATE TABLE real_estate_rents (
 	value BIGINT, 
 	site TEXT
 );
+CREATE TABLE swygx_holdings (
+	date DATETIME, 
+	"SCHX" FLOAT, 
+	"SCHF" FLOAT, 
+	"SCHZ" FLOAT, 
+	"SCHH" FLOAT, 
+	"SCHA" FLOAT, 
+	"SCHE" FLOAT, 
+	"USD" FLOAT, 
+	"SCHO" FLOAT, 
+	"SGUXX" FLOAT
+);
 CREATE TABLE fedfunds (
 	date DATETIME, 
 	percent FLOAT
@@ -131,12 +131,12 @@ CREATE INDEX ix_schwab_ira_amounts_date ON schwab_ira_amounts (date);
 CREATE INDEX ix_schwab_ira_prices_date ON schwab_ira_prices (date);
 CREATE INDEX "ix_toshl_income_export_2023-01-01_Date" ON "toshl_income_export_2023-01-01" ("Date");
 CREATE INDEX "ix_toshl_expenses_export_2023-01-01_Date" ON "toshl_expenses_export_2023-01-01" ("Date");
-CREATE INDEX ix_swygx_holdings_date ON swygx_holdings (date);
 CREATE INDEX ix_swtsx_market_cap_date ON swtsx_market_cap (date);
 CREATE INDEX ix_interactive_brokers_margin_rates_date ON interactive_brokers_margin_rates (date);
 CREATE INDEX ix_index_prices_date ON index_prices (date);
 CREATE INDEX ix_brokerage_totals_date ON brokerage_totals (date);
 CREATE INDEX ix_real_estate_prices_date ON real_estate_prices (date);
 CREATE INDEX ix_real_estate_rents_date ON real_estate_rents (date);
+CREATE INDEX ix_swygx_holdings_date ON swygx_holdings (date);
 CREATE INDEX ix_fedfunds_date ON fedfunds (date);
 CREATE INDEX ix_sofr_date ON sofr (date);

@@ -88,9 +88,11 @@ class LedgerUI:
         ) is None:
             self.log.push("Failed to parse ledger entry")
             return
-        for log in new_entry.write():
+        success, logs = new_entry.write()
+        for log in logs:
             self.log.push(log)
-        await self.input_changed()
+        if success:
+            await self.input_changed()
 
     def row_selected(self, data: dict):
         if not data["selected"]:
@@ -151,5 +153,9 @@ class LedgerUI:
                     .classes("ag-theme-balham-dark")
                     .on("rowSelected", lambda msg: self.row_selected(msg.args))
                 )
-            with ui.card():
-                ui.codemirror(theme="basicDark").bind_value(self, "editor_data")
+            with ui.card(align_items="stretch"):
+                ui.textarea().classes("font-mono").props(
+                    'input-class="h-80"'
+                ).bind_value(self, "editor_data")
+                # See https://github.com/zauberzeug/nicegui/issues/3337
+                # ui.codemirror(theme="basicDark").bind_value(self, "editor_data")

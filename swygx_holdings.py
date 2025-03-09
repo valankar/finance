@@ -18,14 +18,19 @@ def save_holdings():
     ) as page:
         holdings = {}
         common.schwab_browser_page(page)
+        text = page.get_by_role("cell", name="SCHX").inner_text()
+        logger.info(f"Found {text=}")
         for row in page.get_by_role("table").get_by_role("row").all()[1:]:
             holdings[row.get_by_role("cell").nth(1).inner_text()] = float(
                 row.get_by_role("cell").nth(2).inner_text().strip("%")
             )
 
-    if len(holdings) != 9:
+    expected_tickers = set(common.read_sql_last("swygx_holdings").columns)
+    found_tickers = set(holdings)
+    if found_tickers != expected_tickers:
+        logger.error(f"Failed: {expected_tickers=} {found_tickers=} {holdings=}")
         logger.error(
-            f"Failed to get SWYGX holdings: only {len(holdings)} found: {holdings}"
+            f"Symmetric difference: {expected_tickers.symmetric_difference(found_tickers)}"
         )
         raise GetHoldingsError
     holdings_df = pd.DataFrame(

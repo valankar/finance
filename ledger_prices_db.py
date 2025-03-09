@@ -26,7 +26,7 @@ def main():
                 output_file.write(f"P {NOW} {ticker} ${price}\n")
 
         # Forex values
-        series = common.read_sql_last("forex").iloc[-1]
+        series = common.get_latest_forex()
         for ticker, price in series.items():
             ticker = str(ticker).replace("USD", "")
             output_file.write(f"P {NOW} {ticker} ${price}\n")
