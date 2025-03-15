@@ -46,25 +46,18 @@ def get_loan_brokerage(broker: LoanBrokerage) -> Optional[LoanBrokerage]:
 
 
 def get_options_value(broker: LoanBrokerage) -> float:
-    _, options, _, bull_put_spreads = stock_options.get_options_and_spreads()
-    options_value = options.query(f"account == '{broker.name}'")["value"].sum()
-    options_value += sum(
-        map(
-            lambda x: x.query(f"account == '{broker.name}' and ticker != 'SPX'")[
-                "value"
-            ].sum(),
-            bull_put_spreads,
-        )
-    )
-    # SPX bull put spreads handled differently.
-    options_value += sum(
-        map(
-            lambda x: x.query(f"account == '{broker.name}' and ticker == 'SPX'")[
-                "intrinsic_value"
-            ].sum(),
-            bull_put_spreads,
-        )
-    )
+    opts = stock_options.get_options_and_spreads()
+    options_value = opts.pruned_options.query(f"account == '{broker.name}'")[
+        "value"
+    ].sum()
+    spread_df = pd.concat(opts.bull_put_spreads + opts.bear_call_spreads)
+    options_value += spread_df.query(f"account == '{broker.name}' and ticker != 'SPX'")[
+        "value"
+    ].sum()
+    # SPX spreads handled differently.
+    options_value += spread_df.query(f"account == '{broker.name}' and ticker == 'SPX'")[
+        "intrinsic_value"
+    ].sum()
     if options_value:
         logger.info(f"Options value for {broker.name}: {options_value}")
     return options_value

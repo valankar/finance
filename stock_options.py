@@ -2,6 +2,7 @@
 """Methods for stock options."""
 
 import io
+import itertools
 import re
 import subprocess
 import typing
@@ -33,6 +34,19 @@ class SpreadDetails(typing.NamedTuple):
     expiration: date
     low_strike: float
     high_strike: float
+    contract_price: float
+    half_mark: float
+    double_mark: float
+    intrinsic_value: float
+    risk: float
+
+
+class OptionsAndSpreads(typing.NamedTuple):
+    all_options: pd.DataFrame
+    pruned_options: pd.DataFrame
+    box_spreads: list[pd.DataFrame]
+    bull_put_spreads: list[pd.DataFrame]
+    bear_call_spreads: list[pd.DataFrame]
 
 
 def get_option_chains(
@@ -152,7 +166,15 @@ def add_value(options_df: pd.DataFrame) -> pd.DataFrame:
     df["value"] = df[["intrinsic_value", "value"]].abs().max(axis=1) * (
         df["count"] / df["count"].abs()
     )
-    df["profit"] = df["value"] - (df["contract_price"] * df["count"] * df["multiplier"])
+    df["profit_option_value"] = df["value"] - (
+        df["contract_price"] * df["count"] * df["multiplier"]
+    )
+    df["profit_stock_price"] = abs(
+        df["count"] * df["multiplier"] * (df["strike"] + df["contract_price"])
+    ) - abs(df["count"] * df["multiplier"] * df["current_price"])
+    df.loc[(df["type"] == "PUT") & (df["count"] < 0), "profit_stock_price"] *= -1
+    df.loc[(df["type"] == "CALL") & (df["count"] > 0), "profit_stock_price"] *= -1
+    df.loc[~df["in_the_money"], "profit_stock_price"] = 0
     return df
 
 
@@ -358,6 +380,27 @@ def find_bull_put_spreads(options_df: pd.DataFrame) -> list[pd.DataFrame]:
     return dataframes
 
 
+def find_bear_call_spreads(options_df: pd.DataFrame) -> list[pd.DataFrame]:
+    """Find bear call spreads. Remove box spreads before calling."""
+    dataframes = []
+    for index, row in options_df.iterrows():
+        ticker = row["ticker"]  # noqa: F841
+        # Find a long CALL
+        if row["type"] == "CALL" and row["count"] > 0:
+            # The long CALL
+            high_long_call = options_df.query(
+                'ticker == @ticker & type == "CALL" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count > 0'
+            )
+            # Find a short CALL at lower strike, same expiration and broker
+            low_short_call = options_df.query(
+                'ticker == @ticker & type == "CALL" & strike < @row["strike"] & expiration == @index[2] & account == @index[0] & count < 0'
+            )
+            found = pd.concat([low_short_call, high_long_call])
+            if len(found) == 2:
+                dataframes.append(found)
+    return dataframes
+
+
 def find_box_spreads(options_df: pd.DataFrame) -> list[pd.DataFrame]:
     """Find box spreads."""
     box_dataframes = []
@@ -409,8 +452,14 @@ def get_spread_details(
     low_strike = spread_df["strike"].min()
     high_strike = spread_df["strike"].max()
     count = int(spread_df["count"].max())
+    multiplier = spread_df["multiplier"].max()
     row = spread_df.iloc[0]
     index = spread_df.index[0]
+    c = spread_df.copy()
+    c["price"] = c["contract_price"] * c["count"] * c["multiplier"]
+    contract_price = c["price"].sum()
+    half_mark = contract_price / count / multiplier / 2
+    double_mark = contract_price / count / multiplier * 2
     return SpreadDetails(
         account=index[0],
         count=count,
@@ -419,6 +468,11 @@ def get_spread_details(
         expiration=index[2].date(),
         low_strike=low_strike,
         high_strike=high_strike,
+        contract_price=contract_price,
+        half_mark=half_mark,
+        double_mark=double_mark,
+        intrinsic_value=spread_df["intrinsic_value"].sum(),
+        risk=spread_df["exercise_value"].sum(),
     )
 
 
@@ -429,66 +483,124 @@ def summarize_box(box_df: pd.DataFrame):
         f"{d.count} {d.ticker} {d.expiration} {d.low_strike:.0f}/{d.high_strike:.0f} Box"
     )
     total = box_df.query("in_the_money == True")["exercise_value"].sum()
+    print(f"Contract price: {d.contract_price:.0f}")
     print(f"Exercise value: {total:.0f}", end="")
     if d.count > 1:
         print(f" ({total / d.count:.0f} per contract)", end="")
     print("\n")
 
 
-def summarize_bull_put(bull_put_df: pd.DataFrame):
-    d = get_spread_details(bull_put_df)
+def modify_otm_leg(spread_df: pd.DataFrame) -> typing.Optional[pd.DataFrame]:
+    leg = spread_df.query("in_the_money == False").copy()
+    if len(leg) == 1:
+        leg["exercise_value"] = leg["count"] * leg["multiplier"] * leg["current_price"]
+        return leg
+    return None
+
+
+def summarize_spread(spread_df: pd.DataFrame, title: str):
+    d = get_spread_details(spread_df)
     print(f"{d.account}")
     print(
-        f"{d.count} {d.ticker} {d.expiration} {d.low_strike:.0f}/{d.high_strike:.0f} Bull Put"
+        f"{d.count} {d.ticker} {d.expiration} {d.low_strike:.0f}/{d.high_strike:.0f} {title}"
     )
-    total = bull_put_df.query("in_the_money == True")["exercise_value"].sum()
+    total = spread_df.query("in_the_money == True")["exercise_value"].sum()
+    if (otm_leg := modify_otm_leg(spread_df)) is not None:
+        total += otm_leg["exercise_value"].sum()
+    print(f"Contract price: {d.contract_price:.0f}")
+    print(f"Half mark: {d.half_mark:.2f}")
+    print(f"Double mark: {d.double_mark:.2f}")
     print(f"Exercise value: {total:.0f}")
-    print(f"Maximum risk: {bull_put_df['exercise_value'].sum():.0f}")
+    print(f"Maximum risk: {spread_df['exercise_value'].sum():.0f}")
     print(f"Ticker price: {d.ticker_price}\n")
 
 
-def get_options_and_spreads() -> tuple[
-    pd.DataFrame, pd.DataFrame, list[pd.DataFrame], list[pd.DataFrame]
-]:
+def get_options_and_spreads() -> OptionsAndSpreads:
     all_options = options_df(with_value=True)
     box_spreads = find_box_spreads(all_options)
     pruned_options = remove_spreads(all_options, box_spreads)
     bull_put_spreads = find_bull_put_spreads(pruned_options)
     pruned_options = remove_spreads(pruned_options, bull_put_spreads)
-    return all_options, pruned_options, box_spreads, bull_put_spreads
+    bear_call_spreads = find_bear_call_spreads(pruned_options)
+    pruned_options = remove_spreads(pruned_options, bear_call_spreads)
+    return OptionsAndSpreads(
+        all_options=all_options,
+        pruned_options=pruned_options,
+        box_spreads=box_spreads,
+        bull_put_spreads=bull_put_spreads,
+        bear_call_spreads=bear_call_spreads,
+    )
+
+
+def get_itm_df(
+    all_options: pd.DataFrame, spreads: typing.Iterable[pd.DataFrame]
+) -> pd.DataFrame:
+    itm_df = all_options.query("in_the_money == True")
+    # Handle spreads where one leg is in the money
+    for spread in spreads:
+        if (otm_leg := modify_otm_leg(spread)) is not None:
+            itm_df = pd.concat([itm_df, otm_leg])
+    return itm_df
+
+
+def remove_zero_columns(df: pd.DataFrame) -> pd.DataFrame:
+    return df.loc[:, df.any()]
 
 
 def main(show_spreads: bool = True):
     """Main."""
-    all_options, options, box_spreads, bull_put_spreads = get_options_and_spreads()
-    if len(otm_df := options.query("in_the_money == False")):
+    opts = get_options_and_spreads()
+    if len(otm_df := opts.pruned_options.query("in_the_money == False")):
         print("Out of the money")
-        print(otm_df.drop(columns=["intrinsic_value", "min_contract_price"]), "\n")
-    if len(itm_df := options.query("in_the_money == True")):
+        print(
+            remove_zero_columns(
+                otm_df.drop(
+                    columns=[
+                        "in_the_money",
+                        "intrinsic_value",
+                        "min_contract_price",
+                        "profit_stock_price",
+                    ]
+                )
+            ),
+            "\n",
+        )
+    if len(itm_df := opts.pruned_options.query("in_the_money == True")):
         print("In the money")
-        print(itm_df, "\n")
+        print(remove_zero_columns(itm_df.drop(columns="in_the_money")), "\n")
+    itm_df = get_itm_df(
+        opts.all_options, itertools.chain(opts.bull_put_spreads, opts.bear_call_spreads)
+    )
     print(
         "Balances after in the money options assigned (includes spreads not shown above)"
     )
-    after_assignment(all_options.query("in_the_money == True"))
+    after_assignment(itm_df)
     for broker in common.BROKERAGES:
-        if broker in options.index.get_level_values(0):
+        if broker in opts.pruned_options.index.get_level_values(0):
             print(f"{broker}")
-            print(f"  Short put exposure: {short_put_exposure(options, broker):.0f}")
             print(
-                f"  Total exercise value: {options.xs(broker, level='account')['exercise_value'].sum():.0f}"
+                f"  Short put exposure: {short_put_exposure(opts.pruned_options, broker):.0f}"
             )
-            print(options.xs(broker, level="account"), "\n")
+            print(
+                f"  Total exercise value: {opts.pruned_options.xs(broker, level='account')['exercise_value'].sum():.0f}"
+            )
+            print(
+                remove_zero_columns(opts.pruned_options.xs(broker, level="account")),  # type: ignore
+                "\n",
+            )
 
     if show_spreads:
-        if bull_put_spreads:
+        if opts.bull_put_spreads:
             print("Bull put spreads")
-            for spread in bull_put_spreads:
-                summarize_bull_put(spread)
-
-        if box_spreads:
+            for spread in opts.bull_put_spreads:
+                summarize_spread(spread, "Bull Put")
+        if opts.bear_call_spreads:
+            print("Bear call spreads")
+            for spread in opts.bear_call_spreads:
+                summarize_spread(spread, "Bear Call")
+        if opts.box_spreads:
             print("Box spreads")
-            for box in box_spreads:
+            for box in opts.box_spreads:
                 summarize_box(box)
 
 

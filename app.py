@@ -4,6 +4,7 @@
 import asyncio
 import contextlib
 import io
+import itertools
 import os.path
 import re
 import subprocess
@@ -306,17 +307,24 @@ def get_stock_options_output() -> str:
 
 
 def make_complex_options_table(
-    bull_put_spreads: list[pd.DataFrame], box_spreads: list[pd.DataFrame]
+    bull_put_spreads: list[pd.DataFrame],
+    bear_call_spreads: list[pd.DataFrame],
+    box_spreads: list[pd.DataFrame],
 ):
     rows = []
-    for spreads, spread_type in ((bull_put_spreads, "Bull Put"), (box_spreads, "Box")):
+    for spreads, spread_type in (
+        (bull_put_spreads, "Bull Put"),
+        (bear_call_spreads, "Bear Call"),
+        (box_spreads, "Box"),
+    ):
         for spread_df in spreads:
             d = stock_options.get_spread_details(spread_df)
             name = f"{d.ticker} {d.low_strike:.0f}/{d.high_strike:.0f}"
-            total = f"{spread_df['intrinsic_value'].sum():.0f}"
-            risk = ""
-            if spread_type == "Bull Put":
-                risk = f"{spread_df['exercise_value'].sum():.0f}"
+            risk = half_mark = double_mark = ""
+            if spread_type != "Box":
+                risk = f"{d.risk:.0f}"
+                half_mark = f"{d.half_mark:.2f}"
+                double_mark = f"{d.double_mark:.2f}"
             rows.append(
                 {
                     "account": d.account,
@@ -324,8 +332,11 @@ def make_complex_options_table(
                     "expiration": f"{d.expiration} ({(d.expiration - date.today()).days}d)",
                     "type": spread_type,
                     "count": d.count,
-                    "intrinsic value": total,
+                    "intrinsic value": f"{d.intrinsic_value:.0f}",
                     "maximum loss": risk,
+                    "contract price": f"{d.contract_price:.0f}",
+                    "half mark": half_mark,
+                    "double mark": double_mark,
                     "ticker price": d.ticker_price,
                 }
             )
@@ -342,11 +353,38 @@ async def stock_options_page():
     await ui.context.client.connected()
     output = await run.io_bound(get_stock_options_output)
     ui.html(f"<PRE>{output}</PRE>")
-    all_options, _, box_spreads, bull_put_spreads = await run.io_bound(
-        stock_options.get_options_and_spreads
+    opts = await run.io_bound(stock_options.get_options_and_spreads)
+    make_complex_options_table(
+        opts.bull_put_spreads, opts.bear_call_spreads, opts.box_spreads
     )
-    make_complex_options_table(bull_put_spreads, box_spreads)
-    options_df = stock_options.remove_spreads(all_options, box_spreads).query(
+    spread_df = pd.concat(opts.bull_put_spreads + opts.bear_call_spreads)
+    tickers = spread_df["ticker"].unique()
+    for ticker in sorted(tickers):
+        ticker_df = spread_df.query("ticker == @ticker")
+        price_df = common.read_sql_table("schwab_etfs_prices")[[ticker]].dropna()
+        for broker in sorted(ticker_df.index.get_level_values("account").unique()):
+            df = ticker_df.xs(broker, level="account")
+            fig = (
+                plot.make_prices_section(price_df, f"{ticker} @ {broker}")
+                .update_layout(margin=SUBPLOT_MARGIN)
+                .update_traces(showlegend=False)
+            )
+            for index, row in df.iterrows():
+                name, expiration = typing.cast(tuple, index)
+                color = "green" if row["count"] > 0 else "red"
+                text = f"{row['count']} {name} ({(expiration - datetime.now()).days}d)"
+                fig.add_hline(
+                    y=row["strike"],
+                    annotation_text=text,
+                    annotation_position="top left",
+                    annotation_font_color=color,
+                    line_dash="dot",
+                    line_color=color,
+                )
+            ui.plotly(fig).classes("w-full").style("height: 50vh")
+
+    # Indexes
+    options_df = stock_options.remove_spreads(opts.all_options, opts.box_spreads).query(
         'ticker == "SPX"'
     )
     fig = plot.make_prices_section(
@@ -361,7 +399,6 @@ async def stock_options_page():
             line_dash="dot",
             line_color="gray",
         )
-
     ui.plotly(fig).classes("w-full").style("height: 50vh")
     skel.delete()
 
@@ -401,16 +438,22 @@ def body_cell_slot(table: Table, column: str, color: str, condition: str):
     )
 
 
+def get_expiration_values():
+    opts = stock_options.get_options_and_spreads()
+    return stock_options.get_expiration_values(
+        stock_options.get_itm_df(
+            opts.all_options,
+            itertools.chain(opts.bull_put_spreads, opts.bear_call_spreads),
+        )
+    )
+
+
 @ui.page("/transactions", title="Transactions")
 async def transactions_page():
     log_request()
     skel = ui.skeleton("QToolbar").classes("w-full")
     await ui.context.client.connected()
-    expiration_values = await run.io_bound(
-        lambda: stock_options.get_expiration_values(
-            stock_options.options_df().query("in_the_money == True")
-        )
-    )
+    expiration_values = await run.io_bound(get_expiration_values)
     columns = 2
     if await ui.run_javascript("window.innerWidth;", timeout=10) < 1000:
         columns = 1
