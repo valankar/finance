@@ -2,15 +2,12 @@
 """Plot weight graph."""
 
 import asyncio
-import contextlib
 import io
-import itertools
 import os.path
 import re
 import subprocess
-import typing
-from datetime import date, datetime, timedelta
-from typing import Awaitable, ClassVar, Iterable
+from datetime import datetime
+from typing import Awaitable, ClassVar, Iterable, Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -25,10 +22,7 @@ import common
 import graph_generator
 import i_and_e
 import ledger_ui
-import plot
-import stock_options
-
-SUBPLOT_MARGIN = {"l": 0, "r": 50, "b": 0, "t": 50}
+import stock_options_ui
 
 RANGES = ["All", "3y", "2y", "1y", "YTD", "6m", "3m", "1m", "1d"]
 DEFAULT_RANGE = "1y"
@@ -37,11 +31,8 @@ DEFAULT_RANGE = "1y"
 class MainGraphs:
     """Collection of all main graphs."""
 
-    graphs: ClassVar[graph_generator.Graphs] = {}
-    last_updated_time: ClassVar[datetime] = datetime.now()
-    last_generation_duration: ClassVar[timedelta] = timedelta()
-    latest_datapoint_time: ClassVar[pd.Timestamp] = pd.Timestamp.now()
-    LAYOUT: tuple[tuple[str, str], ...] = (
+    graph_data: ClassVar[Optional[graph_generator.GraphData]] = None
+    LAYOUT: ClassVar[tuple[tuple[str, str], ...]] = (
         ("assets_breakdown", "96vh"),
         ("investing_retirement", "75vh"),
         ("real_estate", "96vh"),
@@ -57,28 +48,36 @@ class MainGraphs:
         ("short_options", "50vh"),
         ("daily_indicator", "45vh"),
     )
-    CACHE_CALL_ARGS = (LAYOUT, RANGES, SUBPLOT_MARGIN)
-
-    @classmethod
-    def all_graphs_populated(cls) -> bool:
-        if graph_generator.generate_all_graphs.check_call_in_cache(
-            *cls.CACHE_CALL_ARGS
-        ):
-            (
-                cls.graphs,
-                cls.last_updated_time,
-                cls.last_generation_duration,
-                cls.latest_datapoint_time,
-            ) = graph_generator.generate_all_graphs(*cls.CACHE_CALL_ARGS)
-            return True
-        elif len(cls.graphs):
-            return True
-        return False
+    CACHE_CALL_ARGS: ClassVar = (LAYOUT, RANGES, common.SUBPLOT_MARGIN)
 
     def __init__(self, selected_range: str):
         self.ui_plotly = {}
         self.ui_stats_labels = {}
         self.selected_range = selected_range
+
+    @classmethod
+    async def wait_for_graphs(cls):
+        skel = None
+        await ui.context.client.connected()
+        while not cls.all_graphs_populated():
+            if not skel:
+                skel = ui.skeleton("QToolbar").classes("w-full")
+            await asyncio.sleep(1)
+        if skel:
+            skel.delete()
+
+    @classmethod
+    def all_graphs_populated(cls) -> bool:
+        if graph_generator.generate_all_graphs.check_call_in_cache(
+            *MainGraphs.CACHE_CALL_ARGS
+        ):
+            cls.graph_data = graph_generator.generate_all_graphs(
+                *MainGraphs.CACHE_CALL_ARGS
+            )
+            return True
+        elif cls.graph_data:
+            return True
+        return False
 
     async def update_stats_labels(self) -> None:
         try:
@@ -89,24 +88,28 @@ class MainGraphs:
             )
         except TimeoutError:
             timezone = ZoneInfo("UTC")
+        if (graph_data := MainGraphs.graph_data) is None:
+            return
         self.ui_stats_labels["last_datapoint_time"].set_text(
-            f"Latest datapoint: {MainGraphs.latest_datapoint_time.tz_localize('UTC').astimezone(timezone).strftime('%c')}"
+            f"Latest datapoint: {graph_data.latest_datapoint_time.tz_localize('UTC').astimezone(timezone).strftime('%c')}"
         )
         self.ui_stats_labels["last_updated_time"].set_text(
-            f"Graphs last updated: {MainGraphs.last_updated_time.astimezone(timezone).strftime('%c')}"
+            f"Graphs last updated: {graph_data.last_updated_time.astimezone(timezone).strftime('%c')}"
         )
         self.ui_stats_labels["last_generation_duration"].set_text(
-            f"Graph generation duration: {MainGraphs.last_generation_duration.total_seconds():.2f}s"
+            f"Graph generation duration: {graph_data.last_generation_duration.total_seconds():.2f}s"
         )
 
     async def create(self) -> None:
         """Create all graphs."""
+        if (graph_data := MainGraphs.graph_data) is None:
+            return
         for name, height in MainGraphs.LAYOUT:
-            if name in MainGraphs.graphs["ranged"]:
-                graph = MainGraphs.graphs["ranged"][name][self.selected_range]
+            if name in graph_data.graphs["ranged"]:
+                graph = graph_data.graphs["ranged"][name][self.selected_range]
             else:
                 try:
-                    graph = MainGraphs.graphs["nonranged"][name]
+                    graph = graph_data.graphs["nonranged"][name]
                 except KeyError:
                     continue
             self.ui_plotly[name] = (
@@ -127,10 +130,12 @@ class MainGraphs:
 
     async def update(self) -> None:
         """Update all graphs."""
-        for name in MainGraphs.graphs["ranged"]:
+        if (graph_data := MainGraphs.graph_data) is None:
+            return
+        for name in graph_data.graphs["ranged"]:
             await run.io_bound(
                 self.ui_plotly[name].update_figure,
-                MainGraphs.graphs["ranged"][name][self.selected_range],
+                graph_data.graphs["ranged"][name][self.selected_range],
             )
         await self.update_stats_labels()
 
@@ -202,26 +207,14 @@ async def main_page():
     ui.add_body_html(
         '<script src="https://unpkg.com/virtual-webgl@1.0.6/src/virtual-webgl.js"></script>'
     )
-
-    async def wait_for_graphs():
-        skel = None
-        while not MainGraphs.all_graphs_populated():
-            await ui.context.client.connected()
-            if not skel:
-                skel = ui.skeleton("QToolbar").classes("w-full")
-            await asyncio.sleep(1)
-        if skel:
-            skel.delete()
-
-    await wait_for_graphs()
+    await MainGraphs.wait_for_graphs()
+    graphs = MainGraphs(DEFAULT_RANGE)
 
     with ui.footer().classes("transparent q-py-none"):
         with ui.tabs().classes("w-full") as tabs:
             for timerange in RANGES:
                 ui.tab(timerange)
 
-    await ui.context.client.connected()
-    graphs = MainGraphs(DEFAULT_RANGE)
     tabs.bind_value(graphs, "selected_range")
     await graphs.create()
     tabs.on_value_change(graphs.update)
@@ -299,108 +292,11 @@ async def ledger_page():
     ledger_ui.LedgerUI().main_page(columns)
 
 
-def get_stock_options_output() -> str:
-    with contextlib.redirect_stdout(io.StringIO()) as output:
-        with common.pandas_options():
-            stock_options.main(show_spreads=False)
-            return output.getvalue()
-
-
-def make_complex_options_table(
-    bull_put_spreads: list[pd.DataFrame],
-    bear_call_spreads: list[pd.DataFrame],
-    box_spreads: list[pd.DataFrame],
-):
-    rows = []
-    for spreads, spread_type in (
-        (bull_put_spreads, "Bull Put"),
-        (bear_call_spreads, "Bear Call"),
-        (box_spreads, "Box"),
-    ):
-        for spread_df in spreads:
-            d = stock_options.get_spread_details(spread_df)
-            name = f"{d.ticker} {d.low_strike:.0f}/{d.high_strike:.0f}"
-            risk = half_mark = double_mark = ""
-            if spread_type != "Box":
-                risk = f"{d.risk:.0f}"
-                half_mark = f"{d.half_mark:.2f}"
-                double_mark = f"{d.double_mark:.2f}"
-            rows.append(
-                {
-                    "account": d.account,
-                    "name": name,
-                    "expiration": f"{d.expiration} ({(d.expiration - date.today()).days}d)",
-                    "type": spread_type,
-                    "count": d.count,
-                    "intrinsic value": f"{d.intrinsic_value:.0f}",
-                    "maximum loss": risk,
-                    "contract price": f"{d.contract_price:.0f}",
-                    "half mark": half_mark,
-                    "double mark": double_mark,
-                    "ticker price": d.ticker_price,
-                }
-            )
-    if rows:
-        ui.label("Spreads")
-        ui.table(rows=sorted(rows, key=lambda x: x["expiration"]))
-
-
 @ui.page("/stock_options", title="Stock Options")
 async def stock_options_page():
     """Stock options."""
     log_request()
-    skel = ui.skeleton("QToolbar").classes("w-full")
-    await ui.context.client.connected()
-    output = await run.io_bound(get_stock_options_output)
-    ui.html(f"<PRE>{output}</PRE>")
-    opts = await run.io_bound(stock_options.get_options_and_spreads)
-    make_complex_options_table(
-        opts.bull_put_spreads, opts.bear_call_spreads, opts.box_spreads
-    )
-    spread_df = pd.concat(opts.bull_put_spreads + opts.bear_call_spreads)
-    tickers = spread_df["ticker"].unique()
-    for ticker in sorted(tickers):
-        ticker_df = spread_df.query("ticker == @ticker")
-        price_df = common.read_sql_table("schwab_etfs_prices")[[ticker]].dropna()
-        for broker in sorted(ticker_df.index.get_level_values("account").unique()):
-            df = ticker_df.xs(broker, level="account")
-            fig = (
-                plot.make_prices_section(price_df, f"{ticker} @ {broker}")
-                .update_layout(margin=SUBPLOT_MARGIN)
-                .update_traces(showlegend=False)
-            )
-            for index, row in df.iterrows():
-                name, expiration = typing.cast(tuple, index)
-                color = "green" if row["count"] > 0 else "red"
-                text = f"{row['count']} {name} ({(expiration - datetime.now()).days}d)"
-                fig.add_hline(
-                    y=row["strike"],
-                    annotation_text=text,
-                    annotation_position="top left",
-                    annotation_font_color=color,
-                    line_dash="dot",
-                    line_color=color,
-                )
-            ui.plotly(fig).classes("w-full").style("height: 50vh")
-
-    # Indexes
-    options_df = stock_options.remove_spreads(opts.all_options, opts.box_spreads).query(
-        'ticker == "SPX"'
-    )
-    fig = plot.make_prices_section(
-        common.read_sql_table("index_prices")[["^SPX"]], "Index Prices"
-    ).update_layout(margin=SUBPLOT_MARGIN)
-    for index, row in options_df.iterrows():
-        _, name, _ = typing.cast(tuple, index)
-        fig.add_hline(
-            y=row["strike"],
-            annotation_text=f"{row['count']} {name}",
-            annotation_position="top left",
-            line_dash="dot",
-            line_color="gray",
-        )
-    ui.plotly(fig).classes("w-full").style("height: 50vh")
-    skel.delete()
+    await stock_options_ui.StockOptionsPage().main_page()
 
 
 @ui.page("/latest_values", title="Latest Values")
@@ -438,22 +334,12 @@ def body_cell_slot(table: Table, column: str, color: str, condition: str):
     )
 
 
-def get_expiration_values():
-    opts = stock_options.get_options_and_spreads()
-    return stock_options.get_expiration_values(
-        stock_options.get_itm_df(
-            opts.all_options,
-            itertools.chain(opts.bull_put_spreads, opts.bear_call_spreads),
-        )
-    )
-
-
 @ui.page("/transactions", title="Transactions")
 async def transactions_page():
     log_request()
-    skel = ui.skeleton("QToolbar").classes("w-full")
-    await ui.context.client.connected()
-    expiration_values = await run.io_bound(get_expiration_values)
+    if (data := await stock_options_ui.StockOptionsPage.wait_for_data()) is None:
+        return
+    bev = data.bev
     columns = 2
     if await ui.run_javascript("window.innerWidth;", timeout=10) < 1000:
         columns = 1
@@ -477,11 +363,17 @@ async def transactions_page():
                     parse_dates=["Date"],
                     converters={"Amount": floatify, "Balance": floatify},
                 )
-                if account in expiration_values:
+                for ev in bev:
+                    if ev.broker != account:
+                        continue
                     vals = []
-                    for val in expiration_values[account]:
+                    for val in ev.values:
                         vals.append(
-                            (pd.Timestamp(val[0]), "Options Expiration", val[1])
+                            (
+                                pd.Timestamp(val.expiration),
+                                "Options Expiration",
+                                val.value,
+                            )
                         )
                     exp_df = pd.DataFrame(
                         data=vals, columns=["Date", "Payee", "Amount"]
@@ -502,7 +394,6 @@ async def transactions_page():
                     table, "Date", "green", "new Date(props.value) > new Date()"
                 )
                 body_cell_slot(table, "Balance", "red", "Number(props.value) < 0")
-    skel.delete()
 
 
 if __name__ in {"__main__", "__mp_main__"}:

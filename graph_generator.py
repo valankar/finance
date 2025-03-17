@@ -1,7 +1,7 @@
 import typing
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Callable, Literal, Mapping
+from typing import Callable, Literal, Mapping, NamedTuple
 
 import pandas as pd
 import plotly.io as pio
@@ -19,6 +19,13 @@ import stock_options
 type NonRangedGraphs = dict[str, dict]
 type RangedGraphs = dict[str, dict[str, dict]]
 type Graphs = dict[Literal["ranged", "nonranged"], NonRangedGraphs | RangedGraphs]
+
+
+class GraphData(NamedTuple):
+    graphs: Graphs
+    last_updated_time: datetime
+    last_generation_duration: timedelta
+    latest_datapoint_time: pd.Timestamp
 
 
 def get_xrange(
@@ -113,7 +120,7 @@ def generate_all_graphs(
     layout: tuple[tuple[str, str], ...],
     ranges: list[str],
     subplot_margin: dict[str, int],
-) -> tuple[Graphs, datetime, timedelta, pd.Timestamp]:
+) -> GraphData:
     """Generate and save all Plotly graphs."""
     logger.info("Generating graphs")
     start_time = datetime.now()
@@ -250,7 +257,7 @@ def generate_all_graphs(
     last_generation_duration = end_time - start_time
     latest_datapoint_time = dataframes["all"].index[-1]
     logger.info(f"Graph generation time: {last_generation_duration}")
-    return (
+    return GraphData(
         cached_graphs,
         last_updated_time,
         last_generation_duration,

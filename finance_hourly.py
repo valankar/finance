@@ -16,6 +16,7 @@ import ledger_amounts
 import ledger_prices_db
 import push_web
 import schwab_ira
+import stock_options_ui
 from app import MainGraphs
 
 
@@ -33,6 +34,7 @@ def run_all(graphs_only: bool = False):
         brokerages.main()
         push_web.main()
     graph_generator.clear_and_generate(MainGraphs.CACHE_CALL_ARGS)
+    stock_options_ui.clear_and_generate()
 
 
 def main():

@@ -43,6 +43,7 @@ COMMODITIES_REGEX = "^(GLD|GLDM|SGOL|SIVR|COIN|BITX|MSTR)$"
 OPTIONS_LOAN_REGEX = '^("SPX|"SMI) '
 LEDGER_CURRENCIES_OPTIONS_CMD = f"{LEDGER_PREFIX} --limit 'commodity=~/{CURRENCIES_REGEX}/ or commodity=~/{OPTIONS_LOAN_REGEX}/'"
 BROKERAGES = ("Interactive Brokers", "Charles Schwab Brokerage")
+SUBPLOT_MARGIN = {"l": 0, "r": 50, "b": 0, "t": 50}
 
 
 class GetTickerError(Exception):

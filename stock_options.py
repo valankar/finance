@@ -6,7 +6,6 @@ import itertools
 import re
 import subprocess
 import typing
-from collections import defaultdict
 from datetime import date
 
 import pandas as pd
@@ -47,6 +46,16 @@ class OptionsAndSpreads(typing.NamedTuple):
     box_spreads: list[pd.DataFrame]
     bull_put_spreads: list[pd.DataFrame]
     bear_call_spreads: list[pd.DataFrame]
+
+
+class ExpirationValue(typing.NamedTuple):
+    expiration: date
+    value: float
+
+
+class BrokerExpirationValues(typing.NamedTuple):
+    broker: str
+    values: list[ExpirationValue]
 
 
 def get_option_chains(
@@ -323,20 +332,22 @@ def after_assignment_df(itm_df: pd.DataFrame) -> pd.DataFrame:
 
 def get_expiration_values(
     itm_df: pd.DataFrame,
-) -> typing.Mapping[str, list[tuple[date, float]]]:
-    expiration_values = defaultdict(list)
-    for broker in common.BROKERAGES:
+) -> list[BrokerExpirationValues]:
+    expiration_values: list[BrokerExpirationValues] = []
+    for broker in sorted(common.BROKERAGES):
+        values: list[ExpirationValue] = []
         if broker in itm_df.index.get_level_values(0):
             broker_df = itm_df.xs(broker)
             for expiration in broker_df.index.get_level_values(1).unique():
-                expiration_values[broker].append(
-                    (
+                values.append(
+                    ExpirationValue(
                         expiration.date(),
                         broker_df.xs(expiration, level="expiration")[
                             "exercise_value"
                         ].sum(),
                     )
                 )
+            expiration_values.append(BrokerExpirationValues(broker, values))
     return expiration_values
 
 
@@ -349,12 +360,11 @@ def after_assignment(itm_df):
         print(f"ETFs value change: {etfs_value_change:.0f}")
         print(f"ETFs liquidity change: {liquidity_change:.0f}")
     print("  Balance change:")
-    for broker in sorted(values := get_expiration_values(itm_df)):
-        expiration_values = values[broker]
-        print(f"    {broker}")
-        for expiration, value in expiration_values:
+    for ev in get_expiration_values(itm_df):
+        print(f"    {ev.broker}")
+        for v in ev.values:
             print(
-                f"      Expiration: {expiration} ({(expiration - date.today()).days}d): {value:.0f}"
+                f"      Expiration: {v.expiration} ({(v.expiration - date.today()).days}d): {v.value:.0f}"
             )
     print()
 
@@ -532,12 +542,10 @@ def get_options_and_spreads() -> OptionsAndSpreads:
     )
 
 
-def get_itm_df(
-    all_options: pd.DataFrame, spreads: typing.Iterable[pd.DataFrame]
-) -> pd.DataFrame:
-    itm_df = all_options.query("in_the_money == True")
+def get_itm_df(opts: OptionsAndSpreads) -> pd.DataFrame:
+    itm_df = opts.all_options.query("in_the_money == True")
     # Handle spreads where one leg is in the money
-    for spread in spreads:
+    for spread in itertools.chain(opts.bull_put_spreads, opts.bear_call_spreads):
         if (otm_leg := modify_otm_leg(spread)) is not None:
             itm_df = pd.concat([itm_df, otm_leg])
     return itm_df
@@ -547,9 +555,10 @@ def remove_zero_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[:, df.any()]
 
 
-def main(show_spreads: bool = True):
+def main(show_spreads: bool = True, opts: typing.Optional[OptionsAndSpreads] = None):
     """Main."""
-    opts = get_options_and_spreads()
+    if opts is None:
+        opts = get_options_and_spreads()
     if len(otm_df := opts.pruned_options.query("in_the_money == False")):
         print("Out of the money")
         print(
@@ -568,9 +577,7 @@ def main(show_spreads: bool = True):
     if len(itm_df := opts.pruned_options.query("in_the_money == True")):
         print("In the money")
         print(remove_zero_columns(itm_df.drop(columns="in_the_money")), "\n")
-    itm_df = get_itm_df(
-        opts.all_options, itertools.chain(opts.bull_put_spreads, opts.bear_call_spreads)
-    )
+    itm_df = get_itm_df(opts)
     print(
         "Balances after in the money options assigned (includes spreads not shown above)"
     )
