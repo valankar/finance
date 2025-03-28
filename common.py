@@ -4,7 +4,6 @@
 import multiprocessing
 import os
 import shutil
-import subprocess
 import tempfile
 import typing
 from contextlib import contextmanager
@@ -257,18 +256,6 @@ def load_sqlite_and_rename_col(table, rename_cols=None):
     if rename_cols:
         dataframe = dataframe.rename(columns=rename_cols)
     return dataframe
-
-
-def get_ledger_balance(command):
-    """Get account balance from ledger."""
-    try:
-        return float(
-            subprocess.check_output(
-                f"{command} | tail -1", shell=True, text=True
-            ).split()[1]
-        )
-    except IndexError:
-        return 0
 
 
 if __name__ == "__main__":

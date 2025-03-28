@@ -7,7 +7,7 @@ from loguru import logger
 import common
 import ledger_amounts
 import stock_options
-from common import get_ledger_balance
+from ledger_ops import get_ledger_balance
 
 LEDGER_LIQUID_CMD = f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} --limit 'not(account=~/(Retirement|Precious Metals|Zurcher)/)' -J -n bal ^assets ^liabilities"
 LEDGER_COMMODITIES_CMD = (
@@ -32,7 +32,7 @@ LEDGER_ZURCHER_CMD = f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Zurcher Kantona
 
 def main():
     """Main."""
-    options_df = stock_options.options_df(with_value=True)
+    options_df = stock_options.options_df()
     commodities_options = options_df.query(
         f"ticker.str.fullmatch('{common.COMMODITIES_REGEX}')"
     )["value"].sum()

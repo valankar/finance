@@ -45,7 +45,6 @@ class MainGraphs:
         ("interest_rate", "45vh"),
         ("loan", "45vh"),
         ("brokerage_total", "45vh"),
-        ("short_options", "50vh"),
         ("daily_indicator", "45vh"),
     )
     CACHE_CALL_ARGS: ClassVar = (LAYOUT, RANGES, common.SUBPLOT_MARGIN)
@@ -321,12 +320,16 @@ def floatify(string: str) -> float:
     return float(re.sub(r"[^\d\.-]", "", string))
 
 
-def body_cell_slot(table: Table, column: str, color: str, condition: str):
+def body_cell_slot(
+    table: Table, column: str, color: str, condition: str, else_color: str = ""
+):
+    if else_color:
+        else_color = f"text-{else_color}"
     table.add_slot(
         f"body-cell-{column}",
         (
             rf"""<q-td key="{column}" :props="props">"""
-            rf"""<q-label :class="{condition} ? 'text-{color}' : ''">"""
+            rf"""<q-label :class="{condition} ? 'text-{color}' : '{else_color}'">"""
             "{{ props.value }}"
             "</q-label>"
             "</q-td>"
@@ -347,11 +350,12 @@ async def transactions_page():
         for account, currency in (
             ("Charles Schwab Brokerage", r"\\$"),
             ("Interactive Brokers", r"\\$"),
+            ("Interactive Brokers", "CHF"),
             ("UBS Personal", "CHF"),
         ):
             with ui.column(align_items="center"):
-                ui.label(account)
-                ledger_cmd = rf"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/^{currency}$/' --tail 10 --csv-format '%D,%P,%t,%T\n' -n csv"
+                ui.label(account if currency != "CHF" else f"{account} (CHF)")
+                ledger_cmd = rf"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/^{currency}$/' --tail 10 -d 'd<[60 days hence]' --csv-format '%D,%P,%t,%T\n' -n csv"
                 df = pd.read_csv(
                     io.StringIO(
                         subprocess.check_output(
@@ -364,7 +368,7 @@ async def transactions_page():
                     converters={"Amount": floatify, "Balance": floatify},
                 )
                 for ev in bev:
-                    if ev.broker != account:
+                    if ev.broker != account or currency == "CHF":
                         continue
                     vals = []
                     for val in ev.values:

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Plot finance graphs."""
 
-import typing
 from functools import reduce
 
 import pandas as pd
@@ -525,53 +524,6 @@ def make_total_bar_yoy(daily_df: pd.DataFrame, column: str) -> Figure:
     diff_df.index = pd.DatetimeIndex(diff_df.index.strftime("%Y-01-01"))  # type: ignore
     yearly_bar = px.bar(diff_df, x=diff_df.index, y=column, text_auto=".3s")  # type: ignore
     return yearly_bar
-
-
-def make_short_options_section(options_df: pd.DataFrame) -> Figure:
-    """Make short options moneyness/loss bar chart."""
-    section = make_subplots(
-        rows=1,
-        cols=4,
-        subplot_titles=(
-            "Interactive Brokers OTM",
-            "Interactive Brokers ITM",
-            "Charles Schwab OTM",
-            "Charles Schwab ITM",
-        ),
-        vertical_spacing=0.07,
-        horizontal_spacing=0.05,
-    )
-
-    def make_options_graph(df: pd.DataFrame, col: int):
-        if not len(df):
-            return
-        df = df.copy()
-        df.loc[:, "name"] = df["count"].astype(str) + " " + df.index.get_level_values(0)
-        df = df.sort_values("exercise_value", ascending=False)
-        fig = go.Waterfall(
-            measure=["relative"] * len(df.index) + ["total"],
-            x=list(df["name"]) + ["After Assignment"],
-            y=list(df["exercise_value"]) + [0],
-        )
-        section.add_trace(fig, row=1, col=col)
-
-    col = 1
-    for broker in common.BROKERAGES:
-        for itm in (False, True):
-            if broker in options_df.index.get_level_values("account"):
-                broker_df: pd.DataFrame = typing.cast(
-                    pd.DataFrame, options_df.xs(broker, level="account")
-                )
-                make_options_graph(
-                    broker_df.loc[lambda df: df["in_the_money"] == itm],
-                    col,
-                )
-            col += 1
-    section.update_yaxes(title_text="USD", col=1)
-    section.update_xaxes(title_text="")
-    centered_title(section, "Options")
-    section.update_traces(showlegend=False)
-    return section
 
 
 def get_interest_rate_df() -> pd.DataFrame:

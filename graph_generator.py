@@ -14,7 +14,6 @@ import brokerages
 import common
 import homes
 import plot
-import stock_options
 
 type NonRangedGraphs = dict[str, dict]
 type RangedGraphs = dict[str, dict[str, dict]]
@@ -131,7 +130,6 @@ def generate_all_graphs(
         "prices": common.read_sql_table("schwab_etfs_prices"),
         "forex": common.read_sql_table("forex"),
         "interest_rate": plot.get_interest_rate_df(),
-        "options": stock_options.remove_box_spreads(stock_options.options_df()),
     }
     nonranged_graphs_generate = [
         (
@@ -170,15 +168,6 @@ def generate_all_graphs(
             lambda: plot.make_daily_indicator(dataframes["all"]),
         ),
     ]
-    if len(dataframes["options"]):
-        nonranged_graphs_generate.append(
-            (
-                "short_options",
-                lambda: plot.make_short_options_section(
-                    dataframes["options"]
-                ).update_layout(margin=subplot_margin),
-            )
-        )
     ranged_graphs_generate = [
         (
             "assets_breakdown",

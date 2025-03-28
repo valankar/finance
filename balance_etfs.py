@@ -139,6 +139,7 @@ def get_desired_df(
         etfs.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "value"]
     ).fillna(0)
     if include_options:
+        options_df = stock_options.get_options_and_spreads().pruned_options
         if long_calls:
             query = "((count > 0) or (count < 0))"
         else:
@@ -147,8 +148,8 @@ def get_desired_df(
             query += " & ~in_the_money"
         else:
             query += " & in_the_money"
-        options_df = stock_options.options_df().query(query)
-        itm_df = stock_options.after_assignment_df(options_df)
+        itm_df = stock_options.after_assignment_df(options_df.query(query))
+        print("Options:\n", itm_df)
         etfs_df["value"] = etfs_df["value"].add(itm_df["value_change"], fill_value=0)
     ira_df = pd.read_csv(
         schwab_ira.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "value"]

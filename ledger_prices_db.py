@@ -40,7 +40,7 @@ def main():
             )
 
         # Stock options
-        options_df = stock_options.options_df(with_value=True)
+        options_df = stock_options.options_df()
         options_written = set()
         for idx, row in options_df.iterrows():
             idx = typing.cast(tuple, idx)

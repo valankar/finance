@@ -1,6 +1,7 @@
 import re
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 from dateutil import parser
@@ -16,6 +17,9 @@ class LedgerEntry:
 
     def header(self) -> str:
         return f"{self.date} {self.payee}"
+
+    def parse_date(self) -> datetime:
+        return parser.parse(self.date)
 
     def full_list(self) -> list[str]:
         lines = [self.header()]
@@ -45,7 +49,7 @@ class LedgerEntry:
         if not validated:
             logs.append(output)
             return False, logs
-        new_entry_date = parser.parse(self.date)
+        new_entry_date = self.parse_date()
         logs.append(f"New entry date: {new_entry_date}")
         with open(f"{common.LEDGER_DAT}", "r") as f:
             contents = f.readlines()
@@ -142,6 +146,20 @@ def get_ledger_entries(
     search: Optional[str] = None,
 ) -> list[LedgerEntry]:
     ledger_cmd = make_ledger_command(payee, commodity, search)
-    return parse_ledger_output(
-        subprocess.check_output(ledger_cmd, shell=True, text=True)
-    )
+    return get_ledger_entries_from_command(ledger_cmd)
+
+
+def get_ledger_entries_from_command(command: str) -> list[LedgerEntry]:
+    return parse_ledger_output(subprocess.check_output(command, shell=True, text=True))
+
+
+def get_ledger_balance(command):
+    """Get account balance from ledger."""
+    try:
+        return float(
+            subprocess.check_output(
+                f"{command} | tail -1", shell=True, text=True
+            ).split()[1]
+        )
+    except IndexError:
+        return 0

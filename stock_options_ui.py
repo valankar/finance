@@ -5,62 +5,353 @@ import typing
 from datetime import date, datetime
 
 import pandas as pd
+import plotly.express as px
 from loguru import logger
-from nicegui import ui
+from nicegui import background_tasks, run, ui
+from plotly.graph_objs import Figure
 
 import common
 import plot
 import stock_options
+from app import body_cell_slot
 
 
 class OptionsData(typing.NamedTuple):
     opts: stock_options.OptionsAndSpreads
+    box_spreads: list[stock_options.BoxSpreadDetails]
+    old_box_spreads: list[stock_options.BoxSpreadDetails]
+    iron_condors: list[stock_options.IronCondorDetails]
+    bull_put_spreads: list[stock_options.SpreadDetails]
+    bear_call_spreads: list[stock_options.SpreadDetails]
+    short_calls: list[stock_options.ShortCallDetails]
     bev: list[stock_options.BrokerExpirationValues]
     main_output: str
     updated: datetime
 
 
+class RowGraphPair(typing.NamedTuple):
+    row: dict[str, typing.Any]
+    graph: typing.Optional[Figure]
+
+
 class StockOptionsPage:
     options_data: typing.ClassVar[typing.Optional[OptionsData]] = None
+    PL_GRID_COLUMNS: typing.ClassVar[int] = 3
+
+    def __init__(self):
+        self.refresh_button: typing.Optional[ui.button] = None
+
+    def make_short_call_pl_graph(
+        self,
+        d: stock_options.ShortCallDetails,
+    ) -> Figure:
+        cd = d.details
+        x = [d.strike, d.strike + cd.contract_price_per_share]
+        y = [-cd.contract_price, 0]
+        line_color = "green"
+        if cd.ticker_price < d.strike:
+            x.insert(0, cd.ticker_price)
+            y.insert(0, -cd.contract_price)
+        elif cd.ticker_price > (d.strike + cd.contract_price_per_share):
+            x.append(cd.ticker_price)
+            y.append(
+                self.find_y_intercept(
+                    d.strike,
+                    -cd.contract_price,
+                    d.strike + cd.contract_price_per_share,
+                    0,
+                    cd.ticker_price,
+                )
+            )
+            line_color = "red"
+        else:
+            # Price is between strike and strike + contract_price_per_share.
+            x.insert(1, cd.ticker_price)
+            y.insert(
+                1,
+                self.find_y_intercept(
+                    d.strike,
+                    -cd.contract_price,
+                    d.strike + cd.contract_price_per_share,
+                    0,
+                    cd.ticker_price,
+                ),
+            )
+        fig = px.line(x=x, y=y, markers=True)
+        plot.centered_title(fig, f"{cd.account} {cd.ticker} {cd.expiration} Short Call")
+        self.add_ticker_vline(fig, cd.ticker_price, line_color)
+        fig.update_xaxes(title_text=f"{cd.ticker} Price")
+        fig.update_yaxes(title_text="P/L")
+        return fig
+
+    def make_short_calls_table(self, opts: stock_options.OptionsAndSpreads):
+        rows: list[RowGraphPair] = []
+        for d in stock_options.get_short_call_details(opts.pruned_options):
+            cd = d.details
+            expiration = f"{cd.expiration} ({(cd.expiration - date.today()).days}d)"
+            graph = self.make_short_call_pl_graph(d)
+            rows.append(
+                RowGraphPair(
+                    row={
+                        "account": cd.account,
+                        "name": f"{cd.ticker} {d.strike:.0f}",
+                        "expiration": expiration,
+                        "type": "Short Call",
+                        "strike": d.strike,
+                        "count": cd.count,
+                        "intrinsic value": f"{cd.intrinsic_value:.0f}",
+                        "contract price": f"{cd.contract_price:.0f}",
+                        "half mark": f"{cd.half_mark:.2f}",
+                        "double mark": f"{cd.double_mark:.2f}",
+                        "quote": f"{cd.quote:.0f}",
+                        "profit option": f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})",
+                        "profit stock": f"{d.profit_stock:.2f}",
+                        "ticker price": cd.ticker_price,
+                    },
+                    graph=graph,
+                )
+            )
+        if rows:
+            self.make_spread_section(
+                "Short Calls", rows, profit_color_col="profit option"
+            )
 
     def make_complex_options_table(
         self,
-        bull_put_spreads: list[pd.DataFrame],
-        bear_call_spreads: list[pd.DataFrame],
-        box_spreads: list[pd.DataFrame],
+        options_data: OptionsData,
     ):
-        rows = []
+        rows: list[RowGraphPair] = []
         for spreads, spread_type in (
-            (bull_put_spreads, "Bull Put"),
-            (bear_call_spreads, "Bear Call"),
-            (box_spreads, "Box"),
+            (options_data.bull_put_spreads, "Bull Put"),
+            (options_data.bear_call_spreads, "Bear Call"),
         ):
-            for spread_df in spreads:
-                d = stock_options.get_spread_details(spread_df)
-                name = f"{d.ticker} {d.low_strike:.0f}/{d.high_strike:.0f}"
-                risk = half_mark = double_mark = ""
-                if spread_type != "Box":
-                    risk = f"{d.risk:.0f}"
-                    half_mark = f"{d.half_mark:.2f}"
-                    double_mark = f"{d.double_mark:.2f}"
+            for d in spreads:
+                cd = d.details
+                name = f"{cd.ticker} {d.low_strike:.0f}/{d.high_strike:.0f}"
+                risk = f"{d.risk:.0f}"
+                half_mark = f"{cd.half_mark:.2f}"
+                double_mark = f"{cd.double_mark:.2f}"
+                profit = f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})"
+                if spread_type == "Bull Put":
+                    graph = self.make_bull_put_pl_graph(d)
+                elif spread_type == "Bear Call":
+                    graph = self.make_bear_call_pl_graph(d)
                 rows.append(
-                    {
-                        "account": d.account,
-                        "name": name,
-                        "expiration": f"{d.expiration} ({(d.expiration - date.today()).days}d)",
-                        "type": spread_type,
-                        "count": d.count,
-                        "intrinsic value": f"{d.intrinsic_value:.0f}",
-                        "maximum loss": risk,
-                        "contract price": f"{d.contract_price:.0f}",
-                        "half mark": half_mark,
-                        "double mark": double_mark,
-                        "ticker price": d.ticker_price,
-                    }
+                    RowGraphPair(
+                        row={
+                            "account": cd.account,
+                            "name": name,
+                            "expiration": f"{cd.expiration} ({(cd.expiration - date.today()).days}d)",
+                            "type": spread_type,
+                            "count": cd.count,
+                            "intrinsic value": f"{cd.intrinsic_value:.0f}",
+                            "maximum loss": risk,
+                            "contract price": f"{cd.contract_price:.0f}",
+                            "half mark": half_mark,
+                            "double mark": double_mark,
+                            "quote": f"{cd.quote:.0f}",
+                            "profit": profit,
+                            "ticker price": cd.ticker_price,
+                        },
+                        graph=graph,
+                    )
                 )
         if rows:
-            ui.label("Spreads")
-            ui.table(rows=sorted(rows, key=lambda x: x["expiration"]))
+            self.make_spread_section("Vertical Spreads", rows)
+            rows.clear()
+
+        for d in options_data.iron_condors:
+            cd = d.details
+            name = f"{cd.ticker} {d.low_put_strike:.0f}/{d.high_put_strike:.0f}/{d.low_call_strike:.0f}/{d.high_call_strike:.0f}"
+            risk = f"{d.risk:.0f}"
+            half_mark = f"{cd.half_mark:.2f}"
+            double_mark = f"{cd.double_mark:.2f}"
+            profit = f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})"
+            rows.append(
+                RowGraphPair(
+                    row={
+                        "account": cd.account,
+                        "name": name,
+                        "expiration": f"{cd.expiration} ({(cd.expiration - date.today()).days}d)",
+                        "type": "Iron Condor",
+                        "count": cd.count,
+                        "intrinsic value": f"{cd.intrinsic_value:.0f}",
+                        "maximum loss": risk,
+                        "contract price": f"{cd.contract_price:.0f}",
+                        "half mark": half_mark,
+                        "double mark": double_mark,
+                        "quote": f"{cd.quote:.0f}",
+                        "profit": profit,
+                        "ticker price": cd.ticker_price,
+                    },
+                    graph=self.make_iron_condor_pl_graph(d),
+                )
+            )
+        if rows:
+            self.make_spread_section("Iron Condors", rows)
+            rows.clear()
+
+        self.make_box_spread_sections("Box Spreads", options_data.box_spreads)
+        self.make_box_spread_sections("Old Box Spreads", options_data.old_box_spreads)
+
+    def make_box_spread_sections(
+        self, title: str, box_spreads: list[stock_options.BoxSpreadDetails]
+    ):
+        rows = []
+        for d in box_spreads:
+            cd = d.details.details
+            name = f"{cd.ticker} {d.details.low_strike:.0f}/{d.details.high_strike:.0f}"
+            rows.append(
+                RowGraphPair(
+                    row={
+                        "account": cd.account,
+                        "name": name,
+                        "expiration": f"{cd.expiration} ({(cd.expiration - date.today()).days}d)",
+                        "type": "Box Spread",
+                        "count": cd.count,
+                        "intrinsic value": f"{cd.intrinsic_value:.0f}",
+                        "contract price": f"{cd.contract_price:.0f}",
+                        "cost": f"{cd.intrinsic_value - cd.contract_price:.0f}",
+                        "loan term": f"{d.loan_term_days}d",
+                        "apy": f"{d.apy:.2%}",
+                    },
+                    graph=None,
+                )
+            )
+        if rows:
+            self.make_spread_section(title, rows, colored=False)
+
+    def make_spread_section(
+        self,
+        title: str,
+        rows: list[RowGraphPair],
+        colored: bool = True,
+        profit_color_col: str = "profit",
+    ):
+        ui.label(title)
+        sorted_rows = sorted(
+            rows,
+            key=lambda x: (
+                x.row["account"],
+                x.row["expiration"],
+                x.row["name"],
+                x.row["type"],
+            ),
+        )
+        table = ui.table(rows=[row.row for row in sorted_rows])
+        if colored:
+            # Current price is more than double the contract price.
+            body_cell_slot(
+                table,
+                "quote",
+                "red",
+                "Number(props.value) < (Number(props.row['contract price']) * 2)",
+            )
+            body_cell_slot(
+                table,
+                profit_color_col,
+                "red",
+                "Number(props.value.split(' ')[0]) < 0",
+                "green",
+            )
+        graphs = [row.graph for row in sorted_rows if row.graph]
+        if graphs:
+            with ui.grid(columns=StockOptionsPage.PL_GRID_COLUMNS):
+                for graph in graphs:
+                    ui.plotly(graph)
+
+    def find_x_intercept(self, x1, y1, x2, y2, y):
+        return x1 + (x2 - x1) * (y - y1) / (y2 - y1)
+
+    def find_y_intercept(self, x1, y1, x2, y2, x):
+        return y1 + (y2 - y1) * (x - x1) / (x2 - x1)
+
+    def add_ticker_vline(self, fig: Figure, price: float, color: str):
+        fig.add_vline(
+            x=price,
+            line_dash="dot",
+            line_color=color,
+            annotation_text=f"{price:.2f}",
+        )
+
+    def make_iron_condor_pl_graph(self, d: stock_options.IronCondorDetails) -> Figure:
+        cd = d.details
+        left_breakeven = self.find_x_intercept(
+            d.low_put_strike, d.risk, d.high_put_strike, -cd.contract_price, 0
+        )
+        right_breakeven = self.find_x_intercept(
+            d.low_call_strike, -cd.contract_price, d.high_call_strike, d.risk, 0
+        )
+        x = [
+            d.low_put_strike,
+            left_breakeven,
+            d.high_put_strike,
+            d.low_call_strike,
+            right_breakeven,
+            d.high_call_strike,
+        ]
+        y = [d.risk, 0, -cd.contract_price, -cd.contract_price, 0, d.risk]
+        line_color = "red"
+        if cd.ticker_price > left_breakeven and cd.ticker_price < right_breakeven:
+            line_color = "green"
+        if cd.ticker_price < d.low_put_strike:
+            x.insert(0, cd.ticker_price)
+            y.insert(0, d.risk)
+        elif cd.ticker_price > d.high_call_strike:
+            x.append(cd.ticker_price)
+            y.append(d.risk)
+        fig = px.line(x=x, y=y, markers=True)
+        plot.centered_title(fig, f"{cd.account} {cd.ticker} {cd.expiration} IC")
+        self.add_ticker_vline(fig, cd.ticker_price, line_color)
+        fig.update_xaxes(title_text=f"{cd.ticker} Price")
+        fig.update_yaxes(title_text="P/L")
+        return fig
+
+    def make_bull_put_pl_graph(self, d: stock_options.SpreadDetails) -> Figure:
+        cd = d.details
+        breakeven = self.find_x_intercept(
+            d.low_strike, d.risk, d.high_strike, -cd.contract_price, 0
+        )
+        x = [d.low_strike, breakeven, d.high_strike]
+        y = [d.risk, 0, -cd.contract_price]
+        line_color = "red"
+        if cd.ticker_price > breakeven:
+            line_color = "green"
+        if cd.ticker_price > d.high_strike:
+            x.append(cd.ticker_price)
+            y.append(-cd.contract_price)
+        else:
+            x.insert(0, cd.ticker_price)
+            y.insert(0, d.risk)
+        fig = px.line(x=x, y=y, markers=True)
+        plot.centered_title(fig, f"{cd.account} {cd.ticker} {cd.expiration} Bull Put")
+        self.add_ticker_vline(fig, cd.ticker_price, line_color)
+        fig.update_xaxes(title_text=f"{cd.ticker} Price")
+        fig.update_yaxes(title_text="P/L")
+        return fig
+
+    def make_bear_call_pl_graph(self, d: stock_options.SpreadDetails) -> Figure:
+        cd = d.details
+        breakeven = self.find_x_intercept(
+            d.low_strike, -cd.contract_price, d.high_strike, d.risk, 0
+        )
+        x = [d.low_strike, breakeven, d.high_strike]
+        y = [-cd.contract_price, 0, d.risk]
+        line_color = "red"
+        if cd.ticker_price < breakeven:
+            line_color = "green"
+        if cd.ticker_price > d.high_strike:
+            x.append(cd.ticker_price)
+            y.append(d.risk)
+        else:
+            x.insert(0, cd.ticker_price)
+            y.insert(0, -cd.contract_price)
+        fig = px.line(x=x, y=y, markers=True)
+        plot.centered_title(fig, f"{cd.account} {cd.ticker} {cd.expiration} Bear Call")
+        self.add_ticker_vline(fig, cd.ticker_price, line_color)
+        fig.update_xaxes(title_text=f"{cd.ticker} Price")
+        fig.update_yaxes(title_text="P/L")
+        return fig
 
     @classmethod
     async def wait_for_data(cls) -> typing.Optional[OptionsData]:
@@ -83,18 +374,28 @@ class StockOptionsPage:
             return True
         return False
 
+    async def refresh_data(self):
+        if self.refresh_button:
+            self.refresh_button.disable()
+        StockOptionsPage.options_data = None
+        await run.io_bound(generate_options_data.clear)
+        await run.io_bound(stock_options.options_df.clear)
+        background_tasks.create(run.io_bound(generate_options_data))
+        ui.navigate.reload()
+
     async def main_page(self):
         """Stock options."""
         if (data := await StockOptionsPage.wait_for_data()) is None:
             return
-        ui.label(
-            f"Staleness: {(datetime.now() - data.updated).total_seconds() / 60:.0f}m"
-        )
+        with ui.row().classes("items-center"):
+            ui.label(
+                f"Staleness: {(datetime.now() - data.updated).total_seconds() / 60:.0f}m"
+            )
+            self.refresh_button = ui.button("Clear Cache", on_click=self.refresh_data)
         ui.html(f"<PRE>{data.main_output}</PRE>")
         opts = data.opts
-        self.make_complex_options_table(
-            opts.bull_put_spreads, opts.bear_call_spreads, opts.box_spreads
-        )
+        self.make_short_calls_table(opts)
+        self.make_complex_options_table(data)
         spread_df = pd.concat(opts.bull_put_spreads + opts.bear_call_spreads)
         tickers = spread_df["ticker"].unique()
         for ticker in sorted(tickers):
@@ -152,12 +453,38 @@ def generate_options_data() -> OptionsData:
         with common.pandas_options():
             stock_options.main(show_spreads=False, opts=opts)
             main_output = output.getvalue()
-    return OptionsData(
+    bull_put_spreads = []
+    bear_call_spreads = []
+    for spread_type, spread_list in [
+        (opts.bull_put_spreads, bull_put_spreads),
+        (opts.bear_call_spreads, bear_call_spreads),
+    ]:
+        for spread_df in spread_type:
+            # Ignore spreads that are part of iron condors.
+            if len(stock_options.remove_spreads(spread_df, opts.iron_condors)) == 0:
+                continue
+            spread_list.append(stock_options.get_spread_details(spread_df))
+    data = OptionsData(
         opts=opts,
+        box_spreads=[
+            stock_options.get_box_spread_details(box) for box in opts.box_spreads
+        ],
+        old_box_spreads=[
+            stock_options.get_box_spread_details(box)
+            for box in stock_options.find_old_box_spreads(opts.box_spreads)
+        ],
+        iron_condors=[
+            stock_options.get_iron_condor_details(ic) for ic in opts.iron_condors
+        ],
+        bull_put_spreads=bull_put_spreads,
+        bear_call_spreads=bear_call_spreads,
+        short_calls=stock_options.get_short_call_details(opts.pruned_options),
         bev=expiration_values,
         main_output=main_output,
         updated=datetime.now(),
     )
+    logger.info("Finished generating options data")
+    return data
 
 
 def clear_and_generate():
