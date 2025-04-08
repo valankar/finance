@@ -3,8 +3,6 @@
 
 import math
 
-import pandas as pd
-
 import common
 
 CAP_MAP = {
@@ -47,11 +45,7 @@ def save_market_cap():
     # https://www.schwabassetmanagement.com/products/swtsx
     for cap, keys in CAP_MAP.items():
         market_cap_dict[cap] = sum(table_dict[x] for x in keys)
-    market_cap_df = pd.DataFrame(
-        market_cap_dict,
-        index=[pd.Timestamp.now()],
-    )
-    common.to_sql(market_cap_df, "swtsx_market_cap")
+    common.insert_sql("swtsx_market_cap", market_cap_dict)
 
 
 def main():

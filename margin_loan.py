@@ -38,6 +38,13 @@ LOAN_BROKERAGES = (
 )
 
 
+def find_loan_brokerage(broker: str) -> Optional[LoanBrokerage]:
+    for brokerage in LOAN_BROKERAGES:
+        if brokerage.name == broker:
+            return brokerage
+    return None
+
+
 def get_loan_brokerage(broker: LoanBrokerage) -> Optional[LoanBrokerage]:
     for brokerage in LOAN_BROKERAGES:
         if brokerage.name == broker.name:
@@ -50,7 +57,9 @@ def get_options_value(broker: LoanBrokerage) -> float:
     options_value = opts.pruned_options.query(f"account == '{broker.name}'")[
         "value"
     ].sum()
-    spread_df = pd.concat(opts.bull_put_spreads + opts.bear_call_spreads)
+    spread_df = pd.concat(
+        [s.df for s in opts.bull_put_spreads + opts.bear_call_spreads]
+    )
     options_value += spread_df.query(f"account == '{broker.name}' and ticker != 'SPX'")[
         "value"
     ].sum()

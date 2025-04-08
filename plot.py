@@ -528,19 +528,19 @@ def make_total_bar_yoy(daily_df: pd.DataFrame, column: str) -> Figure:
 
 def get_interest_rate_df() -> pd.DataFrame:
     """Merge interest rate data."""
-    fedfunds_df = common.load_sqlite_and_rename_col(
+    fedfunds_df = common.load_sql_and_rename_col(
         "fedfunds", rename_cols={"percent": "Fed Funds"}
     )["2019":]
-    sofr_df = common.load_sqlite_and_rename_col(
-        "sofr", rename_cols={"percent": "SOFR"}
-    )["2019":]
-    swvxx_df = common.load_sqlite_and_rename_col(
+    sofr_df = common.load_sql_and_rename_col("sofr", rename_cols={"percent": "SOFR"})[
+        "2019":
+    ]
+    swvxx_df = common.load_sql_and_rename_col(
         "swvxx_yield", rename_cols={"percent": "Schwab SWVXX"}
     )
-    wealthfront_df = common.load_sqlite_and_rename_col(
+    wealthfront_df = common.load_sql_and_rename_col(
         "wealthfront_cash_yield", rename_cols={"percent": "Wealthfront Cash"}
     )
-    ibkr_df = common.load_sqlite_and_rename_col(
+    ibkr_df = common.load_sql_and_rename_col(
         "interactive_brokers_margin_rates",
         rename_cols={"USD": "USD IBKR Margin", "CHF": "CHF IBKR Margin"},
     )

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Balance portfolio based on SWYGX."""
 
-import argparse
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 import pandas as pd
+from cyclopts import App, Parameter
 
 import common
 import etfs
@@ -222,35 +222,51 @@ def get_rebalancing_df(
     return allocation_df
 
 
-def main():
-    """Main."""
-    parser = argparse.ArgumentParser(
-        description="Rebalance ETFs",
-    )
-    parser.add_argument("--value", default=0, type=int)
-    parser.add_argument(
-        "--include-options", default=False, action=argparse.BooleanOptionalAction
-    )
-    parser.add_argument("--otm", default=False, action=argparse.BooleanOptionalAction)
-    parser.add_argument(
-        "--long-calls", default=False, action=argparse.BooleanOptionalAction
-    )
-    parser.add_argument("--commodities-percentage-floor", type=int)
-    parser.add_argument("--adjustment", nargs="*", default=[])
-    args = parser.parse_args()
-    if args.commodities_percentage_floor is not None:
-        global COMMODITIES_PERCENTAGE_FLOOR
-        COMMODITIES_PERCENTAGE_FLOOR = args.commodities_percentage_floor
-    adjustment: dict[str, int] = {}
-    for a in args.adjustment:
-        category, amount = a.split("=")
-        adjustment[category] = int(amount)
+app = App()
+
+
+def validate_adjustment(_, value: dict[str, int]):
+    if not set(value).issubset(set(ETF_TYPE_MAP)):
+        raise ValueError("Unknown ETF category")
+
+
+@app.default
+def main(
+    value: int = 0,
+    include_options: bool = False,
+    otm: bool = False,
+    long_calls: bool = False,
+    commodities_percentage_floor: int = COMMODITIES_PERCENTAGE_FLOOR,
+    adjustment: Annotated[
+        dict[str, int], Parameter(validator=validate_adjustment)
+    ] = {},
+):
+    """Balance ETFs.
+
+    Parameters
+    ----------
+    value: int
+        Amount to buy/sell. Positive means buy, negative means sell.
+    include_options: bool
+        Include options in the calculation.
+    otm: bool
+        Include options that are out of the money.
+    long_calls: bool
+        Include long calls in the calculation.
+    commodities_percentage_floor: int
+        Minimum percentage of commodities.
+    adjustment: dict[str, int]
+        Adjustments to a category's current balance.
+        Example: --adjustment.INTERNATIONAL_DEVELOPED -10000
+    """
+    global COMMODITIES_PERCENTAGE_FLOOR
+    COMMODITIES_PERCENTAGE_FLOOR = commodities_percentage_floor
     if (
         df := get_rebalancing_df(
-            amount=args.value,
-            include_options=args.include_options,
-            otm=args.otm,
-            long_calls=args.long_calls,
+            amount=value,
+            include_options=include_options,
+            otm=otm,
+            long_calls=long_calls,
             adjustment=adjustment,
         )
     ) is not None:
@@ -258,4 +274,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    app()

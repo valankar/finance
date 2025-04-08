@@ -18,13 +18,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # Place executables in the environment at the front of the path
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/.venv/bin:/root/.duckdb/cli/latest:$PATH"
 
 # Reset the entrypoint, don't invoke `uv`
 ENTRYPOINT []
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates ledger sqlite3
+    ca-certificates ledger curl
+RUN curl https://install.duckdb.org | sh
 ENV HOME="/app"
 CMD [ "/app/code/accounts/app.py" ]
 EXPOSE 8080/tcp

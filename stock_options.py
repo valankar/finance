@@ -7,6 +7,7 @@ import re
 import subprocess
 import typing
 from datetime import date, datetime
+from functools import partial
 
 import pandas as pd
 import yahooquery
@@ -16,6 +17,7 @@ from loguru import logger
 import common
 import etfs
 import ledger_ops
+import margin_loan
 
 
 class TickerOption(typing.NamedTuple):
@@ -53,11 +55,21 @@ class SpreadDetails(typing.NamedTuple):
     risk: float
 
 
+class Spread(typing.NamedTuple):
+    df: pd.DataFrame
+    details: SpreadDetails
+
+
 class BoxSpreadDetails(typing.NamedTuple):
     details: SpreadDetails
     earliest_transaction_date: date
     loan_term_days: int
     apy: float
+
+
+class BoxSpread(typing.NamedTuple):
+    df: pd.DataFrame
+    details: BoxSpreadDetails
 
 
 class IronCondorDetails(typing.NamedTuple):
@@ -69,13 +81,26 @@ class IronCondorDetails(typing.NamedTuple):
     risk: float
 
 
+class IronCondor(typing.NamedTuple):
+    df: pd.DataFrame
+    details: IronCondorDetails
+
+
 class OptionsAndSpreads(typing.NamedTuple):
     all_options: pd.DataFrame
+    # Options with box, bull put, and bear call spreads removed.
     pruned_options: pd.DataFrame
-    box_spreads: list[pd.DataFrame]
-    iron_condors: list[pd.DataFrame]
-    bull_put_spreads: list[pd.DataFrame]
-    bear_call_spreads: list[pd.DataFrame]
+    short_calls: list[ShortCallDetails]
+    box_spreads: list[BoxSpread]
+    # Old and expired box spreads
+    old_box_spreads: list[BoxSpread]
+    iron_condors: list[IronCondor]
+    # These include spreads part of iron condors.
+    bull_put_spreads: list[Spread]
+    bear_call_spreads: list[Spread]
+    # These do not include spreads part of iron condors.
+    bull_put_spreads_no_ic: list[Spread]
+    bear_call_spreads_no_ic: list[Spread]
 
 
 class ExpirationValue(typing.NamedTuple):
@@ -86,16 +111,6 @@ class ExpirationValue(typing.NamedTuple):
 class BrokerExpirationValues(typing.NamedTuple):
     broker: str
     values: list[ExpirationValue]
-
-
-def get_option_chains(
-    tickers: typing.Sequence[str],
-) -> typing.Mapping[str, typing.Optional[pd.DataFrame]]:
-    option_dfs = Parallel(n_jobs=-1)(delayed(get_option_chain)(t) for t in tickers)
-    ticker_dict = {}
-    for ticker, df in zip(tickers, option_dfs):
-        ticker_dict[ticker] = df
-    return ticker_dict
 
 
 @common.cache_half_hourly_decorator
@@ -180,7 +195,6 @@ def add_options_quotes(options_df: pd.DataFrame):
     tickers = options_df["ticker"].unique()
     if not len(tickers):
         return options_df
-    option_chains = get_option_chains(tickers.tolist())
     prices = []
     for idx, row in options_df.iterrows():
         expiration = typing.cast(tuple, idx)[2].date()
@@ -192,7 +206,7 @@ def add_options_quotes(options_df: pd.DataFrame):
                 contract_type=row["type"],
                 strike=row["strike"],
             ),
-            option_chains[ticker],
+            get_option_chain(ticker),
         )
         if price is None:
             price = 0
@@ -231,27 +245,23 @@ def convert_to_usd(amount: str) -> float:
     return 0
 
 
-def find_old_box_spreads(current_box_spreads: list[pd.DataFrame]) -> list[pd.DataFrame]:
+@common.cache_daily_decorator
+def find_old_box_spreads(current_box_spreads: list[BoxSpread]) -> list[BoxSpread]:
     logger.info("Finding old box spreads")
     commodity_regex = "(SMI|SPX)"
     unassigned_df = options_df(
         commodity_regex=commodity_regex,
         additional_args=r"""--limit 'payee != "Options assignment"'""",
     )
-    old_boxes = find_box_spreads(remove_spreads(unassigned_df, current_box_spreads))
+    old_boxes = find_box_spreads(
+        remove_spreads(unassigned_df, [s.df for s in current_box_spreads])
+    )
     return old_boxes
 
 
 def get_ledger_entries_command(broker: str, option_name: str) -> str:
     return (
         f"""{common.LEDGER_PREFIX} print expr 'any(commodity == "\\"{option_name}\\"" and account =~ /{broker}/)'"""
-        """ --limit 'payee != "Options assignment"'"""
-    )
-
-
-def get_ledger_entries_command_ticker(broker: str, ticker: str) -> str:
-    return (
-        f"""{common.LEDGER_PREFIX} print expr 'any(commodity =~ /\\"{ticker} .* (CALL|PUT)/ and account =~ /{broker}/)'"""
         """ --limit 'payee != "Options assignment"'"""
     )
 
@@ -270,18 +280,10 @@ def get_ledger_earliest_date(spread_df: pd.DataFrame) -> typing.Optional[datetim
     return earliest_entry_date
 
 
-def get_ledger_total_ticker(broker: str, ticker: str) -> float:
-    logger.info(f"Getting ledger total for {broker=} {ticker=}")
-    ledger_cmd = get_ledger_entries_command_ticker(broker, ticker)
-    return get_ledger_total(broker, ticker, ledger_cmd)
-
-
-def get_ledger_total(
-    broker: str, option_name: str, ledger_cmd: typing.Optional[str] = None
-) -> float:
+@common.cache_half_hourly_decorator
+def get_ledger_total(broker: str, option_name: str) -> float:
     total = 0.0
-    if not ledger_cmd:
-        ledger_cmd = get_ledger_entries_command(broker, option_name)
+    ledger_cmd = get_ledger_entries_command(broker, option_name)
     for entry in ledger_ops.get_ledger_entries_from_command(ledger_cmd):
         found_name = False
         for line in entry.full_list():
@@ -303,14 +305,19 @@ def get_ledger_total(
 
 
 def add_contract_price(options_df: pd.DataFrame) -> pd.DataFrame:
-    prices = []
     logger.info("Adding contract prices")
+    ops = []
+
+    def divide_total(broker: str, name: str, divisor: float) -> float:
+        return get_ledger_total(broker, name) / divisor
+
     for idx, row in options_df.iterrows():
         broker: str = typing.cast(tuple, idx)[0]
         name: str = typing.cast(tuple, idx)[1]
-        prices.append(
-            get_ledger_total(broker, name) / (row["count"] * row["multiplier"])
+        ops.append(
+            partial(divide_total, broker, name, row["count"] * row["multiplier"])
         )
+    prices = Parallel(n_jobs=-1)(delayed(op)() for op in ops)
     options_df["contract_price"] = prices
     logger.info("Finished adding contract prices")
     return options_df
@@ -466,81 +473,87 @@ def after_assignment(itm_df):
     print()
 
 
-def find_bull_put_spreads(options_df: pd.DataFrame) -> list[pd.DataFrame]:
+def find_bull_put_spreads(options_df: pd.DataFrame) -> list[Spread]:
     """Find bull put spreads. Remove box spreads before calling."""
-    dataframes = []
+    spreads: list[Spread] = []
     for index, row in options_df.iterrows():
         ticker = row["ticker"]  # noqa: F841
         # Find a long PUT
         if row["type"] == "PUT" and row["count"] > 0:
             # The long PUT
             low_long_put = options_df.query(
-                'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count > 0'
+                'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == @row["count"]'
             )
             # Find a short PUT at higher strike, same expiration and broker
             high_short_put = options_df.query(
-                'ticker == @ticker & type == "PUT" & strike > @row["strike"] & expiration == @index[2] & account == @index[0] & count < 0'
+                'ticker == @ticker & type == "PUT" & strike > @row["strike"] & expiration == @index[2] & account == @index[0] & count == -@row["count"]'
             )
             found = pd.concat([low_long_put, high_short_put])
             if len(found) == 2:
-                dataframes.append(found)
-    return dataframes
+                spreads.append(
+                    Spread(df=found, details=get_spread_details(found, with_rolls=True))
+                )
+    return spreads
 
 
-def find_bear_call_spreads(options_df: pd.DataFrame) -> list[pd.DataFrame]:
+def find_bear_call_spreads(options_df: pd.DataFrame) -> list[Spread]:
     """Find bear call spreads. Remove box spreads before calling."""
-    dataframes = []
+    spreads = []
     for index, row in options_df.iterrows():
         ticker = row["ticker"]  # noqa: F841
         # Find a long CALL
         if row["type"] == "CALL" and row["count"] > 0:
             # The long CALL
             high_long_call = options_df.query(
-                'ticker == @ticker & type == "CALL" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count > 0'
+                'ticker == @ticker & type == "CALL" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == @row["count"]'
             )
             # Find a short CALL at lower strike, same expiration and broker
             low_short_call = options_df.query(
-                'ticker == @ticker & type == "CALL" & strike < @row["strike"] & expiration == @index[2] & account == @index[0] & count < 0'
+                'ticker == @ticker & type == "CALL" & strike < @row["strike"] & expiration == @index[2] & account == @index[0] & count == -@row["count"]'
             )
             found = pd.concat([low_short_call, high_long_call])
             if len(found) == 2:
-                dataframes.append(found)
-    return dataframes
+                spreads.append(
+                    Spread(df=found, details=get_spread_details(found, with_rolls=True))
+                )
+    return spreads
 
 
 def find_iron_condors(
-    bull_put_spreads: list[pd.DataFrame], bear_call_spreads: list[pd.DataFrame]
-) -> list[pd.DataFrame]:
-    dataframes = []
+    bull_put_spreads: list[Spread], bear_call_spreads: list[Spread]
+) -> list[IronCondor]:
+    iron_condors: list[IronCondor] = []
     for bull_put_df in bull_put_spreads:
         for bear_call_df in bear_call_spreads:
-            low_long_put = bull_put_df.query('type == "PUT" & count > 0')
+            low_long_put = bull_put_df.df.query('type == "PUT" & count > 0')
             ticker = low_long_put["ticker"].iloc[0]  # noqa: F841
             expiration = low_long_put.index.get_level_values("expiration")[0]  # noqa: F841
             account = low_long_put.index.get_level_values("account")[0]  # noqa: F841
-            high_short_put = bull_put_df.query('type == "PUT" & count < 0')
+            high_short_put = bull_put_df.df.query('type == "PUT" & count < 0')
             high_short_put_strike = high_short_put["strike"].max()  # noqa: F841
             matcher = (
                 "account == @account & ticker == @ticker & expiration == @expiration"
             )
-            high_long_call = bear_call_df.query(
+            high_long_call = bear_call_df.df.query(
                 f'{matcher} & type == "CALL" & count > 0 & strike > @high_short_put_strike'
             )
             high_long_call_strike = high_long_call["strike"].max()  # noqa: F841
-            low_short_call = bear_call_df.query(
+            low_short_call = bear_call_df.df.query(
                 f'{matcher} & type == "CALL" & count < 0 & strike < @high_long_call_strike'
             )
             found = pd.concat(
                 [low_long_put, high_short_put, low_short_call, high_long_call]
             )
             if len(found) == 4:
-                dataframes.append(found)
-    return dataframes
+                iron_condors.append(
+                    IronCondor(df=found, details=get_iron_condor_details(found))
+                )
+    return iron_condors
 
 
-def find_box_spreads(options_df: pd.DataFrame) -> list[pd.DataFrame]:
+def find_box_spreads(options_df: pd.DataFrame) -> list[BoxSpread]:
     """Find box spreads."""
-    box_dataframes = []
+    box_spreads: list[BoxSpread] = []
     for index, row in options_df.iterrows():
         ticker = row["ticker"]
         if ticker in (["SPX", "SMI"]):
@@ -566,8 +579,10 @@ def find_box_spreads(options_df: pd.DataFrame) -> list[pd.DataFrame]:
                     [low_short_call, low_long_put, high_long_call, high_short_put]
                 )
                 if len(found) == 4:
-                    box_dataframes.append(found)
-    return box_dataframes
+                    box_spreads.append(
+                        BoxSpread(df=found, details=get_box_spread_details(found))
+                    )
+    return box_spreads
 
 
 def remove_spreads(
@@ -578,29 +593,31 @@ def remove_spreads(
     return options_df[~options_df.isin(pd.concat(spreads))].dropna()
 
 
-def remove_box_spreads(options_df: pd.DataFrame) -> pd.DataFrame:
-    """Remove box spreads."""
-    return remove_spreads(options_df, find_box_spreads(options_df))
-
-
 def get_short_call_details(options_df: pd.DataFrame) -> list[ShortCallDetails]:
     short_calls = options_df.query("type == 'CALL' & count < 0")
     short_call_details = []
-    for index, row in short_calls.iterrows():
-        index = typing.cast(tuple, index)
+    for i in range(len(short_calls)):
+        row = short_calls.iloc[i]
+        account = row.name[0]  # type: ignore
+        expiration = row.name[2].date()  # type: ignore
         contract_price = row["contract_price"] * row["count"] * row["multiplier"]
+        contract_price_per_share = row["contract_price"]
+        # Find adjustments and update contract price
+        if (all_trades_total := get_cost_with_rolls(short_calls.iloc[[i]])) != 0:
+            contract_price = all_trades_total
+            contract_price_per_share = contract_price / row["count"] / row["multiplier"]
         short_call_details.append(
             ShortCallDetails(
                 details=CommonDetails(
-                    account=index[0],
+                    account=account,
                     count=row["count"],
                     ticker=row["ticker"],
                     ticker_price=row["current_price"],
-                    expiration=index[2].date(),
+                    expiration=expiration,
                     contract_price=contract_price,
-                    contract_price_per_share=row["contract_price"],
-                    half_mark=row["contract_price"] / 2,
-                    double_mark=row["contract_price"] * 2,
+                    contract_price_per_share=contract_price_per_share,
+                    half_mark=contract_price_per_share / 2,
+                    double_mark=contract_price_per_share * 2,
                     quote=row["value"],
                     profit=row["profit_option_value"],
                     intrinsic_value=row["intrinsic_value"],
@@ -632,7 +649,9 @@ def get_box_spread_details(spread_df: pd.DataFrame) -> BoxSpreadDetails:
     )
 
 
-def get_spread_details(spread_df: pd.DataFrame) -> SpreadDetails:
+def get_spread_details(
+    spread_df: pd.DataFrame, with_rolls: bool = False
+) -> SpreadDetails:
     low_strike = spread_df["strike"].min()
     high_strike = spread_df["strike"].max()
     count = int(spread_df["count"].max())
@@ -642,6 +661,9 @@ def get_spread_details(spread_df: pd.DataFrame) -> SpreadDetails:
     c = spread_df.copy()
     c["price"] = c["contract_price"] * c["count"] * c["multiplier"]
     contract_price = c["price"].sum()
+    # Find adjustments and update contract price
+    if with_rolls and (all_trades_total := get_cost_with_rolls(spread_df)) != 0:
+        contract_price = all_trades_total
     half_mark = contract_price / count / multiplier / 2
     double_mark = contract_price / count / multiplier * 2
     quote = spread_df["value"].sum()
@@ -681,11 +703,11 @@ def get_iron_condor_details(
     c = iron_condor_df.copy()
     c["price"] = c["contract_price"] * c["count"] * c["multiplier"]
     contract_price = c["price"].sum()
+    # Find adjustments and update contract price
+    if (all_trades_total := get_cost_with_rolls(iron_condor_df)) != 0:
+        contract_price = all_trades_total
     account = index[0]
     ticker = row["ticker"]
-    # Find adjustments and update contract price
-    if (all_trades_total := get_ledger_total_ticker(account, ticker)) != 0:
-        contract_price = all_trades_total
     half_mark = contract_price / count / multiplier / 2
     double_mark = contract_price / count / multiplier * 2
     quote = iron_condor_df["value"].sum()
@@ -713,8 +735,8 @@ def get_iron_condor_details(
     )
 
 
-def summarize_iron_condor(iron_condor_df: pd.DataFrame):
-    d = get_iron_condor_details(iron_condor_df)
+def summarize_iron_condor(iron_condor: IronCondor):
+    d = iron_condor.details
     cd = d.details
     print(f"{cd.account}")
     print(
@@ -728,8 +750,8 @@ def summarize_iron_condor(iron_condor_df: pd.DataFrame):
     print(f"Profit: {cd.profit:.0f}\n")
 
 
-def summarize_box(box_df: pd.DataFrame):
-    d = get_box_spread_details(box_df)
+def summarize_box(box: BoxSpread):
+    d = box.details
     cd = d.details.details
     print(f"{cd.account}")
     print(
@@ -753,21 +775,21 @@ def modify_otm_leg(spread_df: pd.DataFrame) -> typing.Optional[pd.DataFrame]:
     return None
 
 
-def summarize_spread(spread_df: pd.DataFrame, title: str):
-    d = get_spread_details(spread_df)
+def summarize_spread(spread: Spread, title: str):
+    d = spread.details
     cd = d.details
     print(f"{cd.account}")
     print(
         f"{cd.count} {cd.ticker} {cd.expiration} {d.low_strike:.0f}/{d.high_strike:.0f} {title}"
     )
-    total = spread_df.query("in_the_money == True")["exercise_value"].sum()
-    if (otm_leg := modify_otm_leg(spread_df)) is not None:
+    total = spread.df.query("in_the_money == True")["exercise_value"].sum()
+    if (otm_leg := modify_otm_leg(spread.df)) is not None:
         total += otm_leg["exercise_value"].sum()
     print(f"Contract price: {cd.contract_price:.0f}")
     print(f"Half mark: {cd.half_mark:.2f}")
     print(f"Double mark: {cd.double_mark:.2f}")
     print(f"Exercise value: {total:.0f}")
-    print(f"Maximum risk: {spread_df['exercise_value'].sum():.0f}")
+    print(f"Maximum risk: {spread.df['exercise_value'].sum():.0f}")
     print(f"Ticker price: {cd.ticker_price}")
     print(f"Profit: {cd.profit:.0f}\n")
 
@@ -775,20 +797,38 @@ def summarize_spread(spread_df: pd.DataFrame, title: str):
 def get_options_and_spreads() -> OptionsAndSpreads:
     all_options = options_df()
     box_spreads = find_box_spreads(all_options)
-    pruned_options = remove_spreads(all_options, box_spreads)
+    old_box_spreads = find_old_box_spreads(box_spreads)
+    pruned_options = remove_spreads(all_options, [s.df for s in box_spreads])
     bull_put_spreads = find_bull_put_spreads(pruned_options)
-    pruned_options = remove_spreads(pruned_options, bull_put_spreads)
+    pruned_options = remove_spreads(pruned_options, [s.df for s in bull_put_spreads])
     bear_call_spreads = find_bear_call_spreads(pruned_options)
-    pruned_options = remove_spreads(pruned_options, bear_call_spreads)
+    pruned_options = remove_spreads(pruned_options, [s.df for s in bear_call_spreads])
     iron_condors = find_iron_condors(bull_put_spreads, bear_call_spreads)
-    # Do not prune iron condors
+
+    def get_spread_no_ic(spreads: list[Spread]) -> list[Spread]:
+        pruned_spreads: list[Spread] = []
+        for spread in spreads:
+            spread_df = remove_spreads(spread.df, [s.df for s in iron_condors])
+            if not len(spread_df):
+                continue
+            pruned_spreads.append(spread)
+        return pruned_spreads
+
+    bull_put_spreads_no_ic = get_spread_no_ic(bull_put_spreads)
+    bear_call_spreads_no_ic = get_spread_no_ic(bear_call_spreads)
+
+    short_calls = get_short_call_details(pruned_options)
     return OptionsAndSpreads(
         all_options=all_options,
         pruned_options=pruned_options,
+        short_calls=short_calls,
         box_spreads=box_spreads,
+        old_box_spreads=old_box_spreads,
         bull_put_spreads=bull_put_spreads,
         bear_call_spreads=bear_call_spreads,
         iron_condors=iron_condors,
+        bull_put_spreads_no_ic=bull_put_spreads_no_ic,
+        bear_call_spreads_no_ic=bear_call_spreads_no_ic,
     )
 
 
@@ -796,13 +836,56 @@ def get_itm_df(opts: OptionsAndSpreads) -> pd.DataFrame:
     itm_df = opts.all_options.query("in_the_money == True")
     # Handle spreads where one leg is in the money
     for spread in itertools.chain(opts.bull_put_spreads, opts.bear_call_spreads):
-        if (otm_leg := modify_otm_leg(spread)) is not None:
+        if (otm_leg := modify_otm_leg(spread.df)) is not None:
             itm_df = pd.concat([itm_df, otm_leg])
     return itm_df
 
 
 def remove_zero_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[:, df.any()]
+
+
+def get_total_risk(broker: str, opts: OptionsAndSpreads) -> float:
+    risk = 0.0
+    for ic in opts.iron_condors:
+        icd = ic.details
+        if icd.details.account == broker:
+            risk += icd.risk
+    for spread in opts.bull_put_spreads_no_ic + opts.bear_call_spreads_no_ic:
+        d = spread.details
+        if d.details.account == broker:
+            risk += d.risk
+    return risk
+
+
+def find_all_related(broker: str, option_name: str, done: set[str] = set()) -> set[str]:
+    processed = set(done)
+    if option_name in processed:
+        return processed
+    processed.add(option_name)
+    for entry in ledger_ops.get_ledger_entries_from_command(
+        get_ledger_entries_command(broker, option_name)
+    ):
+        for line in entry.body:
+            if " CALL" not in line and " PUT" not in line:
+                continue
+            new_option_name = line.split('"')[1]
+            processed.update(find_all_related(broker, new_option_name, set(processed)))
+    return processed
+
+
+@common.cache_half_hourly_decorator
+def get_cost_with_rolls(combo: pd.DataFrame) -> float:
+    broker = combo.index.get_level_values("account")[0]
+    option_names = set(combo.index.get_level_values("name"))
+    found = set()
+    for option in option_names:
+        found.update(find_all_related(broker, option))
+    logger.info(f"Related for combo: {broker=} {found=}")
+    total = sum([get_ledger_total(broker, x) for x in found])
+    if total > 0:
+        logger.info("Total would be positive, ignoring")
+    return min(0, total)
 
 
 def main(show_spreads: bool = True, opts: typing.Optional[OptionsAndSpreads] = None):
@@ -845,6 +928,14 @@ def main(show_spreads: bool = True, opts: typing.Optional[OptionsAndSpreads] = N
                 remove_zero_columns(opts.pruned_options.xs(broker, level="account")),  # type: ignore
                 "\n",
             )
+    for broker in common.BROKERAGES:
+        option_risk = get_total_risk(broker, opts)
+        if (brokerage := margin_loan.find_loan_brokerage(broker)) is not None:
+            if (df := margin_loan.get_balances_broker(brokerage)) is not None:
+                netliq = df["Total"].sum()
+                print(
+                    f"{broker} option risk as percentage of net liquidity: {abs(option_risk / netliq):.2%}"
+                )
 
     if show_spreads:
         if opts.bull_put_spreads:

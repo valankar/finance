@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Write finance history."""
 
-import pandas as pd
 from loguru import logger
 
 import common
@@ -62,23 +61,7 @@ def main():
         "ira": schwab_ira,
         "pillar2": pillar2,
     }
-    history_df = pd.DataFrame(
-        history_df_data,
-        index=[pd.Timestamp.now()],
-        columns=list(history_df_data.keys()),
-    )
-    diff_df = (
-        pd.concat([common.read_sql_last("history"), history_df], join="inner")
-        .diff()
-        .dropna()
-    )
-    if abs(diff_df.sum(axis=1).sum()) > 1:
-        with common.pandas_options():
-            logger.info(f"History difference:\n{diff_df}")
-            logger.info(f"Writing history:\n{history_df}")
-        common.to_sql(history_df, "history")
-    else:
-        logger.info("History hot changed. Not writing new entry.")
+    common.insert_sql("history", history_df_data)
 
 
 if __name__ == "__main__":

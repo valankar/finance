@@ -3,7 +3,6 @@
 
 import subprocess
 
-import pandas as pd
 from loguru import logger
 
 import common
@@ -54,8 +53,7 @@ def main():
         interest_rates[currency] = get_interest_rate(
             currency, get_ibkr_loan_balance(currency)
         )
-    new_df = pd.DataFrame(interest_rates, index=[pd.Timestamp.now()])
-    common.to_sql(new_df, "interactive_brokers_margin_rates")
+    common.insert_sql("interactive_brokers_margin_rates", interest_rates)
 
 
 if __name__ == "__main__":

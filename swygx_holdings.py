@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Store holdings of SWYGX."""
 
-import pandas as pd
 from loguru import logger
 
 import common
@@ -33,11 +32,7 @@ def save_holdings():
             f"Symmetric difference: {expected_tickers.symmetric_difference(found_tickers)}"
         )
         raise GetHoldingsError
-    holdings_df = pd.DataFrame(
-        holdings,
-        index=[pd.Timestamp.now()],
-    )
-    common.to_sql(holdings_df, "swygx_holdings")
+    common.insert_sql("swygx_holdings", holdings)
 
 
 def main():

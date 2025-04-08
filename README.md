@@ -22,15 +22,11 @@ Crontab example:
 ```shell
 # For ETFs or stocks.
 TICKER="IBKR"
-sqlite-utils add-column web/sqlite.db schwab_etfs_prices ${TICKER} float
-sqlite-utils add-column web/sqlite.db schwab_etfs_amounts ${TICKER} float
+./add_ticker.py --ticker TSLA
 
 # For indices.
 TICKER="^SSMI"
-sqlite-utils add-column web/sqlite.db index_prices ${TICKER} float
-
-# Update schema.
-sqlite-utils schema web/sqlite.db > sqlite_schema.sql
+./add_ticker.py --ticker ^SPX --is-index
 ```
 
 Update `common.py` (`COMMODITIES_REGEX`) and `balance_etfs.py` to include new ticker.

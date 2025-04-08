@@ -7,10 +7,12 @@ import shutil
 import tempfile
 import typing
 from contextlib import contextmanager
+from datetime import datetime
 from functools import reduce
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
+import duckdb
 import pandas as pd
 import yahoofinancials
 import yahooquery
@@ -18,17 +20,13 @@ import yfinance
 from joblib import Memory, Parallel, delayed, expires_after
 from loguru import logger
 from playwright.sync_api import sync_playwright
-from sqlalchemy import create_engine
-from sqlalchemy import text as sqlalchemy_text
 
 CODE_DIR = f"{Path.home()}/code/accounts"
 PUBLIC_HTML = f"{CODE_DIR}/web/"
 PREFIX = PUBLIC_HTML
 LOCKFILE = f"{PREFIX}/run.lock"
 LOCKFILE_TIMEOUT = 10 * 60
-SQLITE_URI = f"sqlite:///{PREFIX}sqlite.db"
-SQLITE_URI_RO = f"sqlite:///file:{PREFIX}sqlite.db?mode=ro&uri=true"
-SQLITE3_URI_RO = f"file:{PREFIX}sqlite.db?mode=ro"
+DUCKDB = f"{PREFIX}/db.duckdb"
 SELENIUM_REMOTE_URL = "http://selenium:4444"
 LEDGER_BIN = "ledger"
 LEDGER_DIR = f"{Path.home()}/code/ledger"
@@ -127,34 +125,59 @@ def get_latest_forex() -> pd.Series:
     return read_sql_last("forex").iloc[-1]
 
 
-def read_sql_table(table, index_col="date"):
-    """Load table from sqlite."""
-    with create_engine(SQLITE_URI_RO).connect() as conn:
-        return pd.read_sql_table(table, conn, index_col=index_col)
-
-
-def read_sql_query(query):
-    """Load table from sqlite query."""
-    with create_engine(SQLITE_URI_RO).connect() as conn:
-        return pd.read_sql_query(
-            sqlalchemy_text(query),
-            conn,
-            index_col="date",
-            parse_dates=["date"],
+def insert_sql(table: str, data: dict[str, Any], timestamp: Optional[datetime] = None):
+    """Insert data into sql table."""
+    cols = ["date"]
+    values = [timestamp]
+    if timestamp is None:
+        values = [datetime.now()]
+    prepared = ["?"]
+    for col, value in data.items():
+        cols.append(f'"{col}"')
+        values.append(value)
+        prepared.append("?")
+    with duckdb.connect(DUCKDB) as con:
+        con.execute(
+            f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join(prepared)})",
+            values,
         )
+
+
+def read_sql_table(table, index_col="date") -> pd.DataFrame:
+    with duckdb.connect(DUCKDB, read_only=True) as con:
+        rel = con.table(table)
+        if table == "history":
+            # Add some convenience columns.
+            rel = rel.project(
+                "*, "
+                "total_liquid + total_retirement + total_investing as total_no_homes, "
+                "total_no_homes + total_real_estate as total"
+            )
+        return rel.df().set_index(index_col)
+
+
+def read_sql_query(query) -> pd.DataFrame:
+    """Load table from sql query."""
+    with duckdb.connect(DUCKDB, read_only=True) as con:
+        return con.sql(query).df().set_index("date")
 
 
 def read_sql_last(table: str) -> pd.DataFrame:
     return read_sql_query(f"select * from {table} order by date desc limit 1")
 
 
-def to_sql(dataframe, table, if_exists="append", index_label="date", foreign_key=False):
-    """Write dataframe to sqlite table."""
-    with create_engine(SQLITE_URI).connect() as conn:
-        if foreign_key:
-            conn.execute(sqlalchemy_text("PRAGMA foreign_keys=ON"))
-        dataframe.to_sql(table, conn, if_exists=if_exists, index_label=index_label)
-        conn.commit()
+def to_sql(dataframe, table, if_exists="append"):
+    """Write dataframe to sql table."""
+    dataframe = dataframe.reset_index()
+    with duckdb.connect(DUCKDB) as con:
+        if if_exists == "replace":
+            con.execute("BEGIN TRANSACTION")
+            con.execute(f"DROP TABLE IF EXISTS {table}")
+            con.execute(f"CREATE TABLE {table} AS SELECT * FROM dataframe")
+            con.execute("COMMIT")
+        else:
+            sql = f"INSERT INTO {table} BY NAME SELECT * FROM dataframe"
+            con.execute(sql)
 
 
 def write_ticker_sql(
@@ -250,8 +273,8 @@ def reduce_merge_asof(dataframes):
     )
 
 
-def load_sqlite_and_rename_col(table, rename_cols=None):
-    """Load resampled table from sqlite and rename columns."""
+def load_sql_and_rename_col(table, rename_cols=None):
+    """Load resampled table from sql and rename columns."""
     dataframe = read_sql_table(table)
     if rename_cols:
         dataframe = dataframe.rename(columns=rename_cols)

@@ -13,7 +13,6 @@ import common
 import fedfunds
 import homes
 import interactive_brokers_margin
-import resample_table
 import swtsx_market_cap
 import swvxx_yield
 import swygx_holdings
@@ -52,7 +51,6 @@ def make_daily_methods() -> list[DailyMethod]:
         DailyMethod(name="SWVXX Yield", method=swvxx_yield.main),
         DailyMethod(name="SWYGX Holdings", method=swygx_holdings.main),
         DailyMethod(name="Wealthfront Cash Yield", method=wealthfront_cash_yield.main),
-        DailyMethod(name="Resample Tables", method=resample_table.resample_all_tables),
     ]
 
 

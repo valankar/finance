@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Store Schwab SWVXX 7-day yield history."""
 
-import pandas as pd
-
 import common
 
 
@@ -22,8 +20,7 @@ def get_yield():
 
 def main():
     """Writes 7 day yield history to CSV file."""
-    new_df = pd.DataFrame({"percent": get_yield()}, index=[pd.Timestamp.now()])
-    common.to_sql(new_df, "swvxx_yield")
+    common.insert_sql("swvxx_yield", {"percent": get_yield()})
 
 
 if __name__ == "__main__":

@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Get estimated home values."""
 
-import argparse
 import re
 import typing
+from datetime import datetime
 
 import pandas as pd
+from cyclopts import App, Parameter, Token
+from dateutil import parser
 from loguru import logger
 from playwright.sync_api import TimeoutError
 
 import common
-import resample_table
 
 
 class Property(typing.NamedTuple):
@@ -85,19 +86,6 @@ def get_real_estate_df() -> pd.DataFrame:
     )
 
 
-def recalculate_history():
-    re_df = get_real_estate_df()
-    hist = common.read_sql_table("history")
-    sum_re = re_df[[f"{p.name} Price" for p in PROPERTIES]].sum(axis=1)
-    sum_re.name = "re_new"
-    new_hist = pd.merge_asof(hist, sum_re, left_index=True, right_index=True)
-    new_hist["total_real_estate"] = new_hist["re_new"]
-    new_hist = new_hist.drop(
-        columns=resample_table.TABLES_DROP_COLUMNS["history"] + ["re_new"]
-    )
-    resample_table.rewrite_table("history", new_hist)
-
-
 def get_property(name: str) -> Property | None:
     for p in PROPERTIES:
         if p.name == name:
@@ -136,25 +124,16 @@ def get_zillow_estimates(url_path):
         return [integerize_value(price), integerize_value(rent)]
 
 
-def write_prices_table(
-    name, value, site, timestamp: typing.Optional[pd.Timestamp] = None
-):
-    """Write prices to sqlite."""
-    if timestamp is None:
-        timestamp = pd.Timestamp.now()
-    home_df = pd.DataFrame(
-        {"name": name, "value": value, "site": site},
-        index=[timestamp],
+def write_prices_table(name, value, site, timestamp: typing.Optional[datetime] = None):
+    """Write prices to sql."""
+    common.insert_sql(
+        "real_estate_prices", {"name": name, "value": value, "site": site}, timestamp
     )
-    common.to_sql(home_df, "real_estate_prices")
 
 
 def write_rents_table(name, value, site):
-    """Write rents to sqlite."""
-    home_df = pd.DataFrame(
-        {"name": name, "value": value, "site": site}, index=[pd.Timestamp.now()]
-    )
-    common.to_sql(home_df, "real_estate_rents")
+    """Write rents to sql."""
+    common.insert_sql("real_estate_rents", {"name": name, "value": value, "site": site})
 
 
 def process_redfin(p: Property):
@@ -168,47 +147,51 @@ def process_zillow(p: Property):
     write_rents_table(p.name, zillow_rent, "Zillow")
 
 
-def process_home(p: Property):
+def do_fetch_prices(p: Property):
     process_redfin(p)
     process_zillow(p)
 
 
-def main():
+app = App()
+
+
+def comma_separated(type_, tokens: typing.Sequence[Token]) -> int:
+    return type_(tokens[0].value.replace(",", ""))
+
+
+type CommaInt = typing.Annotated[int, Parameter(converter=comma_separated)]
+
+
+@app.default
+def main(
+    name: typing.Optional[str] = None,
+    redfin_price: typing.Optional[CommaInt] = None,
+    zillow_price: typing.Optional[CommaInt] = None,
+    zillow_rent: typing.Optional[CommaInt] = None,
+    taxes_price: typing.Optional[CommaInt] = None,
+    date: typing.Optional[str] = None,
+    fetch_prices: bool = False,
+):
     """Main."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--name", required=False)
-    parser.add_argument("--redfin-price", required=False, type=int)
-    parser.add_argument("--zillow-price", required=False, type=int)
-    parser.add_argument("--zillow-rent", required=False, type=int)
-    parser.add_argument("--taxes-price", required=False, type=int)
-    parser.add_argument("--date", required=False, type=str)
-    parser.add_argument(
-        "--recalculate-history", default=False, action=argparse.BooleanOptionalAction
-    )
-    parser.add_argument(
-        "--process-home", default=False, action=argparse.BooleanOptionalAction
-    )
-    args = parser.parse_args()
-    if args.recalculate_history:
-        return recalculate_history()
-    if p := get_property(args.name):
-        if args.process_home:
-            return process_home(p)
-        timestamp = None
-        if args.date:
-            timestamp = pd.Timestamp(args.date)
-        for arg, site in (
-            (args.redfin_price, "Redfin"),
-            (args.zillow_price, "Zillow"),
-            (args.taxes_price, "Taxes"),
-        ):
-            if arg:
-                write_prices_table(p.name, arg, site, timestamp)
-        if args.zillow_rent:
-            write_rents_table(p.name, args.zillow_rent, "Zillow")
-    else:
-        print(f"Property {args.name} is unknown")
+    if name:
+        if p := get_property(name):
+            if fetch_prices:
+                return do_fetch_prices(p)
+            timestamp = None
+            if date:
+                timestamp = parser.parse(date)
+            for arg, site in (
+                (redfin_price, "Redfin"),
+                (zillow_price, "Zillow"),
+                (taxes_price, "Taxes"),
+            ):
+                if arg:
+                    write_prices_table(p.name, arg, site, timestamp)
+            if zillow_rent:
+                write_rents_table(p.name, zillow_rent, "Zillow")
+        else:
+            print(f"Property {name} is unknown")
 
 
 if __name__ == "__main__":
-    main()
+    app()
