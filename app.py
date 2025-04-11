@@ -9,7 +9,7 @@ from typing import Awaitable, Iterable
 import pandas as pd
 import plotly.io as pio
 from loguru import logger
-from nicegui import app, run, ui
+from nicegui import run, ui
 from nicegui.elements.table import Table
 from plotly.graph_objects import Figure
 
@@ -19,8 +19,6 @@ import i_and_e
 import ledger_ui
 import main_graphs
 import stock_options_ui
-
-DEFAULT_RANGE = "1y"
 
 
 class IncomeExpenseGraphs:
@@ -85,7 +83,7 @@ async def main_page():
     ui.add_body_html(
         '<script src="https://unpkg.com/virtual-webgl@1.0.6/src/virtual-webgl.js"></script>'
     )
-    graphs = main_graphs.MainGraphs(DEFAULT_RANGE, common.WalrusDb().db)
+    graphs = main_graphs.MainGraphs(common.WalrusDb().db)
     await graphs.wait_for_graphs()
     with ui.footer().classes("transparent q-py-none"):
         with ui.tabs().classes("w-full") as tabs:
@@ -99,13 +97,12 @@ async def main_page():
 @ui.page("/image_only")
 async def main_page_image_only():
     log_request()
-    mg = main_graphs.MainGraphs(DEFAULT_RANGE, common.WalrusDb().db)
-    await mg.wait_for_graphs()
+    graphs = main_graphs.MainGraphsImageOnly(common.WalrusDb().db)
+    await graphs.wait_for_graphs()
     with ui.footer().classes("transparent q-py-none"):
         with ui.tabs().classes("w-full") as tabs:
             for timerange in main_graphs.RANGES:
                 ui.tab(timerange)
-    graphs = main_graphs.MainGraphsImageOnly(DEFAULT_RANGE, mg)
     tabs.bind_value(graphs, "selected_range")
     await graphs.create()
     tabs.on_value_change(graphs.update)
@@ -247,7 +244,6 @@ async def transactions_page():
 
 if __name__ in {"__main__", "__mp_main__"}:
     pio.templates.default = common.PLOTLY_THEME
-    app.add_static_files("/images", common.PREFIX)
     ui.run(
         title="Accounts",
         dark=True,

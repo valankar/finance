@@ -4,7 +4,6 @@
 import os
 import shutil
 import tempfile
-import traceback
 import typing
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -132,21 +131,6 @@ def get_latest_forex() -> pd.Series:
 def duckdb_lock(
     read_only: bool = False,
 ) -> Generator[duckdb.DuckDBPyConnection, None, None]:
-    frames = []
-    for f in traceback.extract_stack():
-        if CODE_DIR not in f.filename or "/.venv/" in f.filename:
-            continue
-        if "duckdb_lock" in f.name:
-            continue
-        frames.append(f)
-    stack = " > ".join(
-        "{}:{}:{}".format(os.path.basename(f.filename), f.name, f.lineno)
-        for f in frames
-    )
-    if stack:
-        logger.info(stack)
-    else:
-        logger.info("No stack trace")
     with WalrusDb().db.lock(DUCKDB_LOCK_NAME, ttl=LOCK_TTL_SECONDS * 1000):
         with duckdb.connect(DUCKDB, read_only=read_only) as con:
             yield con

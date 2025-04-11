@@ -3,7 +3,7 @@ import base64
 import io
 import pickle
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Callable, ClassVar, NamedTuple, Optional
 from zoneinfo import ZoneInfo
@@ -22,33 +22,38 @@ import homes
 import plot
 
 
-class Graph(NamedTuple):
-    name: str
+class PlotlyGraph(NamedTuple):
     plotly_json: dict
+
+
+class ImageGraph(NamedTuple):
     png_data: bytes
 
 
-class Graphs(NamedTuple):
+class PlotlyGraphs(NamedTuple):
     # Key is graph name.
-    nonranged: dict[str, Graph]
+    nonranged: dict[str, PlotlyGraph]
     # First key is range, next is graph name.
-    ranged: dict[str, dict[str, Graph]]
-
-
-RANGES = ["All", "3y", "2y", "1y", "YTD", "6m", "3m", "1m", "1d"]
-
-
-class GraphData(NamedTuple):
-    graphs: Graphs
+    ranged: dict[str, dict[str, PlotlyGraph]]
     last_updated_time: datetime
     last_generation_duration: timedelta
     latest_datapoint_time: pd.Timestamp
 
 
+class ImageGraphs(NamedTuple):
+    nonranged: dict[str, ImageGraph]
+    ranged: dict[str, dict[str, ImageGraph]]
+
+
+RANGES = ["All", "3y", "2y", "1y", "YTD", "6m", "3m", "1m", "1d"]
+DEFAULT_RANGE = "1y"
+
+
 class MainGraphs:
     """Collection of all main graphs."""
 
-    REDIS_KEY = "GraphData"
+    REDIS_KEY: ClassVar[str] = "GraphData"
+    REDIS_SUBKEY: ClassVar[str] = "PlotlyGraphs"
     LAYOUT: ClassVar[tuple[tuple[str, str], ...]] = (
         ("assets_breakdown", "96vh"),
         ("investing_retirement", "75vh"),
@@ -65,20 +70,17 @@ class MainGraphs:
         ("daily_indicator", "45vh"),
     )
 
-    def __init__(self, selected_range: str, db: walrus.Database):
+    def __init__(self, db: walrus.Database):
         self.ui_plotly = {}
         self.ui_stats_labels = {}
-        self.selected_range = selected_range
+        self.selected_range = DEFAULT_RANGE
         self.db = db
 
     def graph_data_available(self) -> bool:
-        return MainGraphs.REDIS_KEY in self.db
-
-    @property
-    def graph_data(self) -> GraphData:
-        if not self.graph_data_available():
-            raise ValueError("Data is not initialized.")
-        return pickle.loads(self.db[MainGraphs.REDIS_KEY])
+        return (
+            MainGraphs.REDIS_KEY in self.db
+            and MainGraphs.REDIS_SUBKEY in self.db.Hash(MainGraphs.REDIS_KEY)
+        )
 
     async def wait_for_graphs(self):
         skel = None
@@ -90,6 +92,18 @@ class MainGraphs:
         if skel:
             skel.delete()
 
+    @property
+    def plotly_graphs(self) -> PlotlyGraphs:
+        if not self.graph_data_available():
+            raise ValueError("Data is not initialized.")
+        return pickle.loads(self.db.Hash(MainGraphs.REDIS_KEY)[MainGraphs.REDIS_SUBKEY])
+
+    @plotly_graphs.setter
+    def plotly_graphs(self, graphs: PlotlyGraphs):
+        self.db.Hash(MainGraphs.REDIS_KEY)[MainGraphs.REDIS_SUBKEY] = pickle.dumps(
+            graphs
+        )
+
     async def update_stats_labels(self) -> None:
         try:
             timezone = ZoneInfo(
@@ -100,23 +114,23 @@ class MainGraphs:
         except TimeoutError:
             timezone = ZoneInfo("UTC")
         self.ui_stats_labels["last_datapoint_time"].set_text(
-            f"Latest datapoint: {self.graph_data.latest_datapoint_time.tz_localize('UTC').astimezone(timezone).strftime('%c')}"
+            f"Latest datapoint: {self.plotly_graphs.latest_datapoint_time.tz_localize('UTC').astimezone(timezone).strftime('%c')}"
         )
         self.ui_stats_labels["last_updated_time"].set_text(
-            f"Graphs last updated: {self.graph_data.last_updated_time.astimezone(timezone).strftime('%c')}"
+            f"Graphs last updated: {self.plotly_graphs.last_updated_time.astimezone(timezone).strftime('%c')}"
         )
         self.ui_stats_labels["last_generation_duration"].set_text(
-            f"Graph generation duration: {self.graph_data.last_generation_duration.total_seconds():.2f}s"
+            f"Graph generation duration: {self.plotly_graphs.last_generation_duration.total_seconds():.2f}s"
         )
 
     async def create(self) -> None:
         """Create all graphs."""
         for name, height in MainGraphs.LAYOUT:
-            if name in self.graph_data.graphs.ranged:
-                graph = self.graph_data.graphs.ranged[name][self.selected_range]
+            if name in self.plotly_graphs.ranged:
+                graph = self.plotly_graphs.ranged[name][self.selected_range]
             else:
                 try:
-                    graph = self.graph_data.graphs.nonranged[name]
+                    graph = self.plotly_graphs.nonranged[name]
                 except KeyError:
                     continue
             self.ui_plotly[name] = (
@@ -139,35 +153,69 @@ class MainGraphs:
 
     async def update(self) -> None:
         """Update all graphs."""
-        for name in self.graph_data.graphs.ranged:
+        for name in self.plotly_graphs.ranged:
             await run.io_bound(
                 self.ui_plotly[name].update_figure,
-                self.graph_data.graphs.ranged[name][self.selected_range].plotly_json,
+                self.plotly_graphs.ranged[name][self.selected_range].plotly_json,
             )
         await self.update_stats_labels()
 
 
 class MainGraphsImageOnly:
-    def __init__(self, selected_range: str, main_graphs: MainGraphs):
+    REDIS_KEY: ClassVar[str] = "GraphData"
+    REDIS_SUBKEY: ClassVar[str] = "ImageGraphs"
+
+    def __init__(self, db: walrus.Database):
         self.ui_image: dict[str, ui.image] = {}
-        self.selected_range = selected_range
-        self.main_graphs = main_graphs
+        self.selected_range = DEFAULT_RANGE
+        self.db = db
+
+    def graph_data_available(self) -> bool:
+        return (
+            MainGraphsImageOnly.REDIS_KEY in self.db
+            and MainGraphsImageOnly.REDIS_SUBKEY
+            in self.db.Hash(MainGraphsImageOnly.REDIS_KEY)
+        )
+
+    async def wait_for_graphs(self):
+        skel = None
+        await ui.context.client.connected()
+        while not self.graph_data_available():
+            if not skel:
+                skel = ui.skeleton("QToolbar").classes("w-full")
+            await asyncio.sleep(1)
+        if skel:
+            skel.delete()
+
+    @property
+    def image_graphs(self) -> ImageGraphs:
+        if not self.graph_data_available():
+            raise ValueError("Data is not initialized.")
+        return pickle.loads(
+            self.db.Hash(MainGraphsImageOnly.REDIS_KEY)[
+                MainGraphsImageOnly.REDIS_SUBKEY
+            ]
+        )
+
+    @image_graphs.setter
+    def image_graphs(self, graphs: ImageGraphs):
+        self.db.Hash(MainGraphsImageOnly.REDIS_KEY)[
+            MainGraphsImageOnly.REDIS_SUBKEY
+        ] = pickle.dumps(graphs)
 
     @staticmethod
-    def encode_png(graph: Graph) -> str:
+    def encode_png(graph: ImageGraph) -> str:
         encoded = base64.b64encode(graph.png_data).decode("utf-8")
         return f"data:image/png;base64,{encoded}"
 
     async def create(self) -> None:
         with ui.column().classes("w-full"):
             for name, _ in MainGraphs.LAYOUT:
-                if name in self.main_graphs.graph_data.graphs.ranged:
-                    graph = self.main_graphs.graph_data.graphs.ranged[name][
-                        self.selected_range
-                    ]
+                if name in self.image_graphs.ranged:
+                    graph = self.image_graphs.ranged[name][self.selected_range]
                 else:
                     try:
-                        graph = self.main_graphs.graph_data.graphs.nonranged[name]
+                        graph = self.image_graphs.nonranged[name]
                     except KeyError:
                         continue
                 self.ui_image[name] = ui.image(self.encode_png(graph))
@@ -176,8 +224,8 @@ class MainGraphsImageOnly:
                 common_links()
 
     async def update(self) -> None:
-        for name in self.main_graphs.graph_data.graphs.ranged:
-            graph = self.main_graphs.graph_data.graphs.ranged[name][self.selected_range]
+        for name in self.image_graphs.ranged:
+            graph = self.image_graphs.ranged[name][self.selected_range]
             await run.io_bound(
                 self.ui_image[name].set_source,
                 self.encode_png(graph),
@@ -252,7 +300,7 @@ def plot_generate(
     plot_func: Callable[..., Figure],
     layout: tuple[tuple[str, str], ...],
     r: Optional[str] = None,
-) -> Graph:
+) -> tuple[PlotlyGraph, ImageGraph]:
     pio.templates.default = common.PLOTLY_THEME
     if r:
         fig = plot_func(r)
@@ -265,14 +313,13 @@ def plot_generate(
         width=1024,
         height=768 * get_plot_height_percent(name, layout),
     )
-    return Graph(
-        name,
-        fig.to_plotly_json(),
-        data.getvalue(),
+    return (
+        PlotlyGraph(plotly_json=fig.to_plotly_json()),
+        ImageGraph(png_data=data.getvalue()),
     )
 
 
-def generate_all_graphs() -> GraphData:
+def generate_all_graphs() -> tuple[PlotlyGraphs, ImageGraphs]:
     """Generate and save all Plotly graphs."""
     logger.info("Generating graphs")
     layout = MainGraphs.LAYOUT
@@ -376,32 +423,44 @@ def generate_all_graphs() -> GraphData:
             ).update_layout(margin=subplot_margin),
         ),
     ]
-    nonranged_graphs: dict[str, Graph] = {}
-    ranged_graphs: dict[str, dict[str, Graph]] = defaultdict(dict)
+    nonranged_graphs: dict[str, PlotlyGraph] = {}
+    ranged_graphs: dict[str, dict[str, PlotlyGraph]] = defaultdict(dict)
+    nonranged_images: dict[str, ImageGraph] = {}
+    ranged_images: dict[str, dict[str, ImageGraph]] = defaultdict(dict)
     with ThreadPoolExecutor() as e:
-        fs = [
-            e.submit(plot_generate, *args, layout) for args in nonranged_graphs_generate
-        ]
-        fs_ranged = [
-            (e.submit(plot_generate, *args, layout, r), r)
-            for args in ranged_graphs_generate
-            for r in ranges
-        ]
-        for f in fs:
-            g = f.result()
-            nonranged_graphs[g.name] = g
-        for f, r in fs_ranged:
-            g = f.result()
-            ranged_graphs[g.name][r] = g
+        fs: list[tuple[Future, str]] = []
+        for args in nonranged_graphs_generate:
+            fs.append((e.submit(plot_generate, *args, layout), args[0]))
+        fs_ranged: list[tuple[Future, str, str]] = []
+        for r in ranges:
+            for args in ranged_graphs_generate:
+                fs_ranged.append(
+                    (e.submit(plot_generate, *args, layout, r), args[0], r)
+                )
+        for f, name in fs:
+            g, i = f.result()
+            nonranged_graphs[name] = g
+            nonranged_images[name] = i
+        for f, name, r in fs_ranged:
+            g, i = f.result()
+            ranged_graphs[name][r] = g
+            ranged_images[name][r] = i
 
     end_time = datetime.now()
     last_updated_time = end_time
     last_generation_duration = end_time - start_time
     latest_datapoint_time = dataframes["all"].index[-1]
     logger.info(f"Graph generation time: {last_generation_duration}")
-    return GraphData(
-        Graphs(nonranged=nonranged_graphs, ranged=ranged_graphs),
-        last_updated_time,
-        last_generation_duration,
-        latest_datapoint_time,
+    return (
+        PlotlyGraphs(
+            nonranged=nonranged_graphs,
+            ranged=ranged_graphs,
+            last_updated_time=last_updated_time,
+            last_generation_duration=last_generation_duration,
+            latest_datapoint_time=latest_datapoint_time,
+        ),
+        ImageGraphs(
+            nonranged=nonranged_images,
+            ranged=ranged_images,
+        ),
     )

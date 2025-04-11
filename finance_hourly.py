@@ -30,9 +30,9 @@ def run_all(graphs_only: bool = False):
         history.main()
         brokerages.main()
         push_web.main()
-    common.WalrusDb().db[main_graphs.MainGraphs.REDIS_KEY] = pickle.dumps(
-        main_graphs.generate_all_graphs()
-    )
+    plotly_graphs, image_graphs = main_graphs.generate_all_graphs()
+    main_graphs.MainGraphs(common.WalrusDb().db).plotly_graphs = plotly_graphs
+    main_graphs.MainGraphsImageOnly(common.WalrusDb().db).image_graphs = image_graphs
     common.WalrusDb().db[stock_options_ui.StockOptionsPage.REDIS_KEY] = pickle.dumps(
         stock_options_ui.generate_options_data()
     )
