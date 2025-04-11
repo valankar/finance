@@ -6,19 +6,26 @@ services:
     volumes: &volumes
       - ${HOME}/code/accounts:/app/code/accounts
       - ${HOME}/code/ledger:/app/code/ledger
+    environment: &environment
+      REDIS_HOST: redis
     labels: &labels
       com.centurylinklabs.watchtower.no-pull: true
     restart: unless-stopped
     networks: &networks
       - cloudflare
+    depends_on: &depends_on
+      redis:
+        condition: service_started
 
   accounts_hourly:
     image: ${IMAGE}
     profiles: [ "scripts" ]
     container_name: accounts_hourly
     volumes: *volumes
+    environment: *environment
     labels: *labels
     networks: *networks
+    depends_on: *depends_on
     command: "/app/code/accounts/finance_hourly.py"
 
   accounts_daily:
@@ -27,10 +34,12 @@ services:
     container_name: accounts_daily
     volumes: *volumes
     environment: &daily_environment
-      - FRED_API_KEY=${FRED_API_KEY}
+      <<: *environment
+      FRED_API_KEY: ${FRED_API_KEY}
     labels: *labels
     networks: *networks
-    depends_on:
+    depends_on: &daily_depends_on
+      <<: *depends_on
       selenium:
         condition: service_healthy
     command: "/app/code/accounts/finance_daily.py"
@@ -43,36 +52,46 @@ services:
     environment: *daily_environment
     labels: *labels
     networks: *networks
-    depends_on:
-      selenium:
-        condition: service_healthy
+    depends_on: *daily_depends_on
     command: "/app/code/accounts/${SCRIPT}"
 
-  selenium:
+  redis: &redis
+    image: redis
+    container_name: redis
+    networks: *networks
+    volumes:
+      - ${HOME}/code/accounts/web/redis:/data
+    user: "1000:1000"
+    command: "redis-server --save 60 1 --loglevel warning"
+    restart: unless-stopped
+  
+  redis-dev:
+    <<: *redis
+    container_name: redis-dev
+    profiles: [ "development" ]
+    ports:
+      - "6379:6379"
+
+  selenium: &selenium
     image: selenium/standalone-chromium
     profiles: [ "scripts" ]
     container_name: selenium
     shm_size: 2g
-    environment: &selenium_environment
+    environment:
       - SE_ENABLE_TRACING=false
     networks: *networks
     ports:
       - "7900:7900"
     healthcheck:
-      test: &selenium-healthcheck [ "CMD", "/opt/bin/check-grid.sh", "--host", "0.0.0.0", "--port", "4444" ]
+      test: [ "CMD", "/opt/bin/check-grid.sh", "--host", "0.0.0.0", "--port", "4444" ]
 
   selenium-dev:
-    image: selenium/standalone-chromium
-    profiles: [ "scripts" ]
+    <<: *selenium
     container_name: selenium-dev
-    shm_size: 2g
-    environment: *selenium_environment
-    networks: *networks
+    profiles: [ "development" ]
     ports:
       - "7901:7900"
       - "4444:4444"
-    healthcheck:
-      test: *selenium-healthcheck
 
 networks:
   cloudflare:

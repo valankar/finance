@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import duckdb
 from cyclopts import App
 
 import common
@@ -26,7 +25,7 @@ def main(
         tables = ["index_prices"]
     else:
         tables = ["schwab_etfs_prices", "schwab_etfs_amounts"]
-    with duckdb.connect(common.DUCKDB) as con:
+    with common.duckdb_lock() as con:
         for table in tables:
             con.execute(f'ALTER TABLE {table} ADD COLUMN "{ticker}" DOUBLE')
 

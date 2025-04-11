@@ -6,7 +6,6 @@ import sys
 from functools import partial
 from typing import Callable, NamedTuple
 
-import portalocker
 from loguru import logger
 
 import common
@@ -51,24 +50,14 @@ def make_daily_methods() -> list[DailyMethod]:
         DailyMethod(name="SWVXX Yield", method=swvxx_yield.main),
         DailyMethod(name="SWYGX Holdings", method=swygx_holdings.main),
         DailyMethod(name="Wealthfront Cash Yield", method=wealthfront_cash_yield.main),
+        DailyMethod(name="Compact DuckDB", method=common.compact_db),
     ]
-
-
-@common.cache_daily_decorator
-def run_method(name: str):
-    for method in make_daily_methods():
-        if method.name == name:
-            logger.info(f"Running {name}")
-            return method.method()
-    logger.error(f"No method with name {name} found")
 
 
 def methods_run_needed() -> bool:
     needs_run = []
     for method in make_daily_methods():
-        # This is fixed in https://github.com/joblib/joblib/pull/1584, but not yet released.
-        call_id = (run_method.func_id, run_method._get_args_id(method.name))
-        if not run_method._is_in_cache_and_valid(call_id):
+        if not common.WalrusDb().cache.get(method.name):
             logger.info(f"Method {method.name} needs to run")
             needs_run.append(method)
     return bool(needs_run)
@@ -86,11 +75,18 @@ def main():
             sys.exit(1)
         else:
             sys.exit()
-    with portalocker.Lock(common.LOCKFILE, timeout=common.LOCKFILE_TIMEOUT):
+    with common.WalrusDb().db.lock(
+        common.SCRIPT_LOCK_NAME, ttl=common.LOCK_TTL_SECONDS * 1000
+    ):
         failed_methods = []
         for method in make_daily_methods():
+            if common.WalrusDb().cache.get(method.name):
+                logger.info(f"Method {method.name} ran recently")
+                continue
             try:
-                run_method(method.name)
+                logger.info(f"Running {method.name}")
+                method.method()
+                common.WalrusDb().cache.set(method.name, True, timeout=24 * 60 * 60)
             except Exception:
                 logger.exception("Failed")
                 failed_methods.append(method)

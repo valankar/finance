@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 """Plot weight graph."""
 
-import asyncio
 import io
-import os.path
 import re
 import subprocess
-from datetime import datetime
-from typing import Awaitable, ClassVar, Iterable, Optional
-from zoneinfo import ZoneInfo
+from typing import Awaitable, Iterable
 
 import pandas as pd
 import plotly.io as pio
@@ -19,124 +15,12 @@ from plotly.graph_objects import Figure
 
 import balance_etfs
 import common
-import graph_generator
 import i_and_e
 import ledger_ui
+import main_graphs
 import stock_options_ui
 
-RANGES = ["All", "3y", "2y", "1y", "YTD", "6m", "3m", "1m", "1d"]
 DEFAULT_RANGE = "1y"
-
-
-class MainGraphs:
-    """Collection of all main graphs."""
-
-    graph_data: ClassVar[Optional[graph_generator.GraphData]] = None
-    LAYOUT: ClassVar[tuple[tuple[str, str], ...]] = (
-        ("assets_breakdown", "96vh"),
-        ("investing_retirement", "75vh"),
-        ("real_estate", "96vh"),
-        ("allocation_profit", "75vh"),
-        ("change", "50vh"),
-        ("change_no_homes", "50vh"),
-        ("investing_allocation", "50vh"),
-        ("prices", "45vh"),
-        ("forex", "45vh"),
-        ("interest_rate", "45vh"),
-        ("loan", "45vh"),
-        ("brokerage_total", "45vh"),
-        ("daily_indicator", "45vh"),
-    )
-    CACHE_CALL_ARGS: ClassVar = (LAYOUT, RANGES, common.SUBPLOT_MARGIN)
-
-    def __init__(self, selected_range: str):
-        self.ui_plotly = {}
-        self.ui_stats_labels = {}
-        self.selected_range = selected_range
-
-    @classmethod
-    async def wait_for_graphs(cls):
-        skel = None
-        await ui.context.client.connected()
-        while not cls.all_graphs_populated():
-            if not skel:
-                skel = ui.skeleton("QToolbar").classes("w-full")
-            await asyncio.sleep(1)
-        if skel:
-            skel.delete()
-
-    @classmethod
-    def all_graphs_populated(cls) -> bool:
-        if graph_generator.generate_all_graphs.check_call_in_cache(
-            *MainGraphs.CACHE_CALL_ARGS
-        ):
-            cls.graph_data = graph_generator.generate_all_graphs(
-                *MainGraphs.CACHE_CALL_ARGS
-            )
-            return True
-        elif cls.graph_data:
-            return True
-        return False
-
-    async def update_stats_labels(self) -> None:
-        try:
-            timezone = ZoneInfo(
-                await ui.run_javascript(
-                    "Intl.DateTimeFormat().resolvedOptions().timeZone", timeout=10
-                )
-            )
-        except TimeoutError:
-            timezone = ZoneInfo("UTC")
-        if (graph_data := MainGraphs.graph_data) is None:
-            return
-        self.ui_stats_labels["last_datapoint_time"].set_text(
-            f"Latest datapoint: {graph_data.latest_datapoint_time.tz_localize('UTC').astimezone(timezone).strftime('%c')}"
-        )
-        self.ui_stats_labels["last_updated_time"].set_text(
-            f"Graphs last updated: {graph_data.last_updated_time.astimezone(timezone).strftime('%c')}"
-        )
-        self.ui_stats_labels["last_generation_duration"].set_text(
-            f"Graph generation duration: {graph_data.last_generation_duration.total_seconds():.2f}s"
-        )
-
-    async def create(self) -> None:
-        """Create all graphs."""
-        if (graph_data := MainGraphs.graph_data) is None:
-            return
-        for name, height in MainGraphs.LAYOUT:
-            if name in graph_data.graphs["ranged"]:
-                graph = graph_data.graphs["ranged"][name][self.selected_range]
-            else:
-                try:
-                    graph = graph_data.graphs["nonranged"][name]
-                except KeyError:
-                    continue
-            self.ui_plotly[name] = (
-                ui.plotly(graph).classes("w-full").style(f"height: {height}")
-            )
-        with ui.row().classes("flex justify-center w-full"):
-            for label in [
-                "last_datapoint_time",
-                "last_updated_time",
-                "last_generation_duration",
-                "next_generation_time",
-            ]:
-                self.ui_stats_labels[label] = ui.label()
-        with ui.row().classes("flex justify-center w-full"):
-            ui.link("Static Images", "/image_only")
-            common_links()
-        await self.update_stats_labels()
-
-    async def update(self) -> None:
-        """Update all graphs."""
-        if (graph_data := MainGraphs.graph_data) is None:
-            return
-        for name in graph_data.graphs["ranged"]:
-            await run.io_bound(
-                self.ui_plotly[name].update_figure,
-                graph_data.graphs["ranged"][name][self.selected_range],
-            )
-        await self.update_stats_labels()
 
 
 class IncomeExpenseGraphs:
@@ -180,11 +64,6 @@ class IncomeExpenseGraphs:
             ui.plotly(await graph).classes("w-full").style("height: 50vh")
 
 
-def common_links():
-    ui.link("Stock Options", "/stock_options")
-    ui.link("Transactions", "/transactions")
-
-
 def log_request():
     if request := ui.context.client.request:
         headers = request.headers
@@ -206,66 +85,29 @@ async def main_page():
     ui.add_body_html(
         '<script src="https://unpkg.com/virtual-webgl@1.0.6/src/virtual-webgl.js"></script>'
     )
-    await MainGraphs.wait_for_graphs()
-    graphs = MainGraphs(DEFAULT_RANGE)
-
+    graphs = main_graphs.MainGraphs(DEFAULT_RANGE, common.WalrusDb().db)
+    await graphs.wait_for_graphs()
     with ui.footer().classes("transparent q-py-none"):
         with ui.tabs().classes("w-full") as tabs:
-            for timerange in RANGES:
+            for timerange in main_graphs.RANGES:
                 ui.tab(timerange)
-
     tabs.bind_value(graphs, "selected_range")
     await graphs.create()
     tabs.on_value_change(graphs.update)
 
 
-class MainGraphsImageOnly:
-    def __init__(self, selected_range: str):
-        self.ui_image = {}
-        self.selected_range = selected_range
-        self.latest_timestamp = datetime.fromtimestamp(0)
-
-    def images(self) -> None:
-        with ui.column().classes("w-full"):
-            for name, _ in MainGraphs.LAYOUT:
-                for path in [
-                    f"{common.PREFIX}/{name}.png",
-                    f"{common.PREFIX}/{name}-{self.selected_range}.png",
-                ]:
-                    if os.path.exists(path):
-                        self.ui_image[name] = ui.image(
-                            f"/images/{os.path.basename(path)}"
-                        )
-                        if (
-                            ts := datetime.fromtimestamp(os.path.getmtime(path))
-                        ) > self.latest_timestamp:
-                            self.latest_timestamp = ts
-                        break
-            with ui.row().classes("flex justify-center w-full"):
-                ui.label(
-                    f"Latest image timestamp: {self.latest_timestamp.strftime('%c')}"
-                )
-                ui.link("Dynamic graphs", "/")
-                common_links()
-
-    def update(self) -> None:
-        for name, _ in MainGraphs.LAYOUT:
-            if os.path.exists(
-                path := f"{common.PREFIX}/{name}-{self.selected_range}.png"
-            ):
-                self.ui_image[name].set_source(path)
-
-
 @ui.page("/image_only")
-def main_page_image_only():
+async def main_page_image_only():
     log_request()
+    mg = main_graphs.MainGraphs(DEFAULT_RANGE, common.WalrusDb().db)
+    await mg.wait_for_graphs()
     with ui.footer().classes("transparent q-py-none"):
         with ui.tabs().classes("w-full") as tabs:
-            for timerange in RANGES:
+            for timerange in main_graphs.RANGES:
                 ui.tab(timerange)
-    graphs = MainGraphsImageOnly(DEFAULT_RANGE)
+    graphs = main_graphs.MainGraphsImageOnly(DEFAULT_RANGE, mg)
     tabs.bind_value(graphs, "selected_range")
-    graphs.images()
+    await graphs.create()
     tabs.on_value_change(graphs.update)
 
 
@@ -295,7 +137,9 @@ async def ledger_page():
 async def stock_options_page():
     """Stock options."""
     log_request()
-    await stock_options_ui.StockOptionsPage().main_page()
+    page = stock_options_ui.StockOptionsPage(common.WalrusDb().db)
+    await page.wait_for_data()
+    await page.main_page()
 
 
 @ui.page("/latest_values", title="Latest Values")
@@ -340,8 +184,9 @@ def body_cell_slot(
 @ui.page("/transactions", title="Transactions")
 async def transactions_page():
     log_request()
-    if (data := await stock_options_ui.StockOptionsPage.wait_for_data()) is None:
-        return
+    page = stock_options_ui.StockOptionsPage(common.WalrusDb().db)
+    await page.wait_for_data()
+    data = page.options_data
     bev = data.bev
     columns = 2
     if await ui.run_javascript("window.innerWidth;", timeout=10) < 1000:

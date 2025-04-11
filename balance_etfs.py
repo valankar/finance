@@ -112,10 +112,11 @@ def convert_etfs_to_types(etfs_df, etf_type_map: dict[str, list[str]]):
         )
 
     # Expand total market funds into allocation.
+    swtsx_market_cap = get_swtsx_market_cap()
     for etf in TOTAL_MARKET_FUNDS:
         if etf not in etfs_df.index:
             continue
-        for market_cap, market_cap_allocation in get_swtsx_market_cap().items():
+        for market_cap, market_cap_allocation in swtsx_market_cap.items():
             etfs_df.loc[market_cap] += etfs_df.loc[etf].fillna(0) * (
                 market_cap_allocation / 100
             )

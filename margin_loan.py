@@ -52,6 +52,7 @@ def get_loan_brokerage(broker: LoanBrokerage) -> Optional[LoanBrokerage]:
     return None
 
 
+@common.WalrusDb().cache.cached(timeout=30 * 60)
 def get_options_value(broker: LoanBrokerage) -> float:
     opts = stock_options.get_options_and_spreads()
     options_value = opts.pruned_options.query(f"account == '{broker.name}'")[

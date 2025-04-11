@@ -1,32 +1,35 @@
 #!/usr/bin/env python3
 """Common functions."""
 
-import multiprocessing
 import os
 import shutil
 import tempfile
+import traceback
 import typing
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
 from functools import reduce
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Generator, Mapping, Optional, Sequence
 
 import duckdb
 import pandas as pd
+import walrus
 import yahoofinancials
 import yahooquery
 import yfinance
-from joblib import Memory, Parallel, delayed, expires_after
 from loguru import logger
 from playwright.sync_api import sync_playwright
+from pyngleton import singleton
 
 CODE_DIR = f"{Path.home()}/code/accounts"
 PUBLIC_HTML = f"{CODE_DIR}/web/"
 PREFIX = PUBLIC_HTML
-LOCKFILE = f"{PREFIX}/run.lock"
-LOCKFILE_TIMEOUT = 10 * 60
+LOCK_TTL_SECONDS = 10 * 60
 DUCKDB = f"{PREFIX}/db.duckdb"
+DUCKDB_LOCK_NAME = "duckdb"
+SCRIPT_LOCK_NAME = "script"
 SELENIUM_REMOTE_URL = "http://selenium:4444"
 LEDGER_BIN = "ledger"
 LEDGER_DIR = f"{Path.home()}/code/ledger"
@@ -47,13 +50,11 @@ class GetTickerError(Exception):
     """Error getting ticker."""
 
 
-cache_half_hourly_decorator = Memory(f"{PREFIX}cache", verbose=0).cache(
-    cache_validation_callback=expires_after(minutes=30)
-)
-cache_daily_decorator = Memory(f"{PREFIX}cache", verbose=0).cache(
-    cache_validation_callback=expires_after(days=1)
-)
-cache_forever_decorator = Memory(f"{PREFIX}cache", verbose=0).cache()
+@singleton
+class WalrusDb:
+    def __init__(self):
+        self.db = walrus.Database(host=os.environ.get("REDIS_HOST", "localhost"))
+        self.cache = self.db.cache()
 
 
 @contextmanager
@@ -67,7 +68,8 @@ def pandas_options():
 
 def get_tickers(tickers: Sequence[str]) -> Mapping:
     """Get prices for a list of tickers."""
-    prices = Parallel(n_jobs=-1)(delayed(get_ticker)(t) for t in tickers)
+    with ThreadPoolExecutor() as e:
+        prices = list(e.map(get_ticker, tickers))
     ticker_dict = {}
     for ticker, price in zip(tickers, prices):
         ticker_dict[ticker] = price
@@ -78,12 +80,12 @@ def cache_ticker_prices():
     tickers = []
     for table in ["schwab_etfs_prices", "schwab_ira_prices", "index_prices"]:
         tickers.extend(read_sql_last(table).columns)
-    for col in read_sql_last("forex").columns:
+    for col in get_latest_forex().index:
         tickers.append(f"{col}=X")
     get_tickers(tickers)
 
 
-@cache_half_hourly_decorator
+@WalrusDb().cache.cached(timeout=30 * 60)
 def get_ticker(ticker: str) -> float:
     """Get ticker prices by trying various methods."""
     get_ticker_methods = (
@@ -93,10 +95,10 @@ def get_ticker(ticker: str) -> float:
     )
     for method in get_ticker_methods:
         logger.info(f"Running {method.__name__}({ticker=})")
-        with multiprocessing.Pool(processes=1) as pool:
-            async_result = pool.apply_async(method, (ticker,))
+        with ThreadPoolExecutor(max_workers=1) as e:
+            f = e.submit(method, ticker)
             try:
-                return async_result.get(timeout=GET_TICKER_TIMEOUT)
+                return f.result(timeout=GET_TICKER_TIMEOUT)
             except Exception:
                 logger.exception("Failed")
     raise GetTickerError("No more methods to get ticker price")
@@ -121,8 +123,43 @@ def get_ticker_yfinance(ticker: str) -> float:
     return yfinance.Ticker(ticker).history(period="5d")["Close"].iloc[-1]
 
 
+@WalrusDb().cache.cached(timeout=30 * 60)
 def get_latest_forex() -> pd.Series:
     return read_sql_last("forex").iloc[-1]
+
+
+@contextmanager
+def duckdb_lock(
+    read_only: bool = False,
+) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+    frames = []
+    for f in traceback.extract_stack():
+        if CODE_DIR not in f.filename or "/.venv/" in f.filename:
+            continue
+        if "duckdb_lock" in f.name:
+            continue
+        frames.append(f)
+    stack = " > ".join(
+        "{}:{}:{}".format(os.path.basename(f.filename), f.name, f.lineno)
+        for f in frames
+    )
+    if stack:
+        logger.info(stack)
+    else:
+        logger.info("No stack trace")
+    with WalrusDb().db.lock(DUCKDB_LOCK_NAME, ttl=LOCK_TTL_SECONDS * 1000):
+        with duckdb.connect(DUCKDB, read_only=read_only) as con:
+            yield con
+
+
+def compact_db():
+    with WalrusDb().db.lock(DUCKDB_LOCK_NAME, ttl=LOCK_TTL_SECONDS * 1000):
+        with temporary_file_move(DUCKDB) as new_db:
+            with duckdb.connect() as con:
+                con.execute(f"ATTACH '{DUCKDB}' as old")
+                os.unlink(new_db.name)
+                con.execute(f"ATTACH '{new_db.name}' as new")
+                con.execute("COPY FROM DATABASE old TO new")
 
 
 def insert_sql(table: str, data: dict[str, Any], timestamp: Optional[datetime] = None):
@@ -136,7 +173,7 @@ def insert_sql(table: str, data: dict[str, Any], timestamp: Optional[datetime] =
         cols.append(f'"{col}"')
         values.append(value)
         prepared.append("?")
-    with duckdb.connect(DUCKDB) as con:
+    with duckdb_lock() as con:
         con.execute(
             f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join(prepared)})",
             values,
@@ -144,7 +181,7 @@ def insert_sql(table: str, data: dict[str, Any], timestamp: Optional[datetime] =
 
 
 def read_sql_table(table, index_col="date") -> pd.DataFrame:
-    with duckdb.connect(DUCKDB, read_only=True) as con:
+    with duckdb_lock(read_only=True) as con:
         rel = con.table(table)
         if table == "history":
             # Add some convenience columns.
@@ -158,7 +195,7 @@ def read_sql_table(table, index_col="date") -> pd.DataFrame:
 
 def read_sql_query(query) -> pd.DataFrame:
     """Load table from sql query."""
-    with duckdb.connect(DUCKDB, read_only=True) as con:
+    with duckdb_lock(read_only=True) as con:
         return con.sql(query).df().set_index("date")
 
 
@@ -169,7 +206,7 @@ def read_sql_last(table: str) -> pd.DataFrame:
 def to_sql(dataframe, table, if_exists="append"):
     """Write dataframe to sql table."""
     dataframe = dataframe.reset_index()
-    with duckdb.connect(DUCKDB) as con:
+    with duckdb_lock() as con:
         if if_exists == "replace":
             con.execute("BEGIN TRANSACTION")
             con.execute(f"DROP TABLE IF EXISTS {table}")

@@ -1,13 +1,15 @@
 import asyncio
 import contextlib
 import io
+import pickle
 import typing
 from datetime import date, datetime
 
 import pandas as pd
 import plotly.express as px
+import walrus
 from loguru import logger
-from nicegui import background_tasks, run, ui
+from nicegui import ui
 from plotly.graph_objs import Figure
 
 import common
@@ -29,11 +31,30 @@ class RowGraphPair(typing.NamedTuple):
 
 
 class StockOptionsPage:
-    options_data: typing.ClassVar[typing.Optional[OptionsData]] = None
     PL_GRID_COLUMNS: typing.ClassVar[int] = 3
+    REDIS_KEY = "OptionsData"
 
-    def __init__(self):
-        self.refresh_button: typing.Optional[ui.button] = None
+    def __init__(self, db: walrus.Database):
+        self.db = db
+
+    def graph_data_available(self) -> bool:
+        return StockOptionsPage.REDIS_KEY in self.db
+
+    @property
+    def options_data(self) -> OptionsData:
+        if not self.graph_data_available():
+            raise ValueError("Data is not initialized.")
+        return pickle.loads(self.db[StockOptionsPage.REDIS_KEY])
+
+    async def wait_for_data(self):
+        skel = None
+        await ui.context.client.connected()
+        while not self.graph_data_available():
+            if not skel:
+                skel = ui.skeleton("QToolbar").classes("w-full")
+            await asyncio.sleep(1)
+        if skel:
+            skel.delete()
 
     def make_short_call_pl_graph(
         self,
@@ -321,9 +342,22 @@ class StockOptionsPage:
         if cd.ticker_price > d.high_strike:
             x.append(cd.ticker_price)
             y.append(-cd.contract_price)
-        else:
+        elif cd.ticker_price < d.low_strike:
             x.insert(0, cd.ticker_price)
             y.insert(0, d.risk)
+        else:
+            x.insert(1, cd.ticker_price)
+            y.insert(
+                1,
+                self.find_y_intercept(
+                    d.low_strike,
+                    d.risk,
+                    d.high_strike,
+                    -cd.contract_price,
+                    cd.ticker_price,
+                ),
+            )
+
         fig = px.line(x=x, y=y, markers=True)
         plot.centered_title(fig, f"{cd.account} {cd.ticker} {cd.expiration} Bull Put")
         self.add_ticker_vline(fig, cd.ticker_price, line_color)
@@ -354,45 +388,13 @@ class StockOptionsPage:
         fig.update_yaxes(title_text="P/L")
         return fig
 
-    @classmethod
-    async def wait_for_data(cls) -> typing.Optional[OptionsData]:
-        skel = None
-        await ui.context.client.connected()
-        while not cls.all_data_loaded():
-            if not skel:
-                skel = ui.skeleton("QToolbar").classes("w-full")
-            await asyncio.sleep(1)
-        if skel:
-            skel.delete()
-        return cls.options_data
-
-    @classmethod
-    def all_data_loaded(cls) -> bool:
-        if generate_options_data.check_call_in_cache():
-            cls.options_data = generate_options_data()
-            return True
-        elif cls.options_data:
-            return True
-        return False
-
-    async def refresh_data(self):
-        if self.refresh_button:
-            self.refresh_button.disable()
-        StockOptionsPage.options_data = None
-        await run.io_bound(generate_options_data.clear)
-        await run.io_bound(stock_options.options_df.clear)
-        background_tasks.create(run.io_bound(generate_options_data))
-        ui.navigate.reload()
-
     async def main_page(self):
         """Stock options."""
-        if (data := await StockOptionsPage.wait_for_data()) is None:
-            return
+        data = self.options_data
         with ui.row().classes("items-center"):
             ui.label(
                 f"Staleness: {(datetime.now() - data.updated).total_seconds() / 60:.0f}m"
             )
-            self.refresh_button = ui.button("Clear Cache", on_click=self.refresh_data)
         ui.html(f"<PRE>{data.main_output}</PRE>")
         opts = data.opts
         self.make_short_calls_table(data)
@@ -455,7 +457,6 @@ class StockOptionsPage:
         ui.plotly(fig).classes("w-full").style("height: 50vh")
 
 
-@common.cache_forever_decorator
 def generate_options_data() -> OptionsData:
     logger.info("Generating options data")
     opts = stock_options.get_options_and_spreads()
@@ -473,8 +474,3 @@ def generate_options_data() -> OptionsData:
     )
     logger.info("Finished generating options data")
     return data
-
-
-def clear_and_generate():
-    generate_options_data.clear()
-    generate_options_data()

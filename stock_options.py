@@ -6,12 +6,12 @@ import itertools
 import re
 import subprocess
 import typing
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from functools import partial
 
 import pandas as pd
 import yahooquery
-from joblib import Parallel, delayed
 from loguru import logger
 
 import common
@@ -113,7 +113,7 @@ class BrokerExpirationValues(typing.NamedTuple):
     values: list[ExpirationValue]
 
 
-@common.cache_half_hourly_decorator
+@common.WalrusDb().cache.cached(timeout=30 * 60)
 def get_option_chain(ticker: str) -> pd.DataFrame | None:
     """Get option chain for a ticker."""
     if ticker == "SPX":
@@ -237,15 +237,13 @@ def add_value(options_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def convert_to_usd(amount: str) -> float:
-    chfusd = common.get_latest_forex()["CHFUSD"]
     if amount.startswith("$"):
         return float(amount[1:])
     elif amount.endswith(" CHF"):
-        return float(amount.split()[0]) * chfusd
+        return float(amount.split()[0]) * common.get_latest_forex()["CHFUSD"]
     return 0
 
 
-@common.cache_daily_decorator
 def find_old_box_spreads(current_box_spreads: list[BoxSpread]) -> list[BoxSpread]:
     logger.info("Finding old box spreads")
     commodity_regex = "(SMI|SPX)"
@@ -280,7 +278,6 @@ def get_ledger_earliest_date(spread_df: pd.DataFrame) -> typing.Optional[datetim
     return earliest_entry_date
 
 
-@common.cache_half_hourly_decorator
 def get_ledger_total(broker: str, option_name: str) -> float:
     total = 0.0
     ledger_cmd = get_ledger_entries_command(broker, option_name)
@@ -317,7 +314,8 @@ def add_contract_price(options_df: pd.DataFrame) -> pd.DataFrame:
         ops.append(
             partial(divide_total, broker, name, row["count"] * row["multiplier"])
         )
-    prices = Parallel(n_jobs=-1)(delayed(op)() for op in ops)
+    with ThreadPoolExecutor() as e:
+        prices = list(e.map(lambda op: op(), ops))
     options_df["contract_price"] = prices
     logger.info("Finished adding contract prices")
     return options_df
@@ -330,7 +328,7 @@ def add_index_prices(etfs_df: pd.DataFrame) -> pd.DataFrame:
     return etfs_df
 
 
-@common.cache_half_hourly_decorator
+@common.WalrusDb().cache.cached(timeout=30 * 60)
 def options_df(commodity_regex: str = "", additional_args: str = "") -> pd.DataFrame:
     """Get call and put dataframe."""
     calls_puts_df = options_df_raw(
@@ -770,7 +768,11 @@ def summarize_box(box: BoxSpread):
 def modify_otm_leg(spread_df: pd.DataFrame) -> typing.Optional[pd.DataFrame]:
     leg = spread_df.query("in_the_money == False").copy()
     if len(leg) == 1:
-        leg["exercise_value"] = leg["count"] * leg["multiplier"] * leg["current_price"]
+        # Keep sign
+        sign = leg["exercise_value"].iloc[0] / abs(leg["exercise_value"].iloc[0])
+        leg["exercise_value"] = (
+            leg["count"] * leg["multiplier"] * leg["current_price"] * sign
+        )
         return leg
     return None
 
@@ -794,6 +796,7 @@ def summarize_spread(spread: Spread, title: str):
     print(f"Profit: {cd.profit:.0f}\n")
 
 
+@common.WalrusDb().cache.cached(timeout=30 * 60)
 def get_options_and_spreads() -> OptionsAndSpreads:
     all_options = options_df()
     box_spreads = find_box_spreads(all_options)
@@ -874,10 +877,8 @@ def find_all_related(broker: str, option_name: str, done: set[str] = set()) -> s
     return processed
 
 
-@common.cache_half_hourly_decorator
-def get_cost_with_rolls(combo: pd.DataFrame) -> float:
-    broker = combo.index.get_level_values("account")[0]
-    option_names = set(combo.index.get_level_values("name"))
+@common.WalrusDb().cache.cached(timeout=24 * 60 * 60)
+def get_cost_with_rolls_serialized(broker: str, option_names: list[str]) -> float:
     found = set()
     for option in option_names:
         found.update(find_all_related(broker, option))
@@ -886,6 +887,12 @@ def get_cost_with_rolls(combo: pd.DataFrame) -> float:
     if total > 0:
         logger.info("Total would be positive, ignoring")
     return min(0, total)
+
+
+def get_cost_with_rolls(combo: pd.DataFrame) -> float:
+    broker = combo.index.get_level_values("account")[0]
+    option_names = set(combo.index.get_level_values("name"))
+    return get_cost_with_rolls_serialized(broker, sorted(option_names))
 
 
 def main(show_spreads: bool = True, opts: typing.Optional[OptionsAndSpreads] = None):
