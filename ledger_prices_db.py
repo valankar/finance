@@ -40,7 +40,9 @@ def main():
             )
 
         # Stock options
-        options_df = stock_options.options_df()
+        if (options_data := stock_options.get_options_data()) is None:
+            raise ValueError("No options data available")
+        options_df = options_data.opts.all_options
         options_written = set()
         for idx, row in options_df.iterrows():
             idx = typing.cast(tuple, idx)

@@ -415,7 +415,7 @@ def make_brokerage_total_section(brokerage_df: pd.DataFrame) -> Figure:
     return section
 
 
-def make_loan_section() -> Figure:
+def make_loan_section(options_value_by_brokerage: dict[str, float]) -> Figure:
     """Make section with margin loans."""
 
     section = make_subplots(
@@ -464,7 +464,9 @@ def make_loan_section() -> Figure:
             )
 
     for i, broker in enumerate(margin_loan.LOAN_BROKERAGES, start=1):
-        if (df := margin_loan.get_balances_broker(broker)) is not None:
+        if (
+            df := margin_loan.get_balances_broker(broker, options_value_by_brokerage)
+        ) is not None:
             add_loan_graph(df, i)
 
     section.update_yaxes(matches=None)

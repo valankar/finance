@@ -136,11 +136,11 @@ def get_desired_df(
     if (s := round(sum(desired_allocation.values()))) != 100:
         print(f"Sum of percents in desired allocation {s} != 100")
         return None
-    etfs_df = pd.read_csv(
-        etfs.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "value"]
-    ).fillna(0)
+    etfs_df = etfs.get_etfs_df()[["value"]]
     if include_options:
-        options_df = stock_options.get_options_and_spreads().pruned_options
+        if (options_data := stock_options.get_options_data()) is None:
+            raise ValueError("No options data available")
+        options_df = options_data.opts.pruned_options
         if long_calls:
             query = "((count > 0) or (count < 0))"
         else:

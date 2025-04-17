@@ -31,7 +31,9 @@ LEDGER_ZURCHER_CMD = f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Zurcher Kantona
 
 def main():
     """Main."""
-    options_df = stock_options.options_df()
+    if (options_data := stock_options.get_options_data()) is None:
+        raise ValueError("No options data available")
+    options_df = options_data.opts.all_options
     commodities_options = options_df.query(
         f"ticker.str.fullmatch('{common.COMMODITIES_REGEX}')"
     )["value"].sum()

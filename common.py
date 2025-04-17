@@ -122,7 +122,6 @@ def get_ticker_yfinance(ticker: str) -> float:
     return yfinance.Ticker(ticker).history(period="5d")["Close"].iloc[-1]
 
 
-@WalrusDb().cache.cached(timeout=30 * 60)
 def get_latest_forex() -> pd.Series:
     return read_sql_last("forex").iloc[-1]
 

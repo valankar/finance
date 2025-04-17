@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Methods for stock options."""
 
+import contextlib
 import io
 import itertools
+import pickle
 import re
 import subprocess
 import typing
@@ -18,6 +20,8 @@ import common
 import etfs
 import ledger_ops
 import margin_loan
+
+REDIS_KEY = "OptionsData"
 
 
 class TickerOption(typing.NamedTuple):
@@ -86,6 +90,16 @@ class IronCondor(typing.NamedTuple):
     details: IronCondorDetails
 
 
+class ExpirationValue(typing.NamedTuple):
+    expiration: date
+    value: float
+
+
+class BrokerExpirationValues(typing.NamedTuple):
+    broker: str
+    values: list[ExpirationValue]
+
+
 class OptionsAndSpreads(typing.NamedTuple):
     all_options: pd.DataFrame
     # Options with box, bull put, and bear call spreads removed.
@@ -101,16 +115,14 @@ class OptionsAndSpreads(typing.NamedTuple):
     # These do not include spreads part of iron condors.
     bull_put_spreads_no_ic: list[Spread]
     bear_call_spreads_no_ic: list[Spread]
+    options_value_by_brokerage: dict[str, float]
 
 
-class ExpirationValue(typing.NamedTuple):
-    expiration: date
-    value: float
-
-
-class BrokerExpirationValues(typing.NamedTuple):
-    broker: str
-    values: list[ExpirationValue]
+class OptionsData(typing.NamedTuple):
+    opts: OptionsAndSpreads
+    bev: list[BrokerExpirationValues]
+    main_output: str
+    updated: datetime
 
 
 @common.WalrusDb().cache.cached(timeout=30 * 60)
@@ -328,7 +340,6 @@ def add_index_prices(etfs_df: pd.DataFrame) -> pd.DataFrame:
     return etfs_df
 
 
-@common.WalrusDb().cache.cached(timeout=30 * 60)
 def options_df(commodity_regex: str = "", additional_args: str = "") -> pd.DataFrame:
     """Get call and put dataframe."""
     calls_puts_df = options_df_raw(
@@ -796,7 +807,28 @@ def summarize_spread(spread: Spread, title: str):
     print(f"Profit: {cd.profit:.0f}\n")
 
 
-@common.WalrusDb().cache.cached(timeout=30 * 60)
+def get_options_value_by_brokerage(
+    pruned_options: pd.DataFrame,
+    bull_put_spreads: list[Spread],
+    bear_call_spreads: list[Spread],
+) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for broker in common.BROKERAGES:
+        options_value = pruned_options.query(f"account == '{broker}'")["value"].sum()
+        spread_df = pd.concat([s.df for s in bull_put_spreads + bear_call_spreads])
+        options_value += spread_df.query(f"account == '{broker}' and ticker != 'SPX'")[
+            "value"
+        ].sum()
+        # SPX spreads handled differently.
+        options_value += spread_df.query(f"account == '{broker}' and ticker == 'SPX'")[
+            "intrinsic_value"
+        ].sum()
+        if options_value:
+            logger.info(f"Options value for {broker}: {options_value}")
+            values[broker] = options_value
+    return values
+
+
 def get_options_and_spreads() -> OptionsAndSpreads:
     all_options = options_df()
     box_spreads = find_box_spreads(all_options)
@@ -819,8 +851,12 @@ def get_options_and_spreads() -> OptionsAndSpreads:
 
     bull_put_spreads_no_ic = get_spread_no_ic(bull_put_spreads)
     bear_call_spreads_no_ic = get_spread_no_ic(bear_call_spreads)
-
     short_calls = get_short_call_details(pruned_options)
+    options_value_by_brokerage = get_options_value_by_brokerage(
+        pruned_options,
+        bull_put_spreads,
+        bear_call_spreads,
+    )
     return OptionsAndSpreads(
         all_options=all_options,
         pruned_options=pruned_options,
@@ -832,6 +868,7 @@ def get_options_and_spreads() -> OptionsAndSpreads:
         iron_condors=iron_condors,
         bull_put_spreads_no_ic=bull_put_spreads_no_ic,
         bear_call_spreads_no_ic=bear_call_spreads_no_ic,
+        options_value_by_brokerage=options_value_by_brokerage,
     )
 
 
@@ -877,8 +914,9 @@ def find_all_related(broker: str, option_name: str, done: set[str] = set()) -> s
     return processed
 
 
-@common.WalrusDb().cache.cached(timeout=24 * 60 * 60)
-def get_cost_with_rolls_serialized(broker: str, option_names: list[str]) -> float:
+def get_cost_with_rolls(combo: pd.DataFrame) -> float:
+    broker = combo.index.get_level_values("account")[0]
+    option_names = set(combo.index.get_level_values("name"))
     found = set()
     for option in option_names:
         found.update(find_all_related(broker, option))
@@ -889,14 +927,33 @@ def get_cost_with_rolls_serialized(broker: str, option_names: list[str]) -> floa
     return min(0, total)
 
 
-def get_cost_with_rolls(combo: pd.DataFrame) -> float:
-    broker = combo.index.get_level_values("account")[0]
-    option_names = set(combo.index.get_level_values("name"))
-    return get_cost_with_rolls_serialized(broker, sorted(option_names))
+def generate_options_data():
+    logger.info("Generating options data")
+    opts = get_options_and_spreads()
+    itm_df = get_itm_df(opts)
+    expiration_values = get_expiration_values(itm_df)
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        with common.pandas_options():
+            text_output(opts=opts, show_spreads=False)
+            main_output = output.getvalue()
+    data = OptionsData(
+        opts=opts,
+        bev=expiration_values,
+        main_output=main_output,
+        updated=datetime.now(),
+    )
+    common.WalrusDb().db[REDIS_KEY] = pickle.dumps(data)
 
 
-def main(show_spreads: bool = True, opts: typing.Optional[OptionsAndSpreads] = None):
-    """Main."""
+def get_options_data() -> typing.Optional[OptionsData]:
+    db = common.WalrusDb().db
+    if REDIS_KEY not in db:
+        logger.error("No options data found")
+        return None
+    return pickle.loads(db[REDIS_KEY])
+
+
+def text_output(opts: OptionsAndSpreads, show_spreads: bool):
     if opts is None:
         opts = get_options_and_spreads()
     if len(otm_df := opts.pruned_options.query("in_the_money == False")):
@@ -938,7 +995,11 @@ def main(show_spreads: bool = True, opts: typing.Optional[OptionsAndSpreads] = N
     for broker in common.BROKERAGES:
         option_risk = get_total_risk(broker, opts)
         if (brokerage := margin_loan.find_loan_brokerage(broker)) is not None:
-            if (df := margin_loan.get_balances_broker(brokerage)) is not None:
+            if (
+                df := margin_loan.get_balances_broker(
+                    brokerage, opts.options_value_by_brokerage
+                )
+            ) is not None:
                 netliq = df["Total"].sum()
                 print(
                     f"{broker} option risk as percentage of net liquidity: {abs(option_risk / netliq):.2%}"
@@ -964,4 +1025,6 @@ def main(show_spreads: bool = True, opts: typing.Optional[OptionsAndSpreads] = N
 
 
 if __name__ == "__main__":
-    main()
+    if (options_data := get_options_data()) is None:
+        raise ValueError("No options data found")
+    text_output(options_data.opts, show_spreads=True)

@@ -18,7 +18,10 @@ import common
 import i_and_e
 import ledger_ui
 import main_graphs
+import stock_options
 import stock_options_ui
+from main_echarts import ECharts
+from main_matplot import Matplots
 
 
 class IncomeExpenseGraphs:
@@ -79,33 +82,25 @@ def log_request():
 async def main_page():
     """Generate main UI."""
     log_request()
-    # To avoid out of webgl context errors. See https://plotly.com/python/webgl-vs-svg/
-    ui.add_body_html(
-        '<script src="https://unpkg.com/virtual-webgl@1.0.6/src/virtual-webgl.js"></script>'
-    )
-    graphs = main_graphs.MainGraphs(common.WalrusDb().db)
-    await graphs.wait_for_graphs()
-    with ui.footer().classes("transparent q-py-none"):
-        with ui.tabs().classes("w-full") as tabs:
-            for timerange in main_graphs.RANGES:
-                ui.tab(timerange)
-    tabs.bind_value(graphs, "selected_range")
-    await graphs.create()
-    tabs.on_value_change(graphs.update)
+    main_graphs.MainGraphs(common.WalrusDb().db).create()
 
 
 @ui.page("/image_only")
 async def main_page_image_only():
     log_request()
-    graphs = main_graphs.MainGraphsImageOnly(common.WalrusDb().db)
-    await graphs.wait_for_graphs()
-    with ui.footer().classes("transparent q-py-none"):
-        with ui.tabs().classes("w-full") as tabs:
-            for timerange in main_graphs.RANGES:
-                ui.tab(timerange)
-    tabs.bind_value(graphs, "selected_range")
-    await graphs.create()
-    tabs.on_value_change(graphs.update)
+    main_graphs.MainGraphsImageOnly(common.WalrusDb().db).create()
+
+
+@ui.page("/echarts")
+async def echarts_page():
+    log_request()
+    ECharts().create()
+
+
+@ui.page("/matplot")
+async def matplot_page():
+    log_request()
+    Matplots(common.WalrusDb().db).create()
 
 
 @ui.page("/i_and_e", title="Income & Expenses")
@@ -134,9 +129,7 @@ async def ledger_page():
 async def stock_options_page():
     """Stock options."""
     log_request()
-    page = stock_options_ui.StockOptionsPage(common.WalrusDb().db)
-    await page.wait_for_data()
-    await page.main_page()
+    await stock_options_ui.StockOptionsPage().main_page()
 
 
 @ui.page("/latest_values", title="Latest Values")
@@ -181,9 +174,8 @@ def body_cell_slot(
 @ui.page("/transactions", title="Transactions")
 async def transactions_page():
     log_request()
-    page = stock_options_ui.StockOptionsPage(common.WalrusDb().db)
-    await page.wait_for_data()
-    data = page.options_data
+    if (data := stock_options.get_options_data()) is None:
+        raise ValueError("No options data available")
     bev = data.bev
     columns = 2
     if await ui.run_javascript("window.innerWidth;", timeout=10) < 1000:

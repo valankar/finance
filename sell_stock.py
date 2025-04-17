@@ -80,7 +80,9 @@ def sell_stock_brokerage(
         print("No ETFs found")
         return None
     # Take into account options assignment
-    options_df = stock_options.options_df()
+    if (options_data := stock_options.get_options_data()) is None:
+        raise ValueError("No options data available")
+    options_df = options_data.opts.all_options
     if account in options_df.index.get_level_values(0):
         options_df = stock_options.after_assignment_df(
             typing.cast(pd.DataFrame, options_df.xs(account))

@@ -6,7 +6,6 @@ import subprocess
 from typing import NamedTuple, Optional
 
 import pandas as pd
-from loguru import logger
 
 import common
 import ledger_amounts
@@ -52,35 +51,17 @@ def get_loan_brokerage(broker: LoanBrokerage) -> Optional[LoanBrokerage]:
     return None
 
 
-@common.WalrusDb().cache.cached(timeout=30 * 60)
-def get_options_value(broker: LoanBrokerage) -> float:
-    opts = stock_options.get_options_and_spreads()
-    options_value = opts.pruned_options.query(f"account == '{broker.name}'")[
-        "value"
-    ].sum()
-    spread_df = pd.concat(
-        [s.df for s in opts.bull_put_spreads + opts.bear_call_spreads]
-    )
-    options_value += spread_df.query(f"account == '{broker.name}' and ticker != 'SPX'")[
-        "value"
-    ].sum()
-    # SPX spreads handled differently.
-    options_value += spread_df.query(f"account == '{broker.name}' and ticker == 'SPX'")[
-        "intrinsic_value"
-    ].sum()
-    if options_value:
-        logger.info(f"Options value for {broker.name}: {options_value}")
-    return options_value
-
-
-def get_balances_broker(broker: LoanBrokerage) -> Optional[pd.DataFrame]:
+def get_balances_broker(
+    broker: LoanBrokerage, options_value_by_brokerage: dict[str, float]
+) -> Optional[pd.DataFrame]:
     if (brokerage := get_loan_brokerage(broker)) is None:
         return None
     loan_df = load_loan_balance_df(brokerage)
     equity_df = load_ledger_equity_balance_df(brokerage)
-    equity_df.iloc[-1, equity_df.columns.get_loc("Equity Balance")] += (  # type: ignore
-        get_options_value(broker)
-    )
+    if options_value := options_value_by_brokerage.get(brokerage.name):
+        equity_df.iloc[-1, equity_df.columns.get_loc("Equity Balance")] += (  # type: ignore
+            options_value
+        )
     equity_df["30% Equity Balance"] = equity_df["Equity Balance"] * 0.3
     equity_df["50% Equity Balance"] = equity_df["Equity Balance"] * 0.5
     equity_df["Loan Balance"] = loan_df.iloc[-1]["Loan Balance"]
@@ -125,8 +106,14 @@ def load_loan_balance_df(brokerage: LoanBrokerage) -> pd.DataFrame:
 
 def main():
     """Main."""
+    if (options_data := stock_options.get_options_data()) is None:
+        raise ValueError("No options data available")
     for brokerage in LOAN_BROKERAGES:
-        if (df := get_balances_broker(brokerage)) is not None:
+        if (
+            df := get_balances_broker(
+                brokerage, options_data.opts.options_value_by_brokerage
+            )
+        ) is not None:
             print(brokerage.name, "\n", df.round(2), "\n")
 
 
