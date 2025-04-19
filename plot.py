@@ -250,9 +250,9 @@ def make_investing_allocation_section() -> Figure:
     """Make investing current and desired allocation pie graphs."""
     changes_section = make_subplots(
         rows=1,
-        cols=3,
-        subplot_titles=("Current", "Desired", "Rebalancing Required"),
-        specs=[[{"type": "pie"}, {"type": "pie"}, {"type": "xy"}]],
+        cols=2,
+        subplot_titles=("Current", "Rebalancing Required"),
+        specs=[[{"type": "pie"}, {"type": "xy"}]],
     )
     if (dataframe := balance_etfs.get_rebalancing_df(0)) is None:
         return changes_section
@@ -272,19 +272,12 @@ def make_investing_allocation_section() -> Figure:
     changes_section.add_trace(pie_total, row=1, col=1)
     changes_section.update_traces(row=1, col=1, textinfo="percent+value")
 
-    # Desired allocation
-    dataframe["reconciled"] = dataframe["value"] + dataframe["usd_to_reconcile"]
-    values = [dataframe.loc[col]["reconciled"] for _, col in label_col]
-    pie_total = go.Pie(labels=[name for name, _ in label_col], values=values)
-    changes_section.add_trace(pie_total, row=1, col=2)
-    changes_section.update_traces(row=1, col=2, textinfo="percent+value")
-
     # Rebalancing
     values = [dataframe.loc[col]["usd_to_reconcile"] for _, col in label_col]
     go.Figure(go.Bar(x=[name for name, _ in label_col], y=values)).for_each_trace(
-        lambda t: set_bar_chart_color(t, changes_section, 1, 3)
+        lambda t: set_bar_chart_color(t, changes_section, 1, 2)
     )
-    changes_section.update_traces(row=1, col=3, showlegend=False)
+    changes_section.update_traces(row=1, col=2, showlegend=False)
     centered_title(changes_section, "Investing Allocation")
     return changes_section
 
