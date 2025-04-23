@@ -221,37 +221,6 @@ def write_ticker_sql(
     return amounts_df, prices_df
 
 
-def write_ticker_csv(
-    amounts_table: str,
-    prices_table: str,
-    csv_output_path: str,
-    ticker_col_name: str = "ticker",
-    ticker_amt_col: str = "shares",
-    ticker_aliases: Mapping | None = None,
-    ticker_prices: Mapping | None = None,
-):
-    """Write ticker values to prices table and csv file.
-
-    ticker_aliases is used to map name to actual ticker: GOLD -> GC=F
-    """
-    amounts_df, prices_df = write_ticker_sql(
-        amounts_table, prices_table, ticker_aliases, ticker_prices
-    )
-    if ticker_aliases:
-        # Revert back columns names/tickers.
-        amounts_df = amounts_df.rename(
-            columns={v: k for k, v in ticker_aliases.items()}
-        )
-    latest_amounts = amounts_df.iloc[-1].rename(ticker_amt_col).sort_index()
-    latest_prices = prices_df.iloc[-1].rename("current_price").sort_index()
-    # Multiply latest amounts by prices.
-    latest_values = (latest_amounts * latest_prices.values).rename("value")
-    new_df = pd.DataFrame([latest_amounts, latest_prices, latest_values]).T.rename_axis(
-        ticker_col_name
-    )
-    new_df.to_csv(csv_output_path)
-
-
 @contextmanager
 def temporary_file_move(dest_file):
     """Provides a temporary file that is moved in place after context."""
@@ -276,8 +245,8 @@ def run_with_browser_page(url):
         os.environ["SELENIUM_REMOTE_URL"] = SELENIUM_REMOTE_URL
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
+        page = browser.new_page()
         try:
-            page = browser.new_page()
             page.goto(url)
             yield page
         finally:

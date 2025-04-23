@@ -1,5 +1,5 @@
 services:
-  accounts:
+  accounts: &accounts
     image: ${IMAGE}
     container_name: accounts
     init: true
@@ -15,6 +15,16 @@ services:
       - cloudflare
     depends_on: &depends_on
       redis:
+        condition: service_started
+
+  accounts-dev:
+    <<: *accounts
+    container_name: accounts-dev
+    profiles: [ "development" ]
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis-dev:
         condition: service_started
 
   accounts_hourly:
@@ -67,7 +77,6 @@ services:
   
   redis-dev:
     <<: *redis
-    container_name: redis-dev
     profiles: [ "development" ]
     ports:
       - "6379:6379"

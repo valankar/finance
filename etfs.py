@@ -6,7 +6,6 @@ import pandas as pd
 import common
 
 TABLE_PREFIX = "schwab_etfs"
-CSV_OUTPUT_PATH = f"{common.PREFIX}schwab_etfs_values.csv"
 
 
 def get_etfs_df() -> pd.DataFrame:
@@ -29,9 +28,7 @@ def get_etfs_df() -> pd.DataFrame:
 
 def main():
     """Main."""
-    common.write_ticker_csv(
-        f"{TABLE_PREFIX}_amounts", f"{TABLE_PREFIX}_prices", CSV_OUTPUT_PATH
-    )
+    common.write_ticker_sql(f"{TABLE_PREFIX}_amounts", f"{TABLE_PREFIX}_prices")
 
 
 if __name__ == "__main__":

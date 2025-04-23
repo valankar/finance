@@ -152,9 +152,7 @@ def get_desired_df(
         itm_df = stock_options.after_assignment_df(options_df.query(query))
         print("Options:\n", itm_df)
         etfs_df["value"] = etfs_df["value"].add(itm_df["value_change"], fill_value=0)
-    ira_df = pd.read_csv(
-        schwab_ira.CSV_OUTPUT_PATH, index_col=0, usecols=["ticker", "value"]
-    ).fillna(0)
+    ira_df = schwab_ira.get_ira_df()[["value"]]
     wanted_df = pd.DataFrame({"wanted_percent": pd.Series(desired_allocation)})
     mf_df = convert_etfs_to_types(etfs_df, ETF_TYPE_MAP) + convert_ira_to_types(
         ira_df, ETF_TYPE_MAP

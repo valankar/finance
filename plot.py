@@ -6,7 +6,6 @@ from functools import reduce
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dateutil.relativedelta import relativedelta
 from plotly.graph_objects import Figure
 from plotly.subplots import make_subplots
 from prefixed import Float
@@ -14,6 +13,7 @@ from prefixed import Float
 import balance_etfs
 import common
 import homes
+import latest_values
 import margin_loan
 
 COLOR_GREEN = "DarkGreen"
@@ -78,9 +78,7 @@ def centered_title(fig: Figure, title: str):
 
 
 def make_daily_indicator(hourly_df: pd.DataFrame) -> Figure:
-    df = hourly_df.loc[
-        (hourly_df.index[-1] + relativedelta(days=-1)).strftime("%Y-%m-%d") :
-    ]
+    df = latest_values.difference_df(hourly_df)
     fig = go.Figure()
     for col, (column, title) in enumerate(
         [
@@ -274,9 +272,15 @@ def make_investing_allocation_section() -> Figure:
 
     # Rebalancing
     values = [dataframe.loc[col]["usd_to_reconcile"] for _, col in label_col]
-    go.Figure(go.Bar(x=[name for name, _ in label_col], y=values)).for_each_trace(
-        lambda t: set_bar_chart_color(t, changes_section, 1, 2)
+    fig = go.Figure(
+        go.Bar(
+            x=[name for name, _ in label_col],
+            y=values,
+            text=[f"{y:,.0f}" for y in values],
+        )
     )
+    fig.update_traces(textangle=0)
+    fig.for_each_trace(lambda t: set_bar_chart_color(t, changes_section, 1, 2))
     changes_section.update_traces(row=1, col=2, showlegend=False)
     centered_title(changes_section, "Investing Allocation")
     return changes_section
@@ -373,9 +377,10 @@ def make_forex_section(forex_df: pd.DataFrame, title: str) -> Figure:
 
 def make_interest_rate_section(interest_df: pd.DataFrame) -> Figure:
     """Make interest rate section."""
+    # astype needed due to https://github.com/plotly/Kaleido/issues/236
     fig = px.line(
         interest_df,
-        x=interest_df.index,
+        x=interest_df.index.astype(str),
         y=interest_df.columns,
         title="Interest Rates",
     )
@@ -385,7 +390,6 @@ def make_interest_rate_section(interest_df: pd.DataFrame) -> Figure:
 
 
 def make_brokerage_total_section(brokerage_df: pd.DataFrame) -> Figure:
-    df = brokerage_df.xs("Total", axis=1)
     section = make_subplots(
         rows=1,
         cols=len(margin_loan.LOAN_BROKERAGES),
@@ -395,8 +399,8 @@ def make_brokerage_total_section(brokerage_df: pd.DataFrame) -> Figure:
     )
     for i, broker in enumerate(margin_loan.LOAN_BROKERAGES, start=1):
         fig = px.line(
-            df,
-            x=df.index,
+            brokerage_df,
+            x=brokerage_df.index,
             y=broker.name,
         )
         fig.for_each_trace(lambda t: section.add_trace(t, row=1, col=i))
@@ -517,7 +521,8 @@ def make_total_bar_yoy(daily_df: pd.DataFrame, column: str) -> Figure:
     diff_df = daily_df.resample("YE").last().interpolate().diff().dropna()
     # Re-align at beginning of year.
     diff_df.index = pd.DatetimeIndex(diff_df.index.strftime("%Y-01-01"))  # type: ignore
-    yearly_bar = px.bar(diff_df, x=diff_df.index, y=column, text_auto=".3s")  # type: ignore
+    # astype needed due to https://github.com/plotly/Kaleido/issues/236
+    yearly_bar = px.bar(diff_df, x=diff_df.index.astype(str), y=column, text_auto=".3s")  # type: ignore
     return yearly_bar
 
 

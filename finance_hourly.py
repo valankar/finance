@@ -2,10 +2,11 @@
 """Run hourly finance functions."""
 
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 
 import redis
 from cyclopts import App
+from loguru import logger
 
 import brokerages
 import common
@@ -20,12 +21,13 @@ import main_matplot
 import push_web
 import schwab_ira
 import stock_options
+import stock_options_ui
 
 app = App()
 
 
 @app.default
-def run_all(
+async def run_all(
     calculate: bool = True,
     matplot: bool = True,
     plotly: bool = True,
@@ -45,14 +47,16 @@ def run_all(
             history.main()
             brokerages.main()
             push_web.main()
-        db = common.WalrusDb().db
-        m = main_matplot.Matplots(db)
-        p = main_graphs.MainGraphs(db)
-        with ThreadPoolExecutor() as e:
-            if matplot:
-                e.submit(m.generate)
+        with ProcessPoolExecutor() as e:
+            results = []
             if plotly:
-                e.submit(p.generate)
+                results.append(e.submit(main_graphs.main))
+            if matplot:
+                results.append(e.submit(main_matplot.main))
+                results.append(e.submit(stock_options_ui.main))
+        for r in results:
+            if o := r.result():
+                logger.info(o)
         redis.Redis(host=os.environ.get("REDIS_HOST", "localhost")).bgsave()
 
 

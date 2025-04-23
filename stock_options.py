@@ -33,7 +33,7 @@ class TickerOption(typing.NamedTuple):
 
 class CommonDetails(typing.NamedTuple):
     account: str
-    count: int
+    amount: int
     ticker: str
     ticker_price: float
     expiration: date
@@ -175,6 +175,7 @@ def options_df_raw(
     )
     chfusd = common.get_latest_forex()["CHFUSD"]
     entries = []
+    account = ""
     for line in io.StringIO(subprocess.check_output(cmd, shell=True, text=True)):
         if line[0].isalpha():
             account = line.strip().split(":")[-1]
@@ -188,18 +189,19 @@ def options_df_raw(
         multiplier = 100
         if ticker == "SMI":
             multiplier = 10 * chfusd
-        entries.append(
-            {
-                "name": call_name,
-                "type": option_type,
-                "ticker": ticker,
-                "count": int(count),
-                "multiplier": multiplier,
-                "strike": float(strike),
-                "expiration": pd.to_datetime(expiration),
-                "account": account,
-            }
-        )
+        if account:
+            entries.append(
+                {
+                    "name": call_name,
+                    "type": option_type,
+                    "ticker": ticker,
+                    "count": int(count),
+                    "multiplier": multiplier,
+                    "strike": float(strike),
+                    "expiration": pd.to_datetime(expiration),
+                    "account": account,
+                }
+            )
     return pd.DataFrame(entries)
 
 
@@ -428,6 +430,8 @@ def after_assignment_df(itm_df: pd.DataFrame) -> pd.DataFrame:
                 multiplier = 1
             case "PUT":
                 multiplier = -1
+            case _:
+                continue
         etfs_df.loc[cols["ticker"], "shares"] += (
             multiplier * cols["count"] * cols["multiplier"]
         )
@@ -619,7 +623,7 @@ def get_short_call_details(options_df: pd.DataFrame) -> list[ShortCallDetails]:
             ShortCallDetails(
                 details=CommonDetails(
                     account=account,
-                    count=row["count"],
+                    amount=row["count"],
                     ticker=row["ticker"],
                     ticker_price=row["current_price"],
                     expiration=expiration,
@@ -679,7 +683,7 @@ def get_spread_details(
     return SpreadDetails(
         details=CommonDetails(
             account=index[0],
-            count=count,
+            amount=count,
             ticker=row["ticker"],
             ticker_price=row["current_price"],
             expiration=index[2].date(),
@@ -724,7 +728,7 @@ def get_iron_condor_details(
     return IronCondorDetails(
         details=CommonDetails(
             account=account,
-            count=count,
+            amount=count,
             ticker=ticker,
             ticker_price=row["current_price"],
             expiration=index[2].date(),
@@ -749,7 +753,7 @@ def summarize_iron_condor(iron_condor: IronCondor):
     cd = d.details
     print(f"{cd.account}")
     print(
-        f"{cd.count} {cd.ticker} {cd.expiration} {d.low_put_strike:.0f}/{d.high_put_strike:.0f}/{d.low_call_strike:.0f}/{d.high_call_strike:.0f} Iron Condor"
+        f"{cd.amount} {cd.ticker} {cd.expiration} {d.low_put_strike:.0f}/{d.high_put_strike:.0f}/{d.low_call_strike:.0f}/{d.high_call_strike:.0f} Iron Condor"
     )
     print(f"Contract price: {cd.contract_price:.0f}")
     print(f"Half mark: {cd.half_mark:.2f}")
@@ -764,15 +768,15 @@ def summarize_box(box: BoxSpread):
     cd = d.details.details
     print(f"{cd.account}")
     print(
-        f"{cd.count} {cd.ticker} {cd.expiration} {d.details.low_strike:.0f}/{d.details.high_strike:.0f} Box"
+        f"{cd.amount} {cd.ticker} {cd.expiration} {d.details.low_strike:.0f}/{d.details.high_strike:.0f} Box"
     )
     print(f"Earliest transaction date: {d.earliest_transaction_date}")
     print(f"Loan term: {d.loan_term_days} days")
     print(f"APY: {d.apy:.2%}")
     print(f"Contract price: {cd.contract_price:.0f}")
     print(f"Exercise value: {cd.intrinsic_value:.0f}", end="")
-    if cd.count > 1:
-        print(f" ({cd.intrinsic_value / cd.count:.0f} per contract)", end="")
+    if cd.amount > 1:
+        print(f" ({cd.intrinsic_value / cd.amount:.0f} per contract)", end="")
     print("\n")
 
 
@@ -793,7 +797,7 @@ def summarize_spread(spread: Spread, title: str):
     cd = d.details
     print(f"{cd.account}")
     print(
-        f"{cd.count} {cd.ticker} {cd.expiration} {d.low_strike:.0f}/{d.high_strike:.0f} {title}"
+        f"{cd.amount} {cd.ticker} {cd.expiration} {d.low_strike:.0f}/{d.high_strike:.0f} {title}"
     )
     total = spread.df.query("in_the_money == True")["exercise_value"].sum()
     if (otm_leg := modify_otm_leg(spread.df)) is not None:
@@ -953,8 +957,8 @@ def get_options_data() -> typing.Optional[OptionsData]:
     return pickle.loads(db[REDIS_KEY])
 
 
-def text_output(opts: OptionsAndSpreads, show_spreads: bool):
-    if opts is None:
+def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
+    if not opts:
         opts = get_options_and_spreads()
     if len(otm_df := opts.pruned_options.query("in_the_money == False")):
         print("Out of the money")

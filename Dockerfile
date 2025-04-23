@@ -1,6 +1,12 @@
 # Use a Python image with uv pre-installed
 FROM ghcr.io/astral-sh/uv:debian-slim
 
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates ledger curl git chromium
+RUN curl https://install.duckdb.org | sh
+
 # Install the project into `/app`
 WORKDIR /app
 
@@ -16,6 +22,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=.python-version,target=.python-version \
     uv sync --frozen --no-dev
+RUN uv run kaleido_get_chrome
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:/root/.duckdb/cli/latest:$PATH"
@@ -23,11 +30,7 @@ ENV PATH="/app/.venv/bin:/root/.duckdb/cli/latest:$PATH"
 # Reset the entrypoint, don't invoke `uv`
 ENTRYPOINT []
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates ledger curl
-RUN curl https://install.duckdb.org | sh
 ENV HOME="/app"
 CMD [ "/app/code/accounts/app.py" ]
 EXPOSE 8080/tcp
+

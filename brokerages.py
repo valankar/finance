@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Write brokerage balance history to database."""
 
+from typing import cast
+
 import pandas as pd
 from loguru import logger
 
@@ -13,7 +15,10 @@ TABLE_NAME = "brokerage_totals"
 
 def load_df() -> pd.DataFrame:
     """Load the total brokerage dataframe."""
-    return common.read_sql_table(TABLE_NAME).pivot(columns="Brokerage")
+    df = (
+        common.read_sql_table(TABLE_NAME).pivot(columns="Brokerage").xs("Total", axis=1)
+    )[[x.name for x in margin_loan.LOAN_BROKERAGES]]
+    return cast(pd.DataFrame, df)
 
 
 def main():

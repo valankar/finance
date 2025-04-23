@@ -1,10 +1,14 @@
+import asyncio
 import base64
-import io
+import glob
+import os
 import pickle
-from concurrent.futures import Future, ThreadPoolExecutor
+import tempfile
 from datetime import datetime
-from typing import Callable, ClassVar, Optional
+from pathlib import Path
+from typing import Callable, ClassVar, Generator, NamedTuple, Optional
 
+import kaleido
 import pandas as pd
 import plotly.io as pio
 import walrus
@@ -21,6 +25,15 @@ import stock_options
 
 RANGES = ["All", "3y", "2y", "1y", "YTD", "6m", "3m", "1m", "1d"]
 DEFAULT_RANGE = "1y"
+
+
+class FigureData(NamedTuple):
+    name: str
+    range: Optional[str]
+    fig: Figure
+    fig_json: dict
+    width: int
+    height: int
 
 
 class GraphCommon:
@@ -182,27 +195,24 @@ class MainGraphs(GraphCommon):
         plot_func: Callable[..., Figure],
         layout: tuple[tuple[str, str], ...],
         r: Optional[str] = None,
-    ) -> tuple[dict, bytes]:
+    ) -> FigureData:
         pio.templates.default = common.PLOTLY_THEME
         if r:
             fig = plot_func(r)
         else:
             fig = plot_func()
-        data = io.BytesIO()
-        fig.write_image(
-            data,
-            format="png",
+        return FigureData(
+            name=name,
+            range=r,
+            fig=fig,
+            fig_json=fig.to_plotly_json(),
             width=1024,
-            height=768 * self.get_plot_height_percent(name, layout),
-        )
-        return (
-            fig.to_plotly_json(),
-            data.getvalue(),
+            height=int(768 * self.get_plot_height_percent(name, layout)),
         )
 
-    def generate(self):
+    async def generate(self):
         """Generate and save all Plotly graphs."""
-        logger.info("Generating graphs")
+        logger.info("Generating Plotly graphs")
         layout = self.LAYOUT
         ranges = RANGES
         subplot_margin = common.SUBPLOT_MARGIN
@@ -310,28 +320,45 @@ class MainGraphs(GraphCommon):
                 ).update_layout(margin=subplot_margin),
             ),
         ]
-        mgio = MainGraphsImageOnly(self.db)
-        with ThreadPoolExecutor() as e:
-            fs: list[tuple[Future, str]] = []
-            for args in nonranged_graphs_generate:
-                fs.append((e.submit(self.plot_generate, *args, layout), args[0]))
-            fs_ranged: list[tuple[Future, str, str]] = []
-            for r in ranges:
-                for args in ranged_graphs_generate:
-                    fs_ranged.append(
-                        (e.submit(self.plot_generate, *args, layout, r), args[0], r)
-                    )
-            for f, name in fs:
-                g, i = f.result()
-                self.plotly_graphs[self.make_redis_key(name)] = pickle.dumps(g)
-                mgio.image_graphs[mgio.make_redis_key(name)] = i
-            for f, name, r in fs_ranged:
-                g, i = f.result()
-                self.plotly_graphs[self.make_redis_key(name, r)] = pickle.dumps(g)
-                mgio.image_graphs[mgio.make_redis_key(name, r)] = i
+        fs: list[FigureData] = []
+        for args in nonranged_graphs_generate:
+            fs.append(self.plot_generate(*args, layout))
+        for r in ranges:
+            for args in ranged_graphs_generate:
+                fs.append(self.plot_generate(*args, layout, r))
+        for f in fs:
+            self.plotly_graphs[self.make_redis_key(f.name, f.range)] = pickle.dumps(
+                f.fig_json
+            )
+        # Generate images with kaleido
+        with tempfile.TemporaryDirectory() as dir:
+            mgio = MainGraphsImageOnly(self.db)
+            async with kaleido.Kaleido(n=os.cpu_count()) as k:
+                await k.write_fig_from_object(
+                    self.make_kaleido_generator(fs, dir, mgio.make_redis_key)
+                )
+            files = glob.glob(f"{dir}/*")
+            for f in files:
+                p = Path(f)
+                # Filename stem is redis key
+                mgio.image_graphs[p.stem] = p.read_bytes()
         end_time = datetime.now()
         last_generation_duration = end_time - start_time
-        logger.info(f"Graph generation time: {last_generation_duration}")
+        logger.info(f"Graph generation time for Plotly: {last_generation_duration}")
+
+    def make_kaleido_generator(
+        self,
+        figs: list[FigureData],
+        dest_dir: str,
+        filename_maker: Callable[[str, Optional[str]], str],
+    ) -> Generator[dict, None, None]:
+        for f in figs:
+            filename = filename_maker(f.name, f.range)
+            yield dict(
+                fig=f.fig,
+                path=f"{dest_dir}/{filename}.png",
+                opts=dict(width=f.width, height=f.height),
+            )
 
 
 class MainGraphsImageOnly(GraphCommon):
@@ -371,3 +398,11 @@ class MainGraphsImageOnly(GraphCommon):
                     image.set_source,
                     self.encode_png(graph),
                 )
+
+
+def main():
+    asyncio.run(MainGraphs(common.WalrusDb().db).generate())
+
+
+if __name__ == "__main__":
+    main()

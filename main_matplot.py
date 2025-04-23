@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Callable, ClassVar, Literal, NamedTuple, Optional, Sequence, cast
 
 import matplotlib.colors as mcolors
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
 import walrus
@@ -13,12 +14,18 @@ from matplotlib.typing import ColorType
 from nicegui import run, ui
 
 import balance_etfs
+import brokerages
 import common
 import homes
 import margin_loan
 import plot
 import stock_options
-from main_graphs import DEFAULT_RANGE, RANGES, GraphCommon
+from main_graphs import (
+    DEFAULT_RANGE,
+    RANGES,
+    GraphCommon,
+    MainGraphsImageOnly,
+)
 
 plt.style.use("dark_background")
 
@@ -26,7 +33,7 @@ plt.style.use("dark_background")
 class BreakdownSection(NamedTuple):
     title: str
     dataframe: Callable[[], pd.DataFrame]
-    column_titles: list[tuple[str, str]]
+    column_titles: Optional[list[tuple[str, str]]]
 
 
 class MultilineSection(NamedTuple):
@@ -48,37 +55,38 @@ class Matplots(GraphCommon):
         self.ui_image_ranged: dict[str, ui.image] = {}
         self.selected_range = DEFAULT_RANGE
         self.image_graphs = db.Hash(self.REDIS_KEY)
-        self.asset_sections: list[BreakdownSection] = [
-            BreakdownSection(
-                title="Assets",
-                dataframe=lambda: common.read_sql_table("history"),
-                column_titles=[
-                    ("total", "Total"),
-                    ("total_real_estate", "Real Estate"),
-                    ("total_no_homes", "Total w/o Real Estate"),
-                    ("total_retirement", "Retirement"),
-                    ("total_investing", "Investing"),
-                    ("total_liquid", "Liquid"),
-                ],
-            ),
-            BreakdownSection(
-                title="Investing & Retirement",
-                dataframe=lambda: common.read_sql_table("history"),
-                column_titles=[
-                    ("pillar2", "Pillar 2"),
-                    ("ira", "IRA"),
-                    ("commodities", "Commodities"),
-                    ("etfs", "ETFs"),
-                ],
-            ),
-            BreakdownSection(
-                title="Real Estate",
-                dataframe=lambda: homes.get_real_estate_df(),
-                column_titles=self.get_column_titles_from_df(
-                    homes.get_real_estate_df()
-                ),
-            ),
-        ]
+        self.assets_section = BreakdownSection(
+            title="Assets",
+            dataframe=lambda: common.read_sql_table("history"),
+            column_titles=[
+                ("total", "Total"),
+                ("total_real_estate", "Real Estate"),
+                ("total_no_homes", "Total w/o Real Estate"),
+                ("total_retirement", "Retirement"),
+                ("total_investing", "Investing"),
+                ("total_liquid", "Liquid"),
+            ],
+        )
+        self.investing_retirement_section = BreakdownSection(
+            title="Investing & Retirement",
+            dataframe=lambda: common.read_sql_table("history"),
+            column_titles=[
+                ("pillar2", "Pillar 2"),
+                ("ira", "IRA"),
+                ("commodities", "Commodities"),
+                ("etfs", "ETFs"),
+            ],
+        )
+        self.real_estate_section = BreakdownSection(
+            title="Real Estate",
+            dataframe=lambda: homes.get_real_estate_df(),
+            column_titles=None,
+        )
+        self.brokerage_values_section = BreakdownSection(
+            title="Brokerage Values",
+            dataframe=lambda: brokerages.load_df(),
+            column_titles=None,
+        )
         self.prices_section = MultilineSection(
             title="Prices",
             dataframe=lambda: common.read_sql_table("schwab_etfs_prices"),
@@ -86,48 +94,50 @@ class Matplots(GraphCommon):
         self.forex_section = BreakdownSection(
             title="Forex",
             dataframe=lambda: common.read_sql_table("forex"),
-            column_titles=self.get_column_titles_from_df(common.read_sql_last("forex")),
+            column_titles=None,
         )
-        self.multiline_sections = [
-            MultilineSection(
-                title="Interest Rates",
-                dataframe=lambda: plot.get_interest_rate_df(),
-            )
-        ]
+        self.interest_rate_section = MultilineSection(
+            title="Interest Rates",
+            dataframe=lambda: plot.get_interest_rate_df(),
+        )
 
-    def create(self):
+    def create(self, mgio: MainGraphsImageOnly):
         with ui.footer().classes("transparent q-py-none"):
             with ui.tabs().classes("w-full") as tabs:
                 for timerange in RANGES:
                     ui.tab(timerange)
         tabs.bind_value(self, "selected_range")
         tabs.on_value_change(self.update)
-        for section in self.asset_sections:
-            self.section_breakdown(section)
 
-        with ui.grid(rows=1, columns=2).classes("gap-0 w-full h-[45vh]"):
-            self.ui_image(self.RE_CHANGE)
-            self.ui_image(self.RE_YEARLY_CHANGE)
+        self.section_breakdown(self.assets_section)
+        self.section_breakdown(self.investing_retirement_section)
+        self.section_breakdown(self.real_estate_section)
+
+        with ui.grid().classes("w-full gap-0 md:grid-cols-2"):
+            self.ui_image(self.RE_CHANGE, props="fit=scale-down")
+            self.ui_image(self.RE_YEARLY_CHANGE, props="fit=scale-down")
 
         self.section_title("Asset Allocation")
-        with ui.grid(rows=1, columns=3).classes("gap-0 w-full h-[45vh]"):
-            self.ui_image(self.ASSET_PIE, classes="h-[45vh]")
+        with ui.grid().classes("w-full gap-0 md:grid-cols-3"):
+            self.ui_image(self.ASSET_PIE)
             self.ui_image(self.INVESTING_ALLOCATION_PIE)
             self.ui_image(self.REBALANCING_BAR)
 
         self.section_multiline(self.prices_section)
         self.section_breakdown(self.forex_section)
-        for section in self.multiline_sections:
-            self.section_multiline(section)
+        self.section_multiline(self.interest_rate_section)
 
+        num_brokerages = len(margin_loan.LOAN_BROKERAGES)
         self.section_title("Margin/Box Loans")
-        with ui.grid(rows=1, columns=len(margin_loan.LOAN_BROKERAGES)).classes(
-            "gap-0 w-full h-[45vh]"
-        ):
+        with ui.grid().classes(f"w-full gap-0 md:grid-cols-{num_brokerages}"):
             for broker in margin_loan.LOAN_BROKERAGES:
                 name = self.make_redis_key(self.MARGIN_LOAN, broker.name)
                 self.ui_image(name, make_redis_key=False)
 
+        self.section_breakdown(self.brokerage_values_section, grid_cols=num_brokerages)
+        # Use plotly daily indicator
+        if graph := mgio.image_graphs.get(mgio.make_redis_key("daily_indicator")):
+            ui.image(self.encode_png(graph))
         self.common_links()
 
     async def update(self) -> None:
@@ -152,7 +162,10 @@ class Matplots(GraphCommon):
             return ui.image(self.encode_png(graph)).props(props).classes(classes)
         return None
 
-    def get_column_titles_from_df(self, df: pd.DataFrame) -> list[tuple[str, str]]:
+    def get_column_titles(self, section: BreakdownSection) -> list[tuple[str, str]]:
+        if section.column_titles:
+            return section.column_titles
+        df = section.dataframe()
         return list(zip(df.columns, df.columns))
 
     def section_title(self, title: str):
@@ -162,18 +175,16 @@ class Matplots(GraphCommon):
     def section_multiline(self, section: MultilineSection):
         self.section_title(section.title)
         name = self.make_redis_key(section.title, self.selected_range)
-        if uii := self.ui_image(name, classes="h-[50vh]", make_redis_key=False):
+        if uii := self.ui_image(name, make_redis_key=False):
             self.ui_image_ranged[self.make_ui_key(name)] = uii
 
-    def section_breakdown(self, section: BreakdownSection):
+    def section_breakdown(self, section: BreakdownSection, grid_cols: int = 2):
         self.section_title(section.title)
-        cols: list[tuple[str, str]] = section.column_titles
-        with ui.grid(rows=len(cols) // 2, columns=2).classes("w-full gap-0"):
+        cols: list[tuple[str, str]] = self.get_column_titles(section)
+        with ui.grid().classes(f"w-full gap-0 md:grid-cols-{grid_cols}"):
             for column, _ in cols:
                 name = self.make_redis_key(section.title, column, self.selected_range)
-                if uii := self.ui_image(
-                    name, props="fit=fill", classes="h-[31vh]", make_redis_key=False
-                ):
+                if uii := self.ui_image(name, make_redis_key=False):
                     self.ui_image_ranged[self.make_ui_key(name)] = uii
 
     def make_image_graph(self, fig: Figure) -> bytes:
@@ -283,8 +294,13 @@ class Matplots(GraphCommon):
         values = [cast(float, df.loc[col]["value"]) for _, col in label_col]
         pie_current = self.make_pie_graph(labels, values)
         values = [cast(float, df.loc[col]["usd_to_reconcile"]) for _, col in label_col]
+        bar_labels = [f"{v:,.0f}" for v in values]
         rebalancing = self.make_bar_graph(
-            "Rebalancing Required", labels, values, rotate_x_labels=True
+            "Rebalancing Required",
+            labels,
+            values,
+            labels=bar_labels,
+            rotate_x_labels=True,
         )
         return pie_current, rebalancing
 
@@ -345,6 +361,10 @@ class Matplots(GraphCommon):
     def make_dataframe_multiline_graph(self, df: pd.DataFrame) -> bytes:
         fig = Figure(figsize=(15, 5), layout=self.LAYOUT)
         ax = fig.subplots()
+        locator = mdates.AutoDateLocator()
+        formatter = mdates.ConciseDateFormatter(locator, show_offset=False)
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
         for column in df.columns:
             ax.plot(
                 df.index,
@@ -355,14 +375,24 @@ class Matplots(GraphCommon):
         return self.make_image_graph(fig)
 
     def make_dataframe_line_graph(
-        self, df: pd.DataFrame, column: str, title: str, line_color: ColorType
+        self,
+        df: pd.DataFrame,
+        column: str,
+        title: str,
+        line_color: ColorType,
+        figsize: Optional[tuple[float, float]] = (15, 5),
     ) -> bytes:
-        fig = Figure(figsize=(15, 5), layout=self.LAYOUT)
+        fig = Figure(figsize=figsize, layout=self.LAYOUT)
         ax = fig.subplots()
+        locator = mdates.AutoDateLocator()
+        formatter = mdates.ConciseDateFormatter(locator, show_offset=False)
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
         ax.plot(
             df.index,
             df[column],
             color=line_color,
+            linewidth=2,
         )
         ax.set_title(title)
         first_value = df[column].loc[df[column].first_valid_index()]
@@ -392,12 +422,18 @@ class Matplots(GraphCommon):
         return self.make_image_graph(fig)
 
     def generate(self):
-        logger.info("Generating graphs")
+        logger.info("Generating Matplot graphs")
         start_time = datetime.now()
         for r in RANGES:
-            for section in self.asset_sections + [self.forex_section]:
+            for section in [
+                self.assets_section,
+                self.investing_retirement_section,
+                self.real_estate_section,
+                self.forex_section,
+            ]:
                 color = iter(itertools.cycle(mcolors.TABLEAU_COLORS.values()))
-                for column, title in section.column_titles:
+                cols: list[tuple[str, str]] = self.get_column_titles(section)
+                for column, title in cols:
                     graph = self.make_dataframe_line_graph(
                         self.limit_and_resample_df(section.dataframe(), r),
                         column,
@@ -407,7 +443,23 @@ class Matplots(GraphCommon):
                     redis_key = self.make_redis_key(section.title, column, r)
                     self.image_graphs[redis_key] = graph
 
-            for section in self.multiline_sections + [self.prices_section]:
+            for section in [
+                self.brokerage_values_section,
+            ]:
+                color = iter(itertools.cycle(mcolors.TABLEAU_COLORS.values()))
+                cols: list[tuple[str, str]] = self.get_column_titles(section)
+                for column, title in cols:
+                    graph = self.make_dataframe_line_graph(
+                        self.limit_and_resample_df(section.dataframe(), r),
+                        column,
+                        title,
+                        next(color),
+                        figsize=None,
+                    )
+                    redis_key = self.make_redis_key(section.title, column, r)
+                    self.image_graphs[redis_key] = graph
+
+            for section in [self.interest_rate_section, self.prices_section]:
                 graph = self.make_dataframe_multiline_graph(
                     self.limit_and_resample_df(section.dataframe(), r)
                 )
@@ -433,4 +485,12 @@ class Matplots(GraphCommon):
 
         end_time = datetime.now()
         last_generation_duration = end_time - start_time
-        logger.info(f"Graph generation time: {last_generation_duration}")
+        logger.info(f"Graph generation time for Matplot: {last_generation_duration}")
+
+
+def main():
+    Matplots(common.WalrusDb().db).generate()
+
+
+if __name__ == "__main__":
+    main()

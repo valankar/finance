@@ -10,7 +10,6 @@ import pandas as pd
 import plotly.io as pio
 from loguru import logger
 from nicegui import run, ui
-from nicegui.elements.table import Table
 from plotly.graph_objects import Figure
 
 import balance_etfs
@@ -20,7 +19,6 @@ import ledger_ui
 import main_graphs
 import stock_options
 import stock_options_ui
-from main_echarts import ECharts
 from main_matplot import Matplots
 
 
@@ -91,16 +89,11 @@ async def main_page_image_only():
     main_graphs.MainGraphsImageOnly(common.WalrusDb().db).create()
 
 
-@ui.page("/echarts")
-async def echarts_page():
-    log_request()
-    ECharts().create()
-
-
 @ui.page("/matplot")
 async def matplot_page():
     log_request()
-    Matplots(common.WalrusDb().db).create()
+    mgio = main_graphs.MainGraphsImageOnly(common.WalrusDb().db)
+    Matplots(common.WalrusDb().db).create(mgio)
 
 
 @ui.page("/i_and_e", title="Income & Expenses")
@@ -129,7 +122,7 @@ async def ledger_page():
 async def stock_options_page():
     """Stock options."""
     log_request()
-    await stock_options_ui.StockOptionsPage().main_page()
+    stock_options_ui.StockOptionsPage(common.WalrusDb().db).main_page()
 
 
 @ui.page("/latest_values", title="Latest Values")
@@ -152,23 +145,6 @@ def balance_etfs_page(amount: int = 0):
 
 def floatify(string: str) -> float:
     return float(re.sub(r"[^\d\.-]", "", string))
-
-
-def body_cell_slot(
-    table: Table, column: str, color: str, condition: str, else_color: str = ""
-):
-    if else_color:
-        else_color = f"text-{else_color}"
-    table.add_slot(
-        f"body-cell-{column}",
-        (
-            rf"""<q-td key="{column}" :props="props">"""
-            rf"""<q-label :class="{condition} ? 'text-{color}' : '{else_color}'">"""
-            "{{ props.value }}"
-            "</q-label>"
-            "</q-td>"
-        ),
-    )
 
 
 @ui.page("/transactions", title="Transactions")
@@ -227,11 +203,15 @@ async def transactions_page():
                         )  # type: ignore
                 df["Days"] = -(pd.Timestamp.now() - df["Date"]).dt.days  # type: ignore
                 table = ui.table.from_pandas(df.round(2))
-                body_cell_slot(table, "Days", "green", "Number(props.value) > 0")
-                body_cell_slot(
+                stock_options_ui.body_cell_slot(
+                    table, "Days", "green", "Number(props.value) > 0"
+                )
+                stock_options_ui.body_cell_slot(
                     table, "Date", "green", "new Date(props.value) > new Date()"
                 )
-                body_cell_slot(table, "Balance", "red", "Number(props.value) < 0")
+                stock_options_ui.body_cell_slot(
+                    table, "Balance", "red", "Number(props.value) < 0"
+                )
 
 
 if __name__ in {"__main__", "__mp_main__"}:
