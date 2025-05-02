@@ -1,6 +1,6 @@
 import io
 import itertools
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, ClassVar, Literal, NamedTuple, Optional, Sequence, cast
 
 import matplotlib.colors as mcolors
@@ -24,7 +24,6 @@ from main_graphs import (
     DEFAULT_RANGE,
     RANGES,
     GraphCommon,
-    MainGraphsImageOnly,
 )
 
 plt.style.use("dark_background")
@@ -48,6 +47,14 @@ class Matplots(GraphCommon):
     REBALANCING_BAR: ClassVar[str] = "Rebalancing Required Bar"
     RE_CHANGE: ClassVar[str] = "Real Estate Change Since Purchase"
     RE_YEARLY_CHANGE: ClassVar[str] = "Real Estate Yearly Average Change Since Purchase"
+    TOTAL_CHANGE_YOY: ClassVar[str] = "Total Net Worth Change Year Over Year"
+    TOTAL_CHANGE_MOM: ClassVar[str] = "Total Net Worth Change Month Over Month"
+    TOTAL_NO_RE_CHANGE_YOY: ClassVar[str] = (
+        "Total Net Worth Change w/o Real Estate Year Over Year"
+    )
+    TOTAL_NO_RE_CHANGE_MOM: ClassVar[str] = (
+        "Total Net Worth Change w/o Real Estate Month Over Month"
+    )
     MARGIN_LOAN: ClassVar[str] = "Margin Loan"
     LAYOUT: ClassVar[Literal["constrained", "compressed", "tight"]] = "constrained"
 
@@ -101,7 +108,7 @@ class Matplots(GraphCommon):
             dataframe=lambda: plot.get_interest_rate_df(),
         )
 
-    def create(self, mgio: MainGraphsImageOnly):
+    def create(self):
         with ui.footer().classes("transparent q-py-none"):
             with ui.tabs().classes("w-full") as tabs:
                 for timerange in RANGES:
@@ -116,6 +123,16 @@ class Matplots(GraphCommon):
         with ui.grid().classes("w-full gap-0 md:grid-cols-2"):
             self.ui_image(self.RE_CHANGE, props="fit=scale-down")
             self.ui_image(self.RE_YEARLY_CHANGE, props="fit=scale-down")
+
+        self.section_title("Total Net Worth Change")
+        with ui.grid().classes("w-full gap-0 md:grid-cols-2"):
+            self.ui_image(self.TOTAL_CHANGE_YOY, props="fit=scale-down")
+            self.ui_image(self.TOTAL_CHANGE_MOM, props="fit=scale-down")
+
+        self.section_title("Total Net Worth Change w/o Real Estate")
+        with ui.grid().classes("w-full gap-0 md:grid-cols-2"):
+            self.ui_image(self.TOTAL_NO_RE_CHANGE_YOY, props="fit=scale-down")
+            self.ui_image(self.TOTAL_NO_RE_CHANGE_MOM, props="fit=scale-down")
 
         self.section_title("Asset Allocation")
         with ui.grid().classes("w-full gap-0 md:grid-cols-3"):
@@ -135,9 +152,7 @@ class Matplots(GraphCommon):
                 self.ui_image(name, make_redis_key=False)
 
         self.section_breakdown(self.brokerage_values_section, grid_cols=num_brokerages)
-        # Use plotly daily indicator
-        if graph := mgio.image_graphs.get(mgio.make_redis_key("daily_indicator")):
-            ui.image(self.encode_png(graph))
+        self.daily_change()
         self.common_links()
 
     async def update(self) -> None:
@@ -167,10 +182,6 @@ class Matplots(GraphCommon):
             return section.column_titles
         df = section.dataframe()
         return list(zip(df.columns, df.columns))
-
-    def section_title(self, title: str):
-        with ui.column(align_items="center").classes("w-full"):
-            ui.label(title)
 
     def section_multiline(self, section: MultilineSection):
         self.section_title(section.title)
@@ -205,18 +216,46 @@ class Matplots(GraphCommon):
             )
         return real_estate_df
 
+    def make_total_bar_mom(self, column: str) -> bytes:
+        df = common.read_sql_table("history")
+        df = df.resample("ME").last().interpolate().diff().dropna().iloc[-36:]
+        x = df.index
+        return self.make_bar_graph(
+            "Month Over Month",
+            x,
+            df[column],
+            rotate_x_labels=True,
+            width=[timedelta(25)] * len(x),
+        )
+
+    def make_total_bar_yoy(self, column: str) -> bytes:
+        df = common.read_sql_table("history")
+        df = df.resample("YE").last().interpolate().diff().dropna().iloc[-6:]
+        # Re-align at beginning of year.
+        df.index = pd.DatetimeIndex(df.index.strftime("%Y-01-01"))  # type: ignore
+        x = df.index
+        y = df[column]
+        return self.make_bar_graph(
+            "Year Over Year",
+            x,
+            y,
+            labels=[f"{v:,.0f}" for v in y],
+            width=[timedelta(330)] * len(x),
+        )
+
     def make_bar_graph(
         self,
         title: str,
-        x: Sequence[str],
-        y: Sequence[float],
+        x: Sequence[str] | pd.DatetimeIndex | pd.Index,
+        y: Sequence[float] | pd.Series,
         labels: Optional[Sequence[str]] = None,
         rotate_x_labels: bool = False,
+        width: Optional[Sequence | float] = 0.8,
     ) -> bytes:
         fig = Figure(layout=self.LAYOUT)
         ax = fig.subplots()
         colors = ["tab:green" if v > 0 else "tab:red" for v in y]
-        p = ax.bar(x, y, color=colors)
+        p = ax.bar(x, y, color=colors, width=width)  # type: ignore
         if labels:
             ax.bar_label(p, labels=labels, label_type="center")
         ax.set_title(title)
@@ -466,22 +505,38 @@ class Matplots(GraphCommon):
                 redis_key = self.make_redis_key(section.title, r)
                 self.image_graphs[redis_key] = graph
 
-        self.image_graphs[self.make_redis_key(self.ASSET_PIE)] = (
-            self.make_asset_allocation_pie()
-        )
         if ia := self.make_investing_allocation_section():
             self.image_graphs[self.make_redis_key(self.INVESTING_ALLOCATION_PIE)] = ia[
                 0
             ]
             self.image_graphs[self.make_redis_key(self.REBALANCING_BAR)] = ia[1]
+        for broker, graph in self.make_loan_section():
+            self.image_graphs[self.make_redis_key(self.MARGIN_LOAN, broker)] = graph
+
+        self.image_graphs[self.make_redis_key(self.ASSET_PIE)] = (
+            self.make_asset_allocation_pie()
+        )
         self.image_graphs[self.make_redis_key(self.RE_CHANGE)] = (
             self.make_real_estate_change_bar()
         )
         self.image_graphs[self.make_redis_key(self.RE_YEARLY_CHANGE)] = (
             self.make_real_estate_change_bar_yearly()
         )
-        for broker, graph in self.make_loan_section():
-            self.image_graphs[self.make_redis_key(self.MARGIN_LOAN, broker)] = graph
+        total_changes = {
+            "total": (self.TOTAL_CHANGE_YOY, self.TOTAL_CHANGE_MOM),
+            "total_no_homes": (
+                self.TOTAL_NO_RE_CHANGE_YOY,
+                self.TOTAL_NO_RE_CHANGE_MOM,
+            ),
+        }
+
+        for column, keys in total_changes.items():
+            self.image_graphs[self.make_redis_key(keys[0])] = self.make_total_bar_yoy(
+                column
+            )
+            self.image_graphs[self.make_redis_key(keys[1])] = self.make_total_bar_mom(
+                column
+            )
 
         end_time = datetime.now()
         last_generation_duration = end_time - start_time

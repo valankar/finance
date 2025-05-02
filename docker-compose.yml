@@ -7,14 +7,19 @@ services:
       - ${HOME}/code/accounts:/app/code/accounts
       - ${HOME}/code/ledger:/app/code/ledger
     environment: &environment
-      REDIS_HOST: redis
+      REDIS_HOST: valkey
+      ALPHA_VANTAGE_KEY: ${ALPHA_VANTAGE_KEY}
+      SCHWAB_API_KEY: ${SCHWAB_API_KEY}
+      SCHWAB_SECRET: ${SCHWAB_SECRET}
+      SCHWAB_CALLBACK_URI: ${SCHWAB_CALLBACK_URI}
+      FRED_API_KEY: ${FRED_API_KEY}
     labels: &labels
       com.centurylinklabs.watchtower.no-pull: true
     restart: unless-stopped
     networks: &networks
       - cloudflare
     depends_on: &depends_on
-      redis:
+      valkey:
         condition: service_started
 
   accounts-dev:
@@ -24,7 +29,7 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      redis-dev:
+      valkey-dev:
         condition: service_started
 
   accounts_hourly:
@@ -43,9 +48,7 @@ services:
     profiles: [ "scripts" ]
     container_name: accounts_daily
     volumes: *volumes
-    environment: &daily_environment
-      <<: *environment
-      FRED_API_KEY: ${FRED_API_KEY}
+    environment: *environment
     labels: *labels
     networks: *networks
     depends_on: &daily_depends_on
@@ -59,24 +62,25 @@ services:
     profiles: [ "scripts" ]
     container_name: accounts_daily_script
     volumes: *volumes
-    environment: *daily_environment
+    environment: *environment
     labels: *labels
     networks: *networks
     depends_on: *daily_depends_on
     command: "/app/code/accounts/${SCRIPT}"
 
-  redis: &redis
-    image: redis
-    container_name: redis
+  valkey: &valkey
+    image: valkey/valkey
+    container_name: valkey
     networks: *networks
+    environment:
+      VALKEY_EXTRA_FLAGS: "--save ''"
     volumes:
-      - ${HOME}/code/accounts/web/redis:/data
+      - ${HOME}/code/accounts/web/valkey:/data
     user: "1000:1000"
-    command: "redis-server --save ''"
     restart: unless-stopped
   
-  redis-dev:
-    <<: *redis
+  valkey-dev:
+    <<: *valkey
     profiles: [ "development" ]
     ports:
       - "6379:6379"

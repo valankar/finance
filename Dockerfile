@@ -4,7 +4,7 @@ FROM ghcr.io/astral-sh/uv:debian-slim
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates ledger curl git chromium
+    ca-certificates ledger curl git redis-tools chromium
 RUN curl https://install.duckdb.org | sh
 
 # Install the project into `/app`

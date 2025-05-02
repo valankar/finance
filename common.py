@@ -1,26 +1,31 @@
 #!/usr/bin/env python3
 """Common functions."""
 
+import json
+import multiprocessing
 import os
 import shutil
 import tempfile
 import typing
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime
 from functools import reduce
 from pathlib import Path
-from typing import Any, Generator, Mapping, Optional, Sequence
+from typing import Any, ClassVar, Generator, Mapping, Optional, Sequence
 
 import duckdb
 import pandas as pd
+import requests
+import schwab
 import walrus
 import yahoofinancials
 import yahooquery
 import yfinance
+from authlib.integrations.starlette_client import OAuth
 from loguru import logger
 from playwright.sync_api import sync_playwright
 from pyngleton import singleton
+from schwab.orders.options import OptionSymbol
 
 CODE_DIR = f"{Path.home()}/code/accounts"
 PUBLIC_HTML = f"{CODE_DIR}/web/"
@@ -56,6 +61,106 @@ class WalrusDb:
         self.cache = self.db.cache()
 
 
+class TickerOption(typing.NamedTuple):
+    ticker: str
+    expiration: date
+    contract_type: str
+    strike: float
+
+
+@singleton
+class Schwab:
+    SCHWAB_TOKEN_FILE: ClassVar[str] = f"{CODE_DIR}/.schwab_token.json"
+
+    def __init__(self):
+        self.api_key = os.environ.get("SCHWAB_API_KEY")
+        self.secret = os.environ.get("SCHWAB_SECRET")
+        if not all([self.api_key, self.secret]):
+            raise GetTickerError("No schwab environment variables found")
+        self._client = None
+        self._oauth = None
+
+    @property
+    def client(self):
+        if not self._client:
+            logger.info("Creating Schwab client")
+            self._client = schwab.auth.client_from_token_file(
+                self.SCHWAB_TOKEN_FILE, self.api_key, self.secret
+            )
+        return self._client
+
+    @property
+    def oauth(self):
+        if not self._oauth:
+            self._oauth = OAuth()
+            self._oauth.register(
+                name="schwab",
+                client_id=self.api_key,
+                client_secret=self.secret,
+                access_token_url="https://api.schwabapi.com/v1/oauth/token",
+                authorize_url="https://api.schwabapi.com/v1/oauth/authorize",
+                client_kwargs={
+                    "scope": "read",
+                },
+            )
+        return self._oauth.schwab
+
+    def write_token(self, token):
+        logger.info("Writing token")
+        try:
+            with open(self.SCHWAB_TOKEN_FILE) as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            data = {}
+        data["creation_timestamp"] = int(datetime.now().timestamp())
+        data["token"] = token
+        with open(self.SCHWAB_TOKEN_FILE, "w") as f:
+            f.write(json.dumps(data))
+
+    def get_quote(self, ticker: str) -> float:
+        if ticker == "^SSMI":
+            return 0
+        if ticker.startswith("^"):
+            ticker = "$" + ticker[1:]
+        invert = False
+        match ticker:
+            case "CHFUSD=X":
+                ticker = "USD/CHF"
+                invert = True
+            case "SGDUSD=X":
+                ticker = "USD/SGD"
+                invert = True
+        logger.info(f"Fetching ticker {ticker}")
+        p = self.client.get_quotes([ticker]).json()[ticker]
+        if "regular" in p:
+            value = p["regular"]["regularMarketLastPrice"]
+        elif "quote" in p:
+            value = p["quote"]["lastPrice"]
+        else:
+            logger.error(p)
+            raise GetTickerError("cannot find schwab field")
+        return value if not invert else 1 / value
+
+    def get_option_quote(self, t: TickerOption) -> float | None:
+        ticker = t.ticker
+        option_tickers = [ticker]
+        if ticker == "SPX":
+            option_tickers.append(f"{ticker}W")
+        for option_ticker in option_tickers:
+            if t.expiration < date.today():
+                return 0
+            symbol = OptionSymbol(
+                option_ticker, t.expiration, t.contract_type[0], str(t.strike)
+            ).build()
+            try:
+                value = self.client.get_quotes([symbol]).json()[symbol]["quote"]["mark"]
+                logger.info(f"{symbol=} {value=}")
+                return value
+            except KeyError:
+                logger.error(f"Cannot find quote for {symbol=}")
+        return None
+
+
 @contextmanager
 def pandas_options():
     """Set pandas output options."""
@@ -67,11 +172,9 @@ def pandas_options():
 
 def get_tickers(tickers: Sequence[str]) -> Mapping:
     """Get prices for a list of tickers."""
-    with ThreadPoolExecutor() as e:
-        prices = list(e.map(get_ticker, tickers))
     ticker_dict = {}
-    for ticker, price in zip(tickers, prices):
-        ticker_dict[ticker] = price
+    for ticker in tickers:
+        ticker_dict[ticker] = get_ticker(ticker)
     return ticker_dict
 
 
@@ -84,23 +187,52 @@ def cache_ticker_prices():
     get_tickers(tickers)
 
 
-@WalrusDb().cache.cached(timeout=30 * 60)
-def get_ticker(ticker: str) -> float:
+GET_TICKER_FAILURES: set[str] = set()
+
+
+def get_ticker_all(ticker: str) -> float:
     """Get ticker prices by trying various methods."""
     get_ticker_methods = (
         get_ticker_yahooquery,
         get_ticker_yahoofinancials,
         get_ticker_yfinance,
+        get_ticker_alphavantage,
     )
     for method in get_ticker_methods:
+        if method.__name__ in GET_TICKER_FAILURES:
+            continue
         logger.info(f"Running {method.__name__}({ticker=})")
-        with ThreadPoolExecutor(max_workers=1) as e:
-            f = e.submit(method, ticker)
+        with multiprocessing.Pool(processes=1) as pool:
+            async_result = pool.apply_async(method, (ticker,))
             try:
-                return f.result(timeout=GET_TICKER_TIMEOUT)
-            except Exception:
-                logger.exception("Failed")
+                return async_result.get(timeout=30)
+            except Exception as e:
+                if err := str(e):
+                    logger.error(err)
+                GET_TICKER_FAILURES.add(method.__name__)
     raise GetTickerError("No more methods to get ticker price")
+
+
+@WalrusDb().cache.cached(timeout=30 * 60)
+def get_ticker(ticker: str) -> float:
+    return Schwab().get_quote(ticker)
+
+
+@WalrusDb().cache.cached(timeout=30 * 60)
+def get_option_quote(t: TickerOption) -> float | None:
+    return Schwab().get_option_quote(t)
+
+
+def get_ticker_alphavantage(ticker: str) -> float:
+    if key := os.environ.get("ALPHA_VANTAGE_KEY"):
+        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={key}"
+        data = requests.get(url).json()
+        try:
+            return float(data["Global Quote"]["05. price"])
+        except KeyError:
+            logger.error(data)
+            raise
+    raise GetTickerError("No alpha vantage key")
 
 
 def get_ticker_yahoofinancials(ticker: str) -> float:

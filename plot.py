@@ -13,7 +13,6 @@ from prefixed import Float
 import balance_etfs
 import common
 import homes
-import latest_values
 import margin_loan
 
 COLOR_GREEN = "DarkGreen"
@@ -75,31 +74,6 @@ def update_facet_titles(fig: Figure, columns: list[tuple[str, str]]):
 
 def centered_title(fig: Figure, title: str):
     fig.update_layout(title={"text": title, "x": 0.5, "xanchor": "center"})
-
-
-def make_daily_indicator(hourly_df: pd.DataFrame) -> Figure:
-    df = latest_values.difference_df(hourly_df)
-    fig = go.Figure()
-    for col, (column, title) in enumerate(
-        [
-            ("total", "Total"),
-            ("total_no_homes", "Total w/o Real Estate"),
-        ]
-    ):
-        fig.add_trace(
-            go.Indicator(
-                mode="number+delta+gauge",
-                number={"prefix": "$"},
-                title={"text": title},
-                value=df.iloc[-1][column],
-                delta={"reference": df.iloc[0][column], "valueformat": ",.0f"},
-                gauge={},
-                domain={"row": 0, "column": col},
-            )
-        )
-    centered_title(fig, "Daily Change")
-    fig.update_layout(grid={"rows": 1, "columns": 2})
-    return fig
 
 
 def make_assets_breakdown_section(daily_df: pd.DataFrame) -> Figure:
@@ -518,7 +492,7 @@ def make_total_bar_mom(daily_df: pd.DataFrame, column: str) -> Figure:
 
 def make_total_bar_yoy(daily_df: pd.DataFrame, column: str) -> Figure:
     """Make year over year total profit bar graphs."""
-    diff_df = daily_df.resample("YE").last().interpolate().diff().dropna()
+    diff_df = daily_df.resample("YE").last().interpolate().diff().dropna().iloc[-6:]
     # Re-align at beginning of year.
     diff_df.index = pd.DatetimeIndex(diff_df.index.strftime("%Y-01-01"))  # type: ignore
     # astype needed due to https://github.com/plotly/Kaleido/issues/236

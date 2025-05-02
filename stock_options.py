@@ -13,7 +13,6 @@ from datetime import date, datetime
 from functools import partial
 
 import pandas as pd
-import yahooquery
 from loguru import logger
 
 import common
@@ -22,13 +21,6 @@ import ledger_ops
 import margin_loan
 
 REDIS_KEY = "OptionsData"
-
-
-class TickerOption(typing.NamedTuple):
-    ticker: str
-    expiration: date
-    contract_type: str
-    strike: float
 
 
 class CommonDetails(typing.NamedTuple):
@@ -125,44 +117,6 @@ class OptionsData(typing.NamedTuple):
     updated: datetime
 
 
-@common.WalrusDb().cache.cached(timeout=30 * 60)
-def get_option_chain(ticker: str) -> pd.DataFrame | None:
-    """Get option chain for a ticker."""
-    if ticker == "SPX":
-        ticker = "^SPX"
-    if ticker == "SMI":
-        return None
-    logger.info(f"Retrieving option chain for {ticker=}")
-    if not isinstance(
-        option_chain := yahooquery.Ticker(ticker).option_chain, pd.DataFrame
-    ):
-        logger.error(f"No option chain data found for {ticker=}")
-        return None
-    return option_chain
-
-
-def get_ticker_option(
-    t: TickerOption, option_chain: typing.Optional[pd.DataFrame]
-) -> float | None:
-    ticker = t.ticker
-    option_tickers = [ticker]
-    if ticker == "SPX":
-        option_tickers.append(f"{ticker}W")
-    if option_chain is None:
-        return None
-    for option_ticker in option_tickers:
-        name = t.expiration.strftime(
-            f"{option_ticker}%y%m%d{t.contract_type[0]}{int(t.strike * 1000):08}"
-        )
-        try:
-            return option_chain.loc[lambda df: df["contractSymbol"] == name][
-                "lastPrice"
-            ].iloc[-1]
-        except (IndexError, KeyError):
-            pass
-    return None
-
-
 def options_df_raw(
     commodity_regex: str = "", additional_args: str = ""
 ) -> pd.DataFrame:
@@ -213,14 +167,13 @@ def add_options_quotes(options_df: pd.DataFrame):
     for idx, row in options_df.iterrows():
         expiration = typing.cast(tuple, idx)[2].date()
         ticker = row["ticker"]
-        price = get_ticker_option(
-            TickerOption(
+        price = common.get_option_quote(
+            common.TickerOption(
                 ticker=ticker,
                 expiration=expiration,
                 contract_type=row["type"],
                 strike=row["strike"],
             ),
-            get_option_chain(ticker),
         )
         if price is None:
             price = 0
@@ -819,14 +772,16 @@ def get_options_value_by_brokerage(
     values: dict[str, float] = {}
     for broker in common.BROKERAGES:
         options_value = pruned_options.query(f"account == '{broker}'")["value"].sum()
-        spread_df = pd.concat([s.df for s in bull_put_spreads + bear_call_spreads])
-        options_value += spread_df.query(f"account == '{broker}' and ticker != 'SPX'")[
-            "value"
-        ].sum()
-        # SPX spreads handled differently.
-        options_value += spread_df.query(f"account == '{broker}' and ticker == 'SPX'")[
-            "intrinsic_value"
-        ].sum()
+        dfs = [s.df for s in bull_put_spreads + bear_call_spreads]
+        if dfs:
+            spread_df = pd.concat(dfs)
+            options_value += spread_df.query(
+                f"account == '{broker}' and ticker != 'SPX'"
+            )["value"].sum()
+            # SPX spreads handled differently.
+            options_value += spread_df.query(
+                f"account == '{broker}' and ticker == 'SPX'"
+            )["intrinsic_value"].sum()
         if options_value:
             logger.info(f"Options value for {broker}: {options_value}")
             values[broker] = options_value
@@ -907,11 +862,14 @@ def find_all_related(broker: str, option_name: str, done: set[str] = set()) -> s
     if option_name in processed:
         return processed
     processed.add(option_name)
+    ticker = option_name.split()[0]
     for entry in ledger_ops.get_ledger_entries_from_command(
         get_ledger_entries_command(broker, option_name)
     ):
         for line in entry.body:
             if " CALL" not in line and " PUT" not in line:
+                continue
+            if f'"{ticker}' not in line:
                 continue
             new_option_name = line.split('"')[1]
             processed.update(find_all_related(broker, new_option_name, set(processed)))
@@ -924,8 +882,8 @@ def get_cost_with_rolls(combo: pd.DataFrame) -> float:
     found = set()
     for option in option_names:
         found.update(find_all_related(broker, option))
-    logger.info(f"Related for combo: {broker=} {found=}")
     total = sum([get_ledger_total(broker, x) for x in found])
+    logger.info(f"Related for combo: {broker=} {found=} {total=}")
     if total > 0:
         logger.info("Total would be positive, ignoring")
     return min(0, total)

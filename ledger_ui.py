@@ -102,9 +102,10 @@ class LedgerUI:
         self.modify_ledger()
 
     @ui.refreshable_method
-    def main_page(self, columns):
+    async def main_page(self):
         self.reset()
-        with ui.grid(columns=columns).classes("w-full"):
+        await ui.context.client.connected()
+        with ui.grid().classes("w-full gap-0 md:grid-cols-2"):
             with ui.card():
                 with ui.grid(columns=2):
                     with ui.column():
@@ -129,7 +130,11 @@ class LedgerUI:
                     text="Write Ledger Entry", on_click=self.write_ledger
                 ).bind_enabled_from(self, "editor_data")
                 ui.button(text="Reset", on_click=self.main_page.refresh)
-                self.log = ui.log()
+                # See https://github.com/zauberzeug/nicegui/issues/3337
+                # ui.codemirror(theme="basicDark").bind_value(self, "editor_data")
+                ui.textarea().classes("font-mono w-full").props(
+                    'input-class="h-80"'
+                ).bind_value(self, "editor_data")
             with ui.card():
                 self.aggrid = (
                     ui.aggrid(
@@ -154,8 +159,4 @@ class LedgerUI:
                     .on("rowSelected", lambda msg: self.row_selected(msg.args))
                 )
             with ui.card(align_items="stretch"):
-                ui.textarea().classes("font-mono").props(
-                    'input-class="h-80"'
-                ).bind_value(self, "editor_data")
-                # See https://github.com/zauberzeug/nicegui/issues/3337
-                # ui.codemirror(theme="basicDark").bind_value(self, "editor_data")
+                self.log = ui.log()

@@ -2,15 +2,18 @@
 """Plot weight graph."""
 
 import io
+import os
 import re
 import subprocess
 from typing import Awaitable, Iterable
 
 import pandas as pd
 import plotly.io as pio
+from fastapi import Request
 from loguru import logger
-from nicegui import run, ui
+from nicegui import app, run, ui
 from plotly.graph_objects import Figure
+from starlette.responses import RedirectResponse
 
 import balance_etfs
 import common
@@ -92,8 +95,7 @@ async def main_page_image_only():
 @ui.page("/matplot")
 async def matplot_page():
     log_request()
-    mgio = main_graphs.MainGraphsImageOnly(common.WalrusDb().db)
-    Matplots(common.WalrusDb().db).create(mgio)
+    Matplots(common.WalrusDb().db).create()
 
 
 @ui.page("/i_and_e", title="Income & Expenses")
@@ -111,11 +113,7 @@ async def i_and_e_page():
 async def ledger_page():
     """Generate income & expenses page."""
     log_request()
-    await ui.context.client.connected()
-    columns = 2
-    if await ui.run_javascript("window.innerWidth;", timeout=10) < 1000:
-        columns = 1
-    ledger_ui.LedgerUI().main_page(columns)
+    await ledger_ui.LedgerUI().main_page()
 
 
 @ui.page("/stock_options", title="Stock Options")
@@ -153,10 +151,7 @@ async def transactions_page():
     if (data := stock_options.get_options_data()) is None:
         raise ValueError("No options data available")
     bev = data.bev
-    columns = 2
-    if await ui.run_javascript("window.innerWidth;", timeout=10) < 1000:
-        columns = 1
-    with ui.grid(columns=columns):
+    with ui.grid().classes("md:grid-cols-2"):
         for account, currency in (
             ("Charles Schwab Brokerage", r"\\$"),
             ("Interactive Brokers", r"\\$"),
@@ -214,10 +209,27 @@ async def transactions_page():
                 )
 
 
+@ui.page("/schwab_login")
+async def schwab_login(request: Request) -> RedirectResponse:
+    if not (uri := os.environ.get("SCHWAB_CALLBACK_URI")):
+        raise ValueError("SCHWAB_CALLBACK_URI not defined")
+    return await common.Schwab().oauth.authorize_redirect(  # type: ignore
+        request, uri
+    )
+
+
+@app.get("/callback")
+async def schwab_callback(request: Request) -> RedirectResponse:
+    token = await common.Schwab().oauth.authorize_access_token(request)  # type: ignore
+    common.Schwab().write_token(token)
+    return RedirectResponse("/")
+
+
 if __name__ in {"__main__", "__mp_main__"}:
     pio.templates.default = common.PLOTLY_THEME
     ui.run(
         title="Accounts",
         dark=True,
         uvicorn_reload_excludes=f".*, .py[cod], .sw.*, ~*, {common.PREFIX}",
+        storage_secret="finance",
     )

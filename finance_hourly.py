@@ -4,7 +4,7 @@
 import os
 from concurrent.futures import ProcessPoolExecutor
 
-import redis
+import valkey
 from cyclopts import App
 from loguru import logger
 
@@ -57,7 +57,7 @@ async def run_all(
         for r in results:
             if o := r.result():
                 logger.info(o)
-        redis.Redis(host=os.environ.get("REDIS_HOST", "localhost")).bgsave()
+        valkey.Valkey(host=os.environ.get("REDIS_HOST", "localhost")).bgsave()
 
 
 if __name__ == "__main__":

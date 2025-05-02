@@ -54,6 +54,7 @@ class LedgerEntry:
         with open(f"{common.LEDGER_DAT}", "r") as f:
             contents = f.readlines()
         needs_insert = False
+        i = 0
         for i, text in enumerate(contents):
             if text and text[0].isdigit():
                 entry_date = parser.parse(text.split()[0])

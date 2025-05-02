@@ -137,9 +137,14 @@ def get_desired_df(
         print(f"Sum of percents in desired allocation {s} != 100")
         return None
     etfs_df = etfs.get_etfs_df()[["value"]]
+    # Add in options value
+    if (options_data := stock_options.get_options_data()) is None:
+        raise ValueError("No options data available")
+    etfs_df["value"] = etfs_df["value"].add(
+        options_data.opts.pruned_options.groupby("ticker").sum()["value"], fill_value=0
+    )
     if include_options:
-        if (options_data := stock_options.get_options_data()) is None:
-            raise ValueError("No options data available")
+        # This is for options exercise value.
         options_df = options_data.opts.pruned_options
         if long_calls:
             query = "((count > 0) or (count < 0))"

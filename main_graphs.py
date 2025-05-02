@@ -20,6 +20,7 @@ from plotly.graph_objects import Figure
 import brokerages
 import common
 import homes
+import latest_values
 import plot
 import stock_options
 
@@ -65,7 +66,10 @@ class GraphCommon:
         if (retval := self.get_xrange(df, selected_range)) is None:
             return df
         start, end = retval
-        df = df[start:end]
+        try:
+            df = df[start:end]
+        except KeyError:
+            return df
         match selected_range:
             case "1m" | "1d":
                 window = None
@@ -109,6 +113,25 @@ class GraphCommon:
             xrange = ((latest_time + relative), latest_time)
         return xrange
 
+    def section_title(self, title: str):
+        with ui.column(align_items="center").classes("w-full"):
+            ui.label(title)
+
+    def daily_change(self):
+        self.section_title("Daily Change")
+        diff = latest_values.difference_df(common.read_sql_table("history"))[1].iloc[-1]
+        total = diff["total"]
+        total_color = "green-500" if total >= 0 else "red-500"
+        total_no_homes = diff["total_no_homes"]
+        total_no_homes_color = "green-500" if total_no_homes >= 0 else "red-500"
+        with ui.grid(rows=2, columns=2).classes("w-full place-items-center"):
+            ui.label("Total").tailwind.font_size("lg")
+            ui.label("Total w/o Real Estate").tailwind.font_size("lg")
+            ui.label(f"{total:+,.0f}").tailwind.font_size("lg").text_color(total_color)
+            ui.label(f"{total_no_homes:+,.0f}").tailwind.font_size("lg").text_color(
+                total_no_homes_color
+            )
+
     def common_links(self):
         with ui.row().classes("flex justify-center w-full"):
             ui.link("Dynamic Graphs", "/")
@@ -135,7 +158,6 @@ class MainGraphs(GraphCommon):
         ("interest_rate", "45vh"),
         ("loan", "45vh"),
         ("brokerage_total", "45vh"),
-        ("daily_indicator", "45vh"),
     )
 
     def __init__(self, db: walrus.Database):
@@ -172,6 +194,7 @@ class MainGraphs(GraphCommon):
             name = self.make_redis_key(layout_name)
             if graph := self.get_plotly_json(name):
                 ui.plotly(graph).classes("w-full").style(f"height: {height}")
+        self.daily_change()
         self.common_links()
 
     async def update(self) -> None:
@@ -260,10 +283,6 @@ class MainGraphs(GraphCommon):
                 lambda: plot.make_loan_section(
                     options_data.opts.options_value_by_brokerage
                 ).update_layout(margin=subplot_margin),
-            ),
-            (
-                "daily_indicator",
-                lambda: plot.make_daily_indicator(dataframes["all"]),
             ),
         ]
         ranged_graphs_generate = [
@@ -388,6 +407,7 @@ class MainGraphsImageOnly(GraphCommon):
                 name = self.make_redis_key(layout_name)
                 if graph := self.image_graphs.get(name):
                     ui.image(self.encode_png(graph))
+        self.daily_change()
         self.common_links()
 
     async def update(self) -> None:
