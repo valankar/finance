@@ -36,7 +36,6 @@ async def run_all(
         common.SCRIPT_LOCK_NAME, ttl=common.LOCK_TTL_SECONDS * 1000
     ):
         if calculate:
-            common.cache_ticker_prices()
             stock_options.generate_options_data()
             ledger_amounts.main()
             etfs.main()

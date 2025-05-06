@@ -130,11 +130,7 @@ class LedgerUI:
                     text="Write Ledger Entry", on_click=self.write_ledger
                 ).bind_enabled_from(self, "editor_data")
                 ui.button(text="Reset", on_click=self.main_page.refresh)
-                # See https://github.com/zauberzeug/nicegui/issues/3337
-                # ui.codemirror(theme="basicDark").bind_value(self, "editor_data")
-                ui.textarea().classes("font-mono w-full").props(
-                    'input-class="h-80"'
-                ).bind_value(self, "editor_data")
+                ui.codemirror(theme="basicDark").bind_value(self, "editor_data")
             with ui.card():
                 self.aggrid = (
                     ui.aggrid(

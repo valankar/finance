@@ -3,6 +3,7 @@ import pickle
 import typing
 from datetime import date, datetime
 
+import humanize
 import pandas as pd
 import walrus
 from loguru import logger
@@ -455,7 +456,7 @@ class StockOptionsPage(GraphCommon):
         data = self.options_data
         with ui.row().classes("items-center"):
             ui.label(
-                f"Staleness: {(datetime.now() - data.updated).total_seconds() / 60:.0f}m"
+                f"Staleness: {humanize.naturaldelta(datetime.now() - data.updated)}"
             )
         ui.html(f"<PRE>{data.main_output}</PRE>")
         self.make_spread_section(
@@ -464,7 +465,6 @@ class StockOptionsPage(GraphCommon):
         self.make_spread_section("Vertical Spreads", self.ui_data.vertical_spreads)
         self.make_spread_section("Iron Condors", self.ui_data.iron_condors)
         self.make_box_spread_sections("Box Spreads", data.opts.box_spreads)
-        self.make_box_spread_sections("Old Box Spreads", data.opts.old_box_spreads)
         for image in self.ui_data.ticker_spread_images + self.ui_data.index_images:
             ui.image(self.encode_png(image)).classes("w-full")
 

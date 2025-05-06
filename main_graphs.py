@@ -6,8 +6,9 @@ import pickle
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, ClassVar, Generator, NamedTuple, Optional
+from typing import Callable, ClassVar, Generator, NamedTuple, Optional, cast
 
+import humanize
 import kaleido
 import pandas as pd
 import plotly.io as pio
@@ -118,8 +119,9 @@ class GraphCommon:
             ui.label(title)
 
     def daily_change(self):
-        self.section_title("Daily Change")
         diff = latest_values.difference_df(common.read_sql_table("history"))[1].iloc[-1]
+        staleness = f"Staleness: {humanize.naturaldelta(datetime.now() - cast(pd.Timestamp, diff.name))}"
+        self.section_title(f"Daily Change ({staleness})")
         total = diff["total"]
         total_color = "green-500" if total >= 0 else "red-500"
         total_no_homes = diff["total_no_homes"]

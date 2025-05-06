@@ -1,8 +1,8 @@
 CREATE TABLE brokerage_totals(date TIMESTAMP, "Equity Balance" DOUBLE, "30% Equity Balance" DOUBLE, "50% Equity Balance" DOUBLE, "Loan Balance" DOUBLE, Total DOUBLE, "Distance to 30%" DOUBLE, "Distance to 50%" DOUBLE, Brokerage VARCHAR);
-CREATE TABLE fedfunds(date TIMESTAMP, "percent" DOUBLE);
+CREATE TABLE fedfunds(date TIMESTAMP_NS, "percent" DOUBLE);
 CREATE TABLE forex(date TIMESTAMP, CHFUSD DOUBLE, SGDUSD DOUBLE);
 CREATE TABLE history(date TIMESTAMP, total_liquid DOUBLE, total_real_estate DOUBLE, total_retirement DOUBLE, total_investing DOUBLE, etfs DOUBLE, commodities DOUBLE, ira DOUBLE, pillar2 DOUBLE);
-CREATE TABLE index_prices(date TIMESTAMP, "^SPX" DOUBLE, "^SSMI" DOUBLE);
+CREATE TABLE index_prices(date TIMESTAMP, "^SPX" DOUBLE);
 CREATE TABLE interactive_brokers_margin_rates(date TIMESTAMP, USD DOUBLE, CHF DOUBLE);
 CREATE TABLE real_estate_prices(date TIMESTAMP, "name" VARCHAR, "value" BIGINT, site VARCHAR);
 CREATE TABLE real_estate_rents(date TIMESTAMP, "name" VARCHAR, "value" BIGINT, site VARCHAR);
@@ -10,11 +10,10 @@ CREATE TABLE schwab_etfs_amounts(date TIMESTAMP, SCHA DOUBLE, SCHF DOUBLE, SCHR 
 CREATE TABLE schwab_etfs_prices(date TIMESTAMP, SCHA DOUBLE, SCHF DOUBLE, SCHR DOUBLE, SCHX DOUBLE, SWTSX DOUBLE, SWISX DOUBLE, SWAGX DOUBLE, SCHZ DOUBLE, IBKR DOUBLE, SCHB DOUBLE, GLDM DOUBLE, SGOL DOUBLE, SIVR DOUBLE, SCHE DOUBLE, SCHO DOUBLE, COIN DOUBLE, BITX DOUBLE, MSTR DOUBLE, SGOV DOUBLE, VV DOUBLE, PLTR DOUBLE, AMD DOUBLE, GLD DOUBLE, SH DOUBLE);
 CREATE TABLE schwab_ira_amounts(date TIMESTAMP, SWYGX DOUBLE);
 CREATE TABLE schwab_ira_prices(date TIMESTAMP, SWYGX DOUBLE);
-CREATE TABLE sofr(date TIMESTAMP, "percent" DOUBLE);
+CREATE TABLE sofr(date TIMESTAMP_NS, "percent" DOUBLE);
 CREATE TABLE swtsx_market_cap(date TIMESTAMP, US_LARGE_CAP DOUBLE, US_SMALL_CAP DOUBLE);
 CREATE TABLE swvxx_yield(date TIMESTAMP, "percent" DOUBLE);
 CREATE TABLE swygx_holdings(date TIMESTAMP, SCHX DOUBLE, SCHF DOUBLE, SCHZ DOUBLE, SCHH DOUBLE, SCHA DOUBLE, SCHE DOUBLE, USD DOUBLE, SCHO DOUBLE, SGUXX DOUBLE);
-CREATE TABLE "toshl_expenses_export_2023-01-01"(Date TIMESTAMP, Category VARCHAR, Tags VARCHAR, "Expense amount" DOUBLE, Currency VARCHAR, "In main currency" DOUBLE, "Main currency" VARCHAR, Description VARCHAR);
-CREATE TABLE "toshl_income_export_2023-01-01"(Date TIMESTAMP, Category VARCHAR, Tags VARCHAR, "Income amount" DOUBLE, Currency VARCHAR, "In main currency" DOUBLE, "Main currency" VARCHAR, Description VARCHAR);
+CREATE TABLE IF NOT EXISTS "toshl_expenses_export_2023-01-01"(Date TIMESTAMP, Category VARCHAR, Tags VARCHAR, "Expense amount" DOUBLE, Currency VARCHAR, "In main currency" DOUBLE, "Main currency" VARCHAR, Description VARCHAR);
+CREATE TABLE IF NOT EXISTS "toshl_income_export_2023-01-01"(Date TIMESTAMP, Category VARCHAR, Tags VARCHAR, "Income amount" DOUBLE, Currency VARCHAR, "In main currency" DOUBLE, "Main currency" VARCHAR, Description VARCHAR);
 CREATE TABLE wealthfront_cash_yield(date TIMESTAMP, "percent" DOUBLE);
-

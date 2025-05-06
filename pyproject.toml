@@ -9,6 +9,7 @@ dependencies = [
     "cyclopts>=3.11.1",
     "duckdb>=1.2.1",
     "fredapi>=0.5.2",
+    "humanize>=4.12.3",
     "kaleido==0.2.1",
     "loguru>=0.7.3",
     "matplotlib>=3.10.1",

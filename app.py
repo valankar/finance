@@ -213,14 +213,12 @@ async def transactions_page():
 async def schwab_login(request: Request) -> RedirectResponse:
     if not (uri := os.environ.get("SCHWAB_CALLBACK_URI")):
         raise ValueError("SCHWAB_CALLBACK_URI not defined")
-    return await common.Schwab().oauth.authorize_redirect(  # type: ignore
-        request, uri
-    )
+    return await common.Schwab().oauth.authorize_redirect(request, uri)
 
 
 @app.get("/callback")
 async def schwab_callback(request: Request) -> RedirectResponse:
-    token = await common.Schwab().oauth.authorize_access_token(request)  # type: ignore
+    token = await common.Schwab().oauth.authorize_access_token(request)
     common.Schwab().write_token(token)
     return RedirectResponse("/")
 

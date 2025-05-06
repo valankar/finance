@@ -98,8 +98,6 @@ class OptionsAndSpreads(typing.NamedTuple):
     pruned_options: pd.DataFrame
     short_calls: list[ShortCallDetails]
     box_spreads: list[BoxSpread]
-    # Old and expired box spreads
-    old_box_spreads: list[BoxSpread]
     iron_condors: list[IronCondor]
     # These include spreads part of iron condors.
     bull_put_spreads: list[Spread]
@@ -107,6 +105,7 @@ class OptionsAndSpreads(typing.NamedTuple):
     # These do not include spreads part of iron condors.
     bull_put_spreads_no_ic: list[Spread]
     bear_call_spreads_no_ic: list[Spread]
+    synthetics: list[Spread]
     options_value_by_brokerage: dict[str, float]
 
 
@@ -117,14 +116,10 @@ class OptionsData(typing.NamedTuple):
     updated: datetime
 
 
-def options_df_raw(
-    commodity_regex: str = "", additional_args: str = ""
-) -> pd.DataFrame:
+def options_df_raw() -> pd.DataFrame:
     search = " (CALL|PUT)"
-    if commodity_regex:
-        search = f"{commodity_regex} .*{search}"
     cmd = (
-        f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/{search}/' {additional_args} "
+        f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/{search}/' "
         + 'bal --no-total --flat --balance-format "%(partial_account)\n%(strip(T))\n"'
     )
     chfusd = common.get_latest_forex()["CHFUSD"]
@@ -211,19 +206,6 @@ def convert_to_usd(amount: str) -> float:
     return 0
 
 
-def find_old_box_spreads(current_box_spreads: list[BoxSpread]) -> list[BoxSpread]:
-    logger.info("Finding old box spreads")
-    commodity_regex = "(SMI|SPX)"
-    unassigned_df = options_df(
-        commodity_regex=commodity_regex,
-        additional_args=r"""--limit 'payee != "Options assignment"'""",
-    )
-    old_boxes = find_box_spreads(
-        remove_spreads(unassigned_df, [s.df for s in current_box_spreads])
-    )
-    return old_boxes
-
-
 def get_ledger_entries_command(broker: str, option_name: str) -> str:
     return (
         f"""{common.LEDGER_PREFIX} print expr 'any(commodity == "\\"{option_name}\\"" and account =~ /{broker}/)'"""
@@ -288,73 +270,55 @@ def add_contract_price(options_df: pd.DataFrame) -> pd.DataFrame:
     return options_df
 
 
-def add_index_prices(etfs_df: pd.DataFrame) -> pd.DataFrame:
-    index_df = common.read_sql_last("index_prices")
-    for ticker, index_ticker in (("SPX", "^SPX"), ("SMI", "^SSMI")):
-        etfs_df.loc[ticker, "current_price"] = index_df[index_ticker].iloc[-1]
-    return etfs_df
+def add_current_price(calls_puts_df: pd.DataFrame) -> pd.DataFrame:
+    for ticker in calls_puts_df["ticker"].unique():
+        query_ticker = ticker
+        if ticker == "SPX":
+            query_ticker = "^SPX"
+        calls_puts_df.loc[lambda df: df["ticker"] == ticker, "current_price"] = (  # type: ignore
+            common.get_ticker(query_ticker)
+        )
+    return calls_puts_df
 
 
-def options_df(commodity_regex: str = "", additional_args: str = "") -> pd.DataFrame:
+def options_df() -> pd.DataFrame:
     """Get call and put dataframe."""
-    calls_puts_df = options_df_raw(
-        commodity_regex=commodity_regex, additional_args=additional_args
-    )
+    calls_puts_df = options_df_raw()
     if not len(calls_puts_df):
         return calls_puts_df
-    etfs_df = add_index_prices(etfs.get_etfs_df()[["current_price"]])
-    joined_df = pd.merge(calls_puts_df, etfs_df, on="ticker").set_index(
-        ["account", "name", "expiration"]
+    df = add_current_price(calls_puts_df)
+    df = df.set_index(["account", "name", "expiration"])
+    df["in_the_money"] = False
+    df.loc[df["type"] == "CALL", "in_the_money"] = df["strike"] < df["current_price"]
+    df.loc[df["type"] == "PUT", "in_the_money"] = df["strike"] > df["current_price"]
+    df["exercise_value"] = df["strike"] * df["count"] * df["multiplier"]
+    df.loc[df["ticker"].isin(["SPX", "SMI"]), "exercise_value"] = (
+        (df["strike"] - df["current_price"]) * df["count"] * df["multiplier"]
     )
-    joined_df["in_the_money"] = False
-    joined_df.loc[joined_df["type"] == "CALL", "in_the_money"] = (
-        joined_df["strike"] < joined_df["current_price"]
-    )
-    joined_df.loc[joined_df["type"] == "PUT", "in_the_money"] = (
-        joined_df["strike"] > joined_df["current_price"]
-    )
-    joined_df["exercise_value"] = (
-        joined_df["strike"] * joined_df["count"] * joined_df["multiplier"]
-    )
-    joined_df.loc[joined_df["ticker"].isin(["SPX", "SMI"]), "exercise_value"] = (
-        (joined_df["strike"] - joined_df["current_price"])
-        * joined_df["count"]
-        * joined_df["multiplier"]
-    )
-    joined_df.loc[joined_df["type"] == "CALL", "exercise_value"] = -joined_df[
-        "exercise_value"
-    ]
-    joined_df.loc[
-        (joined_df["type"] == "PUT")
-        & (joined_df["count"] < 0)
-        & (~joined_df["ticker"].isin(["SPX", "SMI"])),
+    df.loc[df["type"] == "CALL", "exercise_value"] = -df["exercise_value"]
+    df.loc[
+        (df["type"] == "PUT")
+        & (df["count"] < 0)
+        & (~df["ticker"].isin(["SPX", "SMI"])),
         "exercise_value",
-    ] = abs(joined_df["strike"] * joined_df["count"] * joined_df["multiplier"]) * -1
-    joined_df["intrinsic_value"] = 0.0
-    joined_df.loc[
-        (joined_df["type"] == "CALL") & joined_df["in_the_money"],
+    ] = abs(df["strike"] * df["count"] * df["multiplier"]) * -1
+    df["intrinsic_value"] = 0.0
+    df.loc[
+        (df["type"] == "CALL") & df["in_the_money"],
         "intrinsic_value",
-    ] = (
-        (joined_df["current_price"] - joined_df["strike"])
-        * joined_df["count"]
-        * joined_df["multiplier"]
-    )
-    joined_df.loc[
-        (joined_df["type"] == "PUT") & joined_df["in_the_money"],
+    ] = (df["current_price"] - df["strike"]) * df["count"] * df["multiplier"]
+    df.loc[
+        (df["type"] == "PUT") & df["in_the_money"],
         "intrinsic_value",
-    ] = (
-        (joined_df["strike"] - joined_df["current_price"])
-        * joined_df["count"]
-        * joined_df["multiplier"]
+    ] = (df["strike"] - df["current_price"]) * df["count"] * df["multiplier"]
+    df["min_contract_price"] = 0.0
+    df.loc[df["in_the_money"], "min_contract_price"] = df["intrinsic_value"] / (
+        df["count"] * df["multiplier"]
     )
-    joined_df["min_contract_price"] = 0.0
-    joined_df.loc[joined_df["in_the_money"], "min_contract_price"] = joined_df[
-        "intrinsic_value"
-    ] / (joined_df["count"] * joined_df["multiplier"])
-    joined_df = joined_df.sort_values(["account", "expiration", "name"])
-    joined_df = add_contract_price(joined_df)
-    joined_df = add_value(joined_df)
-    return joined_df
+    df = df.sort_values(["account", "expiration", "name"])
+    df = add_contract_price(df)
+    df = add_value(df)
+    return df
 
 
 def short_put_exposure(dataframe, broker):
@@ -374,7 +338,9 @@ def short_put_exposure(dataframe, broker):
 
 
 def after_assignment_df(itm_df: pd.DataFrame) -> pd.DataFrame:
-    etfs_df = add_index_prices(etfs.get_etfs_df())
+    etfs_df = etfs.get_etfs_df()
+    if len(itm_df.loc[lambda df: df["ticker"] == "SPX"]):
+        etfs_df.loc["SPX", "current_price"] = common.get_ticker("^SPX")
     etfs_df["shares_change"] = 0.0
     etfs_df["liquidity_change"] = 0.0
     for _, cols in itm_df.iterrows():
@@ -439,6 +405,28 @@ def after_assignment(itm_df):
     print()
 
 
+def find_synthetics(options_df: pd.DataFrame) -> list[Spread]:
+    spreads: list[Spread] = []
+    for index, row in options_df.iterrows():
+        ticker = row["ticker"]  # noqa: F841
+        if ticker == "SPX":
+            continue
+        # Find a long CALL
+        if row["type"] == "CALL" and row["count"] > 0:
+            # The long CALL
+            long_call = options_df.query(
+                'ticker == @ticker & type == "CALL" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == @row["count"]'
+            )
+            # Find a short PUT at same strike, count, expiration and broker
+            short_put = options_df.query(
+                'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == -@row["count"]'
+            )
+            found = pd.concat([long_call, short_put])
+            if len(found) == 2:
+                spreads.append(Spread(df=found, details=get_spread_details(found)))
+    return spreads
+
+
 def find_bull_put_spreads(options_df: pd.DataFrame) -> list[Spread]:
     """Find bull put spreads. Remove box spreads before calling."""
     spreads: list[Spread] = []
@@ -456,9 +444,7 @@ def find_bull_put_spreads(options_df: pd.DataFrame) -> list[Spread]:
             )
             found = pd.concat([low_long_put, high_short_put])
             if len(found) == 2:
-                spreads.append(
-                    Spread(df=found, details=get_spread_details(found, with_rolls=True))
-                )
+                spreads.append(Spread(df=found, details=get_spread_details(found)))
     return spreads
 
 
@@ -479,9 +465,7 @@ def find_bear_call_spreads(options_df: pd.DataFrame) -> list[Spread]:
             )
             found = pd.concat([low_short_call, high_long_call])
             if len(found) == 2:
-                spreads.append(
-                    Spread(df=found, details=get_spread_details(found, with_rolls=True))
-                )
+                spreads.append(Spread(df=found, details=get_spread_details(found)))
     return spreads
 
 
@@ -568,10 +552,6 @@ def get_short_call_details(options_df: pd.DataFrame) -> list[ShortCallDetails]:
         expiration = row.name[2].date()  # type: ignore
         contract_price = row["contract_price"] * row["count"] * row["multiplier"]
         contract_price_per_share = row["contract_price"]
-        # Find adjustments and update contract price
-        if (all_trades_total := get_cost_with_rolls(short_calls.iloc[[i]])) != 0:
-            contract_price = all_trades_total
-            contract_price_per_share = contract_price / row["count"] / row["multiplier"]
         short_call_details.append(
             ShortCallDetails(
                 details=CommonDetails(
@@ -585,7 +565,7 @@ def get_short_call_details(options_df: pd.DataFrame) -> list[ShortCallDetails]:
                     half_mark=contract_price_per_share / 2,
                     double_mark=contract_price_per_share * 2,
                     quote=row["value"],
-                    profit=row["profit_option_value"],
+                    profit=row["value"] - contract_price,
                     intrinsic_value=row["intrinsic_value"],
                 ),
                 strike=row["strike"],
@@ -615,9 +595,7 @@ def get_box_spread_details(spread_df: pd.DataFrame) -> BoxSpreadDetails:
     )
 
 
-def get_spread_details(
-    spread_df: pd.DataFrame, with_rolls: bool = False
-) -> SpreadDetails:
+def get_spread_details(spread_df: pd.DataFrame) -> SpreadDetails:
     low_strike = spread_df["strike"].min()
     high_strike = spread_df["strike"].max()
     count = int(spread_df["count"].max())
@@ -627,9 +605,6 @@ def get_spread_details(
     c = spread_df.copy()
     c["price"] = c["contract_price"] * c["count"] * c["multiplier"]
     contract_price = c["price"].sum()
-    # Find adjustments and update contract price
-    if with_rolls and (all_trades_total := get_cost_with_rolls(spread_df)) != 0:
-        contract_price = all_trades_total
     half_mark = contract_price / count / multiplier / 2
     double_mark = contract_price / count / multiplier * 2
     quote = spread_df["value"].sum()
@@ -669,9 +644,6 @@ def get_iron_condor_details(
     c = iron_condor_df.copy()
     c["price"] = c["contract_price"] * c["count"] * c["multiplier"]
     contract_price = c["price"].sum()
-    # Find adjustments and update contract price
-    if (all_trades_total := get_cost_with_rolls(iron_condor_df)) != 0:
-        contract_price = all_trades_total
     account = index[0]
     ticker = row["ticker"]
     half_mark = contract_price / count / multiplier / 2
@@ -791,13 +763,13 @@ def get_options_value_by_brokerage(
 def get_options_and_spreads() -> OptionsAndSpreads:
     all_options = options_df()
     box_spreads = find_box_spreads(all_options)
-    old_box_spreads = find_old_box_spreads(box_spreads)
     pruned_options = remove_spreads(all_options, [s.df for s in box_spreads])
     bull_put_spreads = find_bull_put_spreads(pruned_options)
     pruned_options = remove_spreads(pruned_options, [s.df for s in bull_put_spreads])
     bear_call_spreads = find_bear_call_spreads(pruned_options)
     pruned_options = remove_spreads(pruned_options, [s.df for s in bear_call_spreads])
     iron_condors = find_iron_condors(bull_put_spreads, bear_call_spreads)
+    synthetics = find_synthetics(pruned_options)
 
     def get_spread_no_ic(spreads: list[Spread]) -> list[Spread]:
         pruned_spreads: list[Spread] = []
@@ -821,12 +793,12 @@ def get_options_and_spreads() -> OptionsAndSpreads:
         pruned_options=pruned_options,
         short_calls=short_calls,
         box_spreads=box_spreads,
-        old_box_spreads=old_box_spreads,
         bull_put_spreads=bull_put_spreads,
         bear_call_spreads=bear_call_spreads,
         iron_condors=iron_condors,
         bull_put_spreads_no_ic=bull_put_spreads_no_ic,
         bear_call_spreads_no_ic=bear_call_spreads_no_ic,
+        synthetics=synthetics,
         options_value_by_brokerage=options_value_by_brokerage,
     )
 
@@ -855,38 +827,6 @@ def get_total_risk(broker: str, opts: OptionsAndSpreads) -> float:
         if d.details.account == broker:
             risk += d.risk
     return risk
-
-
-def find_all_related(broker: str, option_name: str, done: set[str] = set()) -> set[str]:
-    processed = set(done)
-    if option_name in processed:
-        return processed
-    processed.add(option_name)
-    ticker = option_name.split()[0]
-    for entry in ledger_ops.get_ledger_entries_from_command(
-        get_ledger_entries_command(broker, option_name)
-    ):
-        for line in entry.body:
-            if " CALL" not in line and " PUT" not in line:
-                continue
-            if f'"{ticker}' not in line:
-                continue
-            new_option_name = line.split('"')[1]
-            processed.update(find_all_related(broker, new_option_name, set(processed)))
-    return processed
-
-
-def get_cost_with_rolls(combo: pd.DataFrame) -> float:
-    broker = combo.index.get_level_values("account")[0]
-    option_names = set(combo.index.get_level_values("name"))
-    found = set()
-    for option in option_names:
-        found.update(find_all_related(broker, option))
-    total = sum([get_ledger_total(broker, x) for x in found])
-    logger.info(f"Related for combo: {broker=} {found=} {total=}")
-    if total > 0:
-        logger.info("Total would be positive, ignoring")
-    return min(0, total)
 
 
 def generate_options_data():

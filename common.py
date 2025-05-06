@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from functools import reduce
 from pathlib import Path
-from typing import Any, ClassVar, Generator, Mapping, Optional, Sequence
+from typing import Any, ClassVar, Generator, Mapping, Optional
 
 import duckdb
 import pandas as pd
@@ -21,10 +21,11 @@ import walrus
 import yahoofinancials
 import yahooquery
 import yfinance
-from authlib.integrations.starlette_client import OAuth
+from authlib.integrations.starlette_client import OAuth, StarletteOAuth2App
 from loguru import logger
 from playwright.sync_api import sync_playwright
 from pyngleton import singleton
+from schwab.client import AsyncClient, Client
 from schwab.orders.options import OptionSymbol
 
 CODE_DIR = f"{Path.home()}/code/accounts"
@@ -73,15 +74,15 @@ class Schwab:
     SCHWAB_TOKEN_FILE: ClassVar[str] = f"{CODE_DIR}/.schwab_token.json"
 
     def __init__(self):
-        self.api_key = os.environ.get("SCHWAB_API_KEY")
-        self.secret = os.environ.get("SCHWAB_SECRET")
+        self.api_key: str = os.environ.get("SCHWAB_API_KEY", "")
+        self.secret: str = os.environ.get("SCHWAB_SECRET", "")
         if not all([self.api_key, self.secret]):
             raise GetTickerError("No schwab environment variables found")
-        self._client = None
-        self._oauth = None
+        self._client: Optional[Client | AsyncClient] = None
+        self._oauth: Optional[StarletteOAuth2App] = None
 
     @property
-    def client(self):
+    def client(self) -> Client | AsyncClient:
         if not self._client:
             logger.info("Creating Schwab client")
             self._client = schwab.auth.client_from_token_file(
@@ -90,10 +91,9 @@ class Schwab:
         return self._client
 
     @property
-    def oauth(self):
+    def oauth(self) -> StarletteOAuth2App:
         if not self._oauth:
-            self._oauth = OAuth()
-            self._oauth.register(
+            self._oauth = OAuth().register(
                 name="schwab",
                 client_id=self.api_key,
                 client_secret=self.secret,
@@ -103,9 +103,11 @@ class Schwab:
                     "scope": "read",
                 },
             )
-        return self._oauth.schwab
+            if self._oauth is None:
+                raise GetTickerError("Cannot create oauth")
+        return self._oauth
 
-    def write_token(self, token):
+    def write_token(self, token: dict):
         logger.info("Writing token")
         try:
             with open(self.SCHWAB_TOKEN_FILE) as f:
@@ -118,8 +120,6 @@ class Schwab:
             f.write(json.dumps(data))
 
     def get_quote(self, ticker: str) -> float:
-        if ticker == "^SSMI":
-            return 0
         if ticker.startswith("^"):
             ticker = "$" + ticker[1:]
         invert = False
@@ -130,6 +130,8 @@ class Schwab:
             case "SGDUSD=X":
                 ticker = "USD/SGD"
                 invert = True
+            case "SMI":
+                return 0
         logger.info(f"Fetching ticker {ticker}")
         p = self.client.get_quotes([ticker]).json()[ticker]
         if "regular" in p:
@@ -139,6 +141,8 @@ class Schwab:
         else:
             logger.error(p)
             raise GetTickerError("cannot find schwab field")
+        if value == 0:
+            raise GetTickerError("received 0 as quote")
         return value if not invert else 1 / value
 
     def get_option_quote(self, t: TickerOption) -> float | None:
@@ -168,23 +172,6 @@ def pandas_options():
         "display.max_rows", None, "display.max_columns", None, "display.width", 1000
     ):
         yield
-
-
-def get_tickers(tickers: Sequence[str]) -> Mapping:
-    """Get prices for a list of tickers."""
-    ticker_dict = {}
-    for ticker in tickers:
-        ticker_dict[ticker] = get_ticker(ticker)
-    return ticker_dict
-
-
-def cache_ticker_prices():
-    tickers = []
-    for table in ["schwab_etfs_prices", "schwab_ira_prices", "index_prices"]:
-        tickers.extend(read_sql_last(table).columns)
-    for col in get_latest_forex().index:
-        tickers.append(f"{col}=X")
-    get_tickers(tickers)
 
 
 GET_TICKER_FAILURES: set[str] = set()
@@ -335,22 +322,21 @@ def to_sql(dataframe, table, if_exists="append"):
 def write_ticker_sql(
     amounts_table: str,
     prices_table: str,
-    ticker_aliases: Mapping | None = None,
     ticker_prices: Mapping | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+):
     # Just get the latest row and use columns to figure out tickers.
     amounts_df = read_sql_last(amounts_table)
-    if ticker_aliases:
-        amounts_df = amounts_df.rename(columns=ticker_aliases)
     if not ticker_prices:
-        ticker_prices = get_tickers(list(amounts_df.columns))
+        ticker_prices = {}
+        for ticker in amounts_df.columns:
+            ticker_prices[ticker] = get_ticker(ticker)
+    if not ticker_prices:
+        logger.info("No ticker prices found. Not writing table.")
+        return
     prices_df = pd.DataFrame(
         ticker_prices, index=[pd.Timestamp.now()], columns=sorted(ticker_prices.keys())
     ).rename_axis("date")
-    if ticker_aliases:
-        prices_df = prices_df.rename(columns={v: k for k, v in ticker_aliases.items()})
     to_sql(prices_df, prices_table)
-    return amounts_df, prices_df
 
 
 @contextmanager
