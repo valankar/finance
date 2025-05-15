@@ -37,7 +37,7 @@ class BreakdownSection(NamedTuple):
 
 class MultilineSection(NamedTuple):
     title: str
-    dataframe: Callable[[], pd.DataFrame]
+    dataframe: Callable[[Optional[str]], pd.DataFrame]
 
 
 class Matplots(GraphCommon):
@@ -96,7 +96,7 @@ class Matplots(GraphCommon):
         )
         self.prices_section = MultilineSection(
             title="Prices",
-            dataframe=lambda: common.read_sql_table("schwab_etfs_prices"),
+            dataframe=lambda r: self.prices_df(r),
         )
         self.forex_section = BreakdownSection(
             title="Forex",
@@ -105,7 +105,7 @@ class Matplots(GraphCommon):
         )
         self.interest_rate_section = MultilineSection(
             title="Interest Rates",
-            dataframe=lambda: plot.get_interest_rate_df(),
+            dataframe=lambda _: plot.get_interest_rate_df(),
         )
 
     def create(self):
@@ -500,7 +500,7 @@ class Matplots(GraphCommon):
 
             for section in [self.interest_rate_section, self.prices_section]:
                 graph = self.make_dataframe_multiline_graph(
-                    self.limit_and_resample_df(section.dataframe(), r)
+                    self.limit_and_resample_df(section.dataframe(r), r)
                 )
                 redis_key = self.make_redis_key(section.title, r)
                 self.image_graphs[redis_key] = graph

@@ -81,7 +81,6 @@ def main():
         failed_methods = []
         for method in make_daily_methods():
             if common.WalrusDb().cache.get(method.name):
-                logger.info(f"Method {method.name} ran recently")
                 continue
             try:
                 logger.info(f"Running {method.name}")

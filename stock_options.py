@@ -339,8 +339,11 @@ def short_put_exposure(dataframe, broker):
 
 def after_assignment_df(itm_df: pd.DataFrame) -> pd.DataFrame:
     etfs_df = etfs.get_etfs_df()
-    if len(itm_df.loc[lambda df: df["ticker"] == "SPX"]):
-        etfs_df.loc["SPX", "current_price"] = common.get_ticker("^SPX")
+    for ticker in itm_df["ticker"].unique():
+        if ticker not in etfs_df.index:
+            for f in ("current_price", "shares", "value"):
+                etfs_df.loc[ticker, f] = 0
+    etfs_df = add_current_price(etfs_df.reset_index()).set_index("ticker")
     etfs_df["shares_change"] = 0.0
     etfs_df["liquidity_change"] = 0.0
     for _, cols in itm_df.iterrows():
@@ -816,19 +819,6 @@ def remove_zero_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[:, df.any()]
 
 
-def get_total_risk(broker: str, opts: OptionsAndSpreads) -> float:
-    risk = 0.0
-    for ic in opts.iron_condors:
-        icd = ic.details
-        if icd.details.account == broker:
-            risk += icd.risk
-    for spread in opts.bull_put_spreads_no_ic + opts.bear_call_spreads_no_ic:
-        d = spread.details
-        if d.details.account == broker:
-            risk += d.risk
-    return risk
-
-
 def generate_options_data():
     logger.info("Generating options data")
     opts = get_options_and_spreads()
@@ -895,7 +885,7 @@ def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
                 "\n",
             )
     for broker in common.BROKERAGES:
-        option_risk = get_total_risk(broker, opts)
+        option_risk = opts.all_options.query("account == @broker")["value"].sum()
         if (brokerage := margin_loan.find_loan_brokerage(broker)) is not None:
             if (
                 df := margin_loan.get_balances_broker(
@@ -904,7 +894,7 @@ def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
             ) is not None:
                 netliq = df["Total"].sum()
                 print(
-                    f"{broker} option risk as percentage of net liquidity: {abs(option_risk / netliq):.2%}"
+                    f"{broker} option value as percentage of net liquidity: {abs(option_risk / netliq):.2%} (${option_risk:.0f})"
                 )
 
     if show_spreads:

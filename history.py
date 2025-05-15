@@ -8,7 +8,7 @@ import ledger_amounts
 import stock_options
 from ledger_ops import get_ledger_balance
 
-LEDGER_LIQUID_CMD = f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} --limit 'not(account=~/(Retirement|Precious Metals|Zurcher)/)' -J -n bal ^assets ^liabilities"
+LEDGER_LIQUID_CMD = f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} --limit 'not(account=~/(Retirement|Precious Metals)/)' -J -n bal ^assets ^liabilities"
 LEDGER_COMMODITIES_CMD = (
     f"""{common.LEDGER_PREFIX} -J -n --limit 'commodity=~/{common.COMMODITIES_REGEX}/' bal """
     '^"Assets:Investments"'
@@ -26,7 +26,6 @@ LEDGER_UBS_PILLAR_CMD = (
     f"{common.LEDGER_PREFIX} -J -n bal "
     '^"Assets:Investments:Retirement:UBS Vested Benefits"'
 )
-LEDGER_ZURCHER_CMD = f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Zurcher Kantonal"'
 
 
 def main():
@@ -50,8 +49,7 @@ def main():
     # Retirement
     schwab_ira = get_ledger_balance(LEDGER_IRA_CMD)
     pillar2 = get_ledger_balance(LEDGER_UBS_PILLAR_CMD)
-    zurcher = get_ledger_balance(LEDGER_ZURCHER_CMD)
-    total_retirement = pillar2 + zurcher + schwab_ira
+    total_retirement = pillar2 + schwab_ira
 
     history_df_data = {
         "total_real_estate": total_real_estate,

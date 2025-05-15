@@ -10,21 +10,15 @@ app = App()
 @app.default
 def main(
     ticker: str,
-    is_index: bool = False,
 ):
-    """Add new ticker/index.
+    """Add new index.
 
     Parameters
     ----------
     ticker: str
-        Ticker name. For example: IBKR, ^SSMI
-    is_index: bool
-        Whether the ticker is an index. Uses a different table if so.
+        Ticker name. For example: ^SSMI
     """
-    if is_index:
-        tables = ["index_prices"]
-    else:
-        tables = ["schwab_etfs_prices", "schwab_etfs_amounts"]
+    tables = ["index_prices"]
     with common.duckdb_lock() as con:
         for table in tables:
             con.execute(f'ALTER TABLE {table} ADD COLUMN "{ticker}" DOUBLE')

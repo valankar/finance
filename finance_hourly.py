@@ -14,12 +14,10 @@ import etfs
 import forex
 import history
 import index_prices
-import ledger_amounts
 import ledger_prices_db
 import main_graphs
 import main_matplot
 import push_web
-import schwab_ira
 import stock_options
 import stock_options_ui
 
@@ -37,11 +35,9 @@ async def run_all(
     ):
         if calculate:
             stock_options.generate_options_data()
-            ledger_amounts.main()
             etfs.main()
             index_prices.main()
             forex.main()
-            schwab_ira.main()
             ledger_prices_db.main()
             history.main()
             brokerages.main()

@@ -133,7 +133,11 @@ class Schwab:
             case "SMI":
                 return 0
         logger.info(f"Fetching ticker {ticker}")
-        p = self.client.get_quotes([ticker]).json()[ticker]
+        try:
+            p = self.client.get_quotes([ticker]).json()[ticker]
+        except KeyError:
+            logger.error(f"Cannot find {ticker} in quote")
+            raise GetTickerError("ticker not found")
         if "regular" in p:
             value = p["regular"]["regularMarketLastPrice"]
         elif "quote" in p:

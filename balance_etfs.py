@@ -8,7 +8,6 @@ from cyclopts import App, Parameter
 
 import common
 import etfs
-import schwab_ira
 import stock_options
 
 # All allocations come from SWYGX portfolio.
@@ -92,23 +91,20 @@ def get_desired_allocation() -> dict[str, Any] | None:
     return allocation
 
 
-def convert_ira_to_types(ira_df, etf_type_map: dict[str, list[str]]):
-    """Convert SWYGX to types/categories."""
-    holdings = common.read_sql_last("swygx_holdings").iloc[-1]
-    for etf_type, etfs_list in etf_type_map.items():
-        ira_df.loc[etf_type] = (
-            ira_df.loc["SWYGX"].value
-            * holdings[holdings.index.intersection(etfs_list)].sum()
-            / 100
-        )
-    return ira_df.loc[etf_type_map.keys()]
-
-
 def convert_etfs_to_types(etfs_df, etf_type_map: dict[str, list[str]]):
     """Convert ETFs to types/categories."""
     for etf_type, etfs_list in etf_type_map.items():
         etfs_df.loc[etf_type] = sum(
             etfs_df.loc[etfs_df.index.intersection(etfs_list)]["value"].fillna(0)
+        )
+
+    # IRA
+    holdings = common.read_sql_last("swygx_holdings").iloc[-1]
+    for etf_type, etfs_list in etf_type_map.items():
+        etfs_df.loc[etf_type] += (
+            etfs_df.loc["SWYGX"].value
+            * holdings[holdings.index.intersection(etfs_list)].sum()
+            / 100
         )
 
     # Expand total market funds into allocation.
@@ -140,9 +136,8 @@ def get_desired_df(
     # Add in options value
     if (options_data := stock_options.get_options_data()) is None:
         raise ValueError("No options data available")
-    etfs_df["value"] = etfs_df["value"].add(
-        options_data.opts.pruned_options.groupby("ticker").sum()["value"], fill_value=0
-    )
+    opts_tickers = options_data.opts.pruned_options.groupby("ticker").sum()[["value"]]
+    etfs_df = etfs_df.add(opts_tickers, fill_value=0)
     if include_options:
         # This is for options exercise value.
         options_df = options_data.opts.pruned_options
@@ -157,11 +152,8 @@ def get_desired_df(
         itm_df = stock_options.after_assignment_df(options_df.query(query))
         print("Options:\n", itm_df)
         etfs_df["value"] = etfs_df["value"].add(itm_df["value_change"], fill_value=0)
-    ira_df = schwab_ira.get_ira_df()[["value"]]
     wanted_df = pd.DataFrame({"wanted_percent": pd.Series(desired_allocation)})
-    mf_df = convert_etfs_to_types(etfs_df, ETF_TYPE_MAP) + convert_ira_to_types(
-        ira_df, ETF_TYPE_MAP
-    )
+    mf_df = convert_etfs_to_types(etfs_df, ETF_TYPE_MAP)
     for category, adjust in adjustment.items():
         mf_df.loc[category] += adjust
     total = mf_df["value"].sum()

@@ -5,13 +5,10 @@ import typing
 from datetime import datetime
 
 import common
+import etfs
 import homes
 import stock_options
 
-COMMODITY_TABLES = [
-    "schwab_etfs_prices",
-    "schwab_ira_prices",
-]
 DATE_FORMAT = "%Y/%m/%d %H:%M:%S"
 NOW = datetime.now().strftime(DATE_FORMAT)
 
@@ -20,10 +17,8 @@ def main():
     """Main."""
     with common.temporary_file_move(common.LEDGER_PRICES_DB) as output_file:
         # Commodities
-        for commodity_table in COMMODITY_TABLES:
-            series = common.read_sql_last(commodity_table).iloc[-1]
-            for ticker, price in series.items():
-                output_file.write(f"P {NOW} {ticker} ${price}\n")
+        for row in etfs.get_etfs_df().itertuples():
+            output_file.write(f"P {NOW} {row.Index} ${row.current_price}\n")
 
         # Forex values
         series = common.get_latest_forex()

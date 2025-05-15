@@ -17,16 +17,12 @@ Crontab example:
 @hourly             $HOME/code/accounts/cron_hourly.sh
 ```
 
-## Adding new tickers
+## Adding new indices
 
 ```shell
-# For ETFs or stocks.
-TICKER="IBKR"
-./add_ticker.py --ticker TSLA
-
 # For indices.
 TICKER="^SSMI"
-./add_ticker.py --ticker ^SPX --is-index
+./add_ticker.py --ticker ^SPX
 ```
 
 Update `common.py` (`COMMODITIES_REGEX`) and `balance_etfs.py` to include new ticker.
@@ -37,3 +33,4 @@ Update `common.py` (`COMMODITIES_REGEX`) and `balance_etfs.py` to include new ti
 docker compose up -d selenium-dev
 SELENIUM_REMOTE_URL="http://localhost:4444" ./homes.py
 ```
+

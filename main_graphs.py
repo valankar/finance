@@ -20,6 +20,7 @@ from plotly.graph_objects import Figure
 
 import brokerages
 import common
+import etfs
 import homes
 import latest_values
 import plot
@@ -59,6 +60,13 @@ class GraphCommon:
         joined = [x for x in [title, subgroup, subsubgroup] if x]
         redis_key = f"{self.REDIS_SUBKEY}:" + ":".join(joined)
         return redis_key
+
+    def prices_df(self, selected_range: str) -> pd.DataFrame:
+        df = etfs.get_prices_df()
+        if (retval := self.get_xrange(df, selected_range)) is None:
+            return df
+        start, end = retval
+        return etfs.get_prices_df((start, end))
 
     def limit_and_resample_df(
         self, df: pd.DataFrame, selected_range: str
@@ -246,7 +254,6 @@ class MainGraphs(GraphCommon):
             "all": common.read_sql_table("history"),
             "brokerages": brokerages.load_df(),
             "real_estate": homes.get_real_estate_df(),
-            "prices": common.read_sql_table("schwab_etfs_prices"),
             "forex": common.read_sql_table("forex"),
             "interest_rate": plot.get_interest_rate_df(),
         }
@@ -315,7 +322,7 @@ class MainGraphs(GraphCommon):
             (
                 "prices",
                 lambda range: plot.make_prices_section(
-                    self.limit_and_resample_df(dataframes["prices"], range).sort_index(
+                    self.limit_and_resample_df(self.prices_df(range), range).sort_index(
                         axis=1
                     ),
                     "Prices",

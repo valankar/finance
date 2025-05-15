@@ -2,7 +2,6 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Optional
 
-from loguru import logger
 from nicegui import binding, run, ui
 
 import ledger_ops
@@ -35,7 +34,6 @@ class LedgerUI:
         self, input: Input
     ) -> tuple[Input, list[ledger_ops.LedgerEntry]]:
         input = deepcopy(input)
-        logger.info(f"Processing with {input=}")
         results = await run.io_bound(
             lambda: ledger_ops.get_ledger_entries(
                 input.payee, input.commodity, input.search

@@ -230,4 +230,5 @@ if __name__ in {"__main__", "__mp_main__"}:
         dark=True,
         uvicorn_reload_excludes=f".*, .py[cod], .sw.*, ~*, {common.PREFIX}",
         storage_secret="finance",
+        reconnect_timeout=30,
     )

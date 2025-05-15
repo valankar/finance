@@ -12,6 +12,7 @@ from nicegui import ui
 from nicegui.elements.table import Table
 
 import common
+import etfs
 import stock_options
 from main_graphs import GraphCommon
 
@@ -72,16 +73,14 @@ class StockOptionsPage(GraphCommon):
         bear_call_spreads: list[stock_options.Spread],
     ) -> list[bytes]:
         images: list[bytes] = []
-        spread_df = pd.concat([s.df for s in bull_put_spreads + bear_call_spreads])
+        dfs = [s.df for s in bull_put_spreads + bear_call_spreads]
+        if not dfs:
+            return images
+        spread_df = pd.concat(dfs)
         tickers = spread_df["ticker"].unique()
         for ticker in sorted(tickers):
             ticker_df = spread_df.query("ticker == @ticker")
-            price_df = (
-                common.read_sql_table("schwab_etfs_prices")[[ticker]]
-                .resample("D")
-                .last()
-                .dropna()
-            )
+            price_df = etfs.get_prices_wide_df()[[ticker]].resample("D").last().dropna()
             for broker in sorted(ticker_df.index.get_level_values("account").unique()):
                 df = ticker_df.xs(broker, level="account")
                 fig = Figure(figsize=(15, 5), layout="tight")

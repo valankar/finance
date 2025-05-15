@@ -322,7 +322,7 @@ def make_prices_section(prices_df: pd.DataFrame, title: str) -> Figure:
         x=prices_df.index,
         y=prices_df.columns,
     )
-    fig.update_yaxes(title_text="USD")
+    fig.update_yaxes(title_text="%")
     fig.update_xaxes(title_text="")
     centered_title(fig, title)
     return fig
