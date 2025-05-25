@@ -8,6 +8,7 @@ from cyclopts import App, Parameter
 
 import common
 import etfs
+import futures
 import stock_options
 
 # All allocations come from SWYGX portfolio.
@@ -25,15 +26,20 @@ ETF_TYPE_MAP = {
     "COMMODITIES_GOLD": ["GLD", "GLDM", "SGOL"],
     "COMMODITIES_SILVER": ["SIVR"],
     "COMMODITIES_CRYPTO": ["COIN", "BITX", "MSTR"],
-    "US_SMALL_CAP": ["SCHA", "VB"],
-    "US_LARGE_CAP": ["SCHX", "VOO", "VV"],
-    "US_BONDS": ["BND", "SCHO", "SCHR", "SCHZ", "SGOV", "SWAGX"],
+    "US_SMALL_CAP": ["SCHA", "VB", "IWM", "/M2K", "/RTY"],
+    "US_LARGE_CAP": ["SCHX", "VOO", "VV", "/MES"],
+    "US_BONDS": ["BND", "SCHO", "SCHR", "SCHZ", "SGOV", "SWAGX", "/10Y"],
     "INTERNATIONAL_DEVELOPED": ["SCHF", "SWISX", "VEA"],
     "INTERNATIONAL_EMERGING": ["SCHE", "VWO"],
 }
+FUTURES_INVERSE_CORRELATION = {"/10Y"}
 # These get expanded out into US_SMALL_CAP and US_LARGE_CAP according to allocation
 # of SWTSX.
 TOTAL_MARKET_FUNDS = ["SWTSX", "SCHB"]
+
+
+class RebalancingError(Exception):
+    pass
 
 
 def reconcile(etfs_df: pd.DataFrame, amount: int, total: float) -> pd.DataFrame:
@@ -66,7 +72,7 @@ def get_swygx_allocations() -> dict[str, float]:
     return allocations
 
 
-def get_desired_allocation() -> dict[str, Any] | None:
+def get_desired_allocation() -> dict[str, Any]:
     allocation = get_swygx_allocations()
     allocation["COMMODITIES"] = 100 - sum(allocation.values())
     if allocation["COMMODITIES"] < COMMODITIES_PERCENTAGE_FLOOR:
@@ -75,19 +81,16 @@ def get_desired_allocation() -> dict[str, Any] | None:
         )
         allocation["COMMODITIES"] = COMMODITIES_PERCENTAGE_FLOOR
     if sum(COMMODITIES_PERCENTAGE.values()) != 100:
-        print("Sum of COMMODITIES_PERCENTAGE != 100")
-        return None
+        raise RebalancingError("Sum of COMMODITIES_PERCENTAGE != 100")
     for commodity, percentage in COMMODITIES_PERCENTAGE.items():
         allocation[f"COMMODITIES_{commodity}"] = (
             allocation["COMMODITIES"] * percentage
         ) / 100
     del allocation["COMMODITIES"]
-    if sum(allocation.values()) != 100:
-        print("Sum of desired percentages != 100")
-        return None
+    if round(sum(allocation.values())) != 100:
+        raise RebalancingError("Sum of desired percentages != 100")
     if any([x < 0 for x in allocation.values()]):
-        print("Desired percentages has negative value")
-        return None
+        raise RebalancingError("Desired percentages has negative value")
     return allocation
 
 
@@ -125,19 +128,20 @@ def get_desired_df(
     otm: bool,
     long_calls: bool,
     adjustment: dict[str, int],
-) -> pd.DataFrame | None:
+) -> pd.DataFrame:
     """Get dataframe, cost to get to desired allocation."""
-    if not (desired_allocation := get_desired_allocation()):
-        return None
-    if (s := round(sum(desired_allocation.values()))) != 100:
-        print(f"Sum of percents in desired allocation {s} != 100")
-        return None
+    desired_allocation = get_desired_allocation()
     etfs_df = etfs.get_etfs_df()[["value"]]
     # Add in options value
     if (options_data := stock_options.get_options_data()) is None:
         raise ValueError("No options data available")
     opts_tickers = options_data.opts.pruned_options.groupby("ticker").sum()[["value"]]
-    etfs_df = etfs_df.add(opts_tickers, fill_value=0)
+    futures_tickers = futures.Futures().notional_values_df
+    futures_tickers.loc[
+        futures_tickers.index.isin(FUTURES_INVERSE_CORRELATION), "value"
+    ] *= -1
+    for df in (opts_tickers, futures_tickers):
+        etfs_df = etfs_df.add(df, fill_value=0)
     if include_options:
         # This is for options exercise value.
         options_df = options_data.opts.pruned_options
@@ -199,18 +203,15 @@ def get_rebalancing_df(
     otm: bool = False,
     long_calls: bool = False,
     adjustment: Optional[dict[str, int]] = None,
-) -> pd.DataFrame | None:
+) -> pd.DataFrame:
     """Get rebalancing dataframe."""
-    if (
-        allocation_df := get_desired_df(
-            amount=amount,
-            include_options=include_options,
-            otm=otm,
-            long_calls=long_calls,
-            adjustment=adjustment or {},
-        )
-    ) is None:
-        return None
+    allocation_df = get_desired_df(
+        amount=amount,
+        include_options=include_options,
+        otm=otm,
+        long_calls=long_calls,
+        adjustment=adjustment or {},
+    )
     if amount > 0:
         allocation_df = get_buy_only_df(allocation_df, amount)
     elif amount < 0:
@@ -257,16 +258,14 @@ def main(
     """
     global COMMODITIES_PERCENTAGE_FLOOR
     COMMODITIES_PERCENTAGE_FLOOR = commodities_percentage_floor
-    if (
-        df := get_rebalancing_df(
-            amount=value,
-            include_options=include_options,
-            otm=otm,
-            long_calls=long_calls,
-            adjustment=adjustment,
-        )
-    ) is not None:
-        print(df)
+    df = get_rebalancing_df(
+        amount=value,
+        include_options=include_options,
+        otm=otm,
+        long_calls=long_calls,
+        adjustment=adjustment,
+    )
+    print(df)
 
 
 if __name__ == "__main__":

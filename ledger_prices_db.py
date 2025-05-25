@@ -6,6 +6,7 @@ from datetime import datetime
 
 import common
 import etfs
+import futures
 import homes
 import stock_options
 
@@ -38,18 +39,24 @@ def main():
         if (options_data := stock_options.get_options_data()) is None:
             raise ValueError("No options data available")
         options_df = options_data.opts.all_options
-        options_written = set()
+        commodities_written = set()
         for idx, row in options_df.iterrows():
             idx = typing.cast(tuple, idx)
             name = idx[1]
-            if name in options_written:
+            if name in commodities_written:
                 continue
             if row["ticker"] not in ("SPX", "SMI"):
                 value = row["value"] / row["count"]
             else:
                 value = row["intrinsic_value"] / row["count"]
             output_file.write(f'P {NOW} "{name}" ${value:.2f}\n')
-            options_written.add(name)
+            commodities_written.add(name)
+
+        # Futures
+        for row in futures.Futures().ledger_df.itertuples():
+            if row.future in commodities_written:
+                continue
+            output_file.write(f'P {NOW} "{row.future}" ${row.value:.2f}\n')
 
 
 if __name__ == "__main__":

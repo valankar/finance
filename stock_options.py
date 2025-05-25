@@ -422,10 +422,12 @@ def find_synthetics(options_df: pd.DataFrame) -> list[Spread]:
             )
             # Find a short PUT at same strike, count, expiration and broker
             short_put = options_df.query(
-                'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == -@row["count"]'
+                'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count < 0 & count >= -@row["count"]'
             )
             found = pd.concat([long_call, short_put])
             if len(found) == 2:
+                found.loc[found.index[0], "count"] = found["count"].abs().min()
+                found.loc[found.index[1], "count"] = -found["count"].abs().min()
                 spreads.append(Spread(df=found, details=get_spread_details(found)))
     return spreads
 

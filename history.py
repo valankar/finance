@@ -4,6 +4,7 @@
 from loguru import logger
 
 import common
+import futures
 import ledger_amounts
 import stock_options
 from ledger_ops import get_ledger_balance
@@ -39,9 +40,13 @@ def main():
     etfs_options = options_df.query(
         f"not ticker.str.fullmatch('{common.COMMODITIES_REGEX}') and not ticker.str.fullmatch('SMI|SPX')"
     )["value"].sum()
+    futures_value = futures.Futures().futures_df["value"].sum()
     logger.info(f"Commodities options: {commodities_options}")
     logger.info(f"ETFs options: {etfs_options}")
-    commodities = get_ledger_balance(LEDGER_COMMODITIES_CMD) + commodities_options
+    logger.info(f"Futures: {futures_value}")
+    commodities = (
+        get_ledger_balance(LEDGER_COMMODITIES_CMD) + commodities_options + futures_value
+    )
     etfs = get_ledger_balance(LEDGER_ETFS_CMD) + etfs_options
     total_investing = commodities + etfs
     total_real_estate = get_ledger_balance(LEDGER_REAL_ESTATE_CMD)

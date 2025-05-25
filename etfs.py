@@ -8,6 +8,7 @@ import pandas as pd
 
 import common
 import ledger_amounts
+import stock_options
 
 TICKER_PRICES_TABLE = "ticker_prices"
 
@@ -35,22 +36,30 @@ def get_price_from_db(ticker: str) -> float:
     return df.iloc[-1]["price"]
 
 
+def get_tickers() -> set:
+    cols = set(ledger_amounts.get_etfs_amounts().keys())
+    if od := stock_options.get_options_data():
+        cols |= set(od.opts.pruned_options["ticker"].unique())
+    return cols
+
+
 def get_prices_wide_df() -> pd.DataFrame:
-    return (
+    prices_df = (
         common.read_sql_table(TICKER_PRICES_TABLE)
         .reset_index()
         .pivot(index="date", columns="ticker", values="price")
-        .ffill()
+        .resample("h")
+        .last()
+        .interpolate()
     )
+    prices_df = prices_df[sorted(prices_df.columns.intersection(list(get_tickers())))]
+    return prices_df
 
 
-def get_prices_df(
+def get_prices_percent_diff_df(
     r: Optional[tuple[str | datetime, str | datetime]] = None,
 ) -> pd.DataFrame:
     prices_df = get_prices_wide_df()
-    amounts = ledger_amounts.get_etfs_amounts()
-    cols = amounts.keys()
-    prices_df = prices_df[cols]
     if r is not None:
         start, end = r
         prices_df = prices_df[start:end]
@@ -74,7 +83,7 @@ def convert_long():
 
 def main():
     """Main."""
-    for ticker, _ in ledger_amounts.get_etfs_amounts().items():
+    for ticker in sorted(get_tickers()):
         common.insert_sql(
             TICKER_PRICES_TABLE, {"ticker": ticker, "price": common.get_ticker(ticker)}
         )

@@ -17,6 +17,7 @@ from starlette.responses import RedirectResponse
 
 import balance_etfs
 import common
+import futures
 import i_and_e
 import ledger_ui
 import main_graphs
@@ -83,19 +84,19 @@ def log_request():
 async def main_page():
     """Generate main UI."""
     log_request()
-    main_graphs.MainGraphs(common.WalrusDb().db).create()
+    main_graphs.MainGraphs().create()
 
 
 @ui.page("/image_only")
 async def main_page_image_only():
     log_request()
-    main_graphs.MainGraphsImageOnly(common.WalrusDb().db).create()
+    main_graphs.MainGraphsImageOnly().create()
 
 
 @ui.page("/matplot")
 async def matplot_page():
     log_request()
-    Matplots(common.WalrusDb().db).create()
+    Matplots().create()
 
 
 @ui.page("/i_and_e", title="Income & Expenses")
@@ -109,7 +110,7 @@ async def i_and_e_page():
     skel.delete()
 
 
-@ui.page("/ledger", title="Ledger")
+@ui.page("/ledger", title="Ledger", response_timeout=30)
 async def ledger_page():
     """Generate income & expenses page."""
     log_request()
@@ -120,7 +121,7 @@ async def ledger_page():
 async def stock_options_page():
     """Stock options."""
     log_request()
-    stock_options_ui.StockOptionsPage(common.WalrusDb().db).main_page()
+    stock_options_ui.StockOptionsPage().main_page()
 
 
 @ui.page("/latest_values", title="Latest Values")
@@ -141,6 +142,14 @@ def balance_etfs_page(amount: int = 0):
         ui.html(f"<PRE>{df}</PRE>")
 
 
+@ui.page("/futures", title="Futures")
+def futures_page():
+    log_request()
+    with common.pandas_options():
+        df = futures.Futures().futures_df
+        ui.html(f"<PRE>{df}</PRE>")
+
+
 def floatify(string: str) -> float:
     return float(re.sub(r"[^\d\.-]", "", string))
 
@@ -151,9 +160,10 @@ async def transactions_page():
     if (data := stock_options.get_options_data()) is None:
         raise ValueError("No options data available")
     bev = data.bev
-    with ui.grid().classes("md:grid-cols-2"):
+    with ui.grid().classes("md:grid-cols-3"):
         for account, currency in (
             ("Charles Schwab Brokerage", r"\\$"),
+            ("Charles Schwab Checking", r"\\$"),
             ("Interactive Brokers", r"\\$"),
             ("Interactive Brokers", "CHF"),
             ("UBS Personal", "CHF"),

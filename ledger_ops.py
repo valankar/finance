@@ -29,6 +29,20 @@ class LedgerEntry:
     def full_str(self) -> str:
         return "\n".join(self.full_list())
 
+    def first_amount(self) -> str:
+        if not (
+            first := next(
+                (
+                    line.strip()
+                    for line in self.full_list()[1:]
+                    if not line.lstrip().startswith(";")
+                ),
+                None,
+            )
+        ):
+            return ""
+        return "".join(re.split(r"\s{2,}", first)[1:])
+
     def validate(self) -> tuple[bool, str]:
         ledger_cmd = f"{common.LEDGER_BIN} -f -"
         try:

@@ -57,7 +57,13 @@ class LedgerUI:
         self.aggrid_data.clear()
         self.results = list(reversed(results))
         for entry in self.results:
-            self.aggrid_data.append({"date": entry.date, "payee": entry.payee})
+            self.aggrid_data.append(
+                {
+                    "date": entry.date,
+                    "payee": entry.payee,
+                    "amount": entry.first_amount(),
+                }
+            )
         self.aggrid.update()
         self.aggrid.run_row_method("0", "setSelected", True)
 
@@ -142,6 +148,11 @@ class LedgerUI:
                                 {
                                     "headerName": "Payee",
                                     "field": "payee",
+                                    "sortable": False,
+                                },
+                                {
+                                    "headerName": "Amount",
+                                    "field": "amount",
                                     "sortable": False,
                                 },
                             ],

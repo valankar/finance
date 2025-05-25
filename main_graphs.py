@@ -4,7 +4,8 @@ import glob
 import os
 import pickle
 import tempfile
-from datetime import datetime
+from concurrent.futures import Future, ProcessPoolExecutor
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, ClassVar, Generator, NamedTuple, Optional, cast
 
@@ -12,10 +13,10 @@ import humanize
 import kaleido
 import pandas as pd
 import plotly.io as pio
-import walrus
 from dateutil.relativedelta import relativedelta
 from loguru import logger
 from nicegui import run, ui
+from nicegui.tailwind_types.text_color import TextColor
 from plotly.graph_objects import Figure
 
 import brokerages
@@ -29,14 +30,18 @@ import stock_options
 RANGES = ["All", "3y", "2y", "1y", "YTD", "6m", "3m", "1m", "1d"]
 DEFAULT_RANGE = "1y"
 
+pio.templates.default = common.PLOTLY_THEME
+
 
 class FigureData(NamedTuple):
     name: str
     range: Optional[str]
-    fig: Figure
-    fig_json: dict
-    width: int
-    height: int
+    fig: Future[Figure]
+
+
+class FigureJson(NamedTuple):
+    fd: FigureData
+    fig_json: Future[dict]
 
 
 class GraphCommon:
@@ -62,11 +67,11 @@ class GraphCommon:
         return redis_key
 
     def prices_df(self, selected_range: str) -> pd.DataFrame:
-        df = etfs.get_prices_df()
+        df = etfs.get_prices_percent_diff_df()
         if (retval := self.get_xrange(df, selected_range)) is None:
             return df
         start, end = retval
-        return etfs.get_prices_df((start, end))
+        return etfs.get_prices_percent_diff_df((start, end))
 
     def limit_and_resample_df(
         self, df: pd.DataFrame, selected_range: str
@@ -122,14 +127,17 @@ class GraphCommon:
             xrange = ((latest_time + relative), latest_time)
         return xrange
 
-    def section_title(self, title: str):
+    def section_title(self, title: str, color: TextColor = "white"):
         with ui.column(align_items="center").classes("w-full"):
-            ui.label(title)
+            ui.label(title).tailwind.text_color(color)
 
     def daily_change(self):
         diff = latest_values.difference_df(common.read_sql_table("history"))[1].iloc[-1]
-        staleness = f"Staleness: {humanize.naturaldelta(datetime.now() - cast(pd.Timestamp, diff.name))}"
-        self.section_title(f"Daily Change ({staleness})")
+        age = datetime.now() - cast(pd.Timestamp, diff.name)
+        age_color = "red-500" if age > timedelta(hours=2) else "white"
+        self.section_title(
+            f"Daily Change (Staleness: {humanize.naturaldelta(age)})", color=age_color
+        )
         total = diff["total"]
         total_color = "green-500" if total >= 0 else "red-500"
         total_no_homes = diff["total_no_homes"]
@@ -170,11 +178,10 @@ class MainGraphs(GraphCommon):
         ("brokerage_total", "45vh"),
     )
 
-    def __init__(self, db: walrus.Database):
+    def __init__(self):
         self.ui_plotly_ranged: dict[str, ui.plotly] = {}
         self.selected_range = DEFAULT_RANGE
-        self.db = db
-        self.plotly_graphs = db.Hash(self.REDIS_KEY)
+        self.plotly_graphs = common.WalrusDb().db.Hash(self.REDIS_KEY)
 
     def get_plotly_json(self, key: str) -> Optional[dict]:
         if graph := self.plotly_graphs.get(key):
@@ -214,39 +221,15 @@ class MainGraphs(GraphCommon):
             if graph := self.get_plotly_json(name):
                 await run.io_bound(ui_plotly.update_figure, graph)
 
-    def get_plot_height_percent(
-        self, name: str, layout: tuple[tuple[str, str], ...]
-    ) -> float:
-        for n, height in layout:
+    def get_plot_height_percent(self, name: str) -> float:
+        for n, height in self.LAYOUT:
             if n == name:
                 return float(int(height[:-2]) / 100)
         return 1.0
 
-    def plot_generate(
-        self,
-        name: str,
-        plot_func: Callable[..., Figure],
-        layout: tuple[tuple[str, str], ...],
-        r: Optional[str] = None,
-    ) -> FigureData:
-        pio.templates.default = common.PLOTLY_THEME
-        if r:
-            fig = plot_func(r)
-        else:
-            fig = plot_func()
-        return FigureData(
-            name=name,
-            range=r,
-            fig=fig,
-            fig_json=fig.to_plotly_json(),
-            width=1024,
-            height=int(768 * self.get_plot_height_percent(name, layout)),
-        )
-
-    async def generate(self):
+    async def generate(self, executor: ProcessPoolExecutor):
         """Generate and save all Plotly graphs."""
         logger.info("Generating Plotly graphs")
-        layout = self.LAYOUT
         ranges = RANGES
         subplot_margin = common.SUBPLOT_MARGIN
         start_time = datetime.now()
@@ -259,108 +242,166 @@ class MainGraphs(GraphCommon):
         }
         if (options_data := stock_options.get_options_data()) is None:
             raise ValueError("No options data available")
-        nonranged_graphs_generate = [
-            (
-                "allocation_profit",
-                lambda: plot.make_allocation_profit_section(
+        fs: list[FigureData] = []
+        fs.append(
+            FigureData(
+                name="allocation_profit",
+                range=None,
+                fig=executor.submit(
+                    plot.make_allocation_profit_section,
                     dataframes["all"],
                     dataframes["real_estate"],
-                ).update_layout(margin=subplot_margin),
-            ),
-            (
-                "change",
-                lambda: plot.make_change_section(
+                    subplot_margin,
+                ),
+            )
+        )
+        fs.append(
+            FigureData(
+                name="change",
+                range=None,
+                fig=executor.submit(
+                    plot.make_change_section,
                     dataframes["all"],
                     "total",
                     "Total Net Worth Change",
                 ),
-            ),
-            (
-                "change_no_homes",
-                lambda: plot.make_change_section(
+            )
+        )
+        fs.append(
+            FigureData(
+                name="change_no_homes",
+                range=None,
+                fig=executor.submit(
+                    plot.make_change_section,
                     dataframes["all"],
                     "total_no_homes",
                     "Total Net Worth Change w/o Real Estate",
                 ),
-            ),
-            (
-                "investing_allocation",
-                lambda: plot.make_investing_allocation_section(),
-            ),
-            (
-                "loan",
-                lambda: plot.make_loan_section(
-                    options_data.opts.options_value_by_brokerage
-                ).update_layout(margin=subplot_margin),
-            ),
-        ]
-        ranged_graphs_generate = [
-            (
-                "assets_breakdown",
-                lambda range: plot.make_assets_breakdown_section(
-                    self.limit_and_resample_df(dataframes["all"], range)
-                ).update_layout(margin=subplot_margin),
-            ),
-            (
-                "investing_retirement",
-                lambda range: plot.make_investing_retirement_section(
-                    self.limit_and_resample_df(
-                        dataframes["all"][["pillar2", "ira", "commodities", "etfs"]],
-                        range,
-                    )
-                ).update_layout(margin=subplot_margin),
-            ),
-            (
-                "real_estate",
-                lambda range: plot.make_real_estate_section(
-                    self.limit_and_resample_df(
-                        dataframes["real_estate"],
-                        range,
-                    )
-                ).update_layout(margin=subplot_margin),
-            ),
-            (
-                "prices",
-                lambda range: plot.make_prices_section(
-                    self.limit_and_resample_df(self.prices_df(range), range).sort_index(
-                        axis=1
-                    ),
-                    "Prices",
-                ).update_layout(margin=subplot_margin),
-            ),
-            (
-                "forex",
-                lambda range: plot.make_forex_section(
-                    self.limit_and_resample_df(dataframes["forex"], range),
-                    "Forex",
-                ).update_layout(margin=subplot_margin),
-            ),
-            (
-                "interest_rate",
-                lambda range: plot.make_interest_rate_section(
-                    self.limit_and_resample_df(dataframes["interest_rate"], range)
-                ).update_layout(margin=subplot_margin),
-            ),
-            (
-                "brokerage_total",
-                lambda range: plot.make_brokerage_total_section(
-                    self.limit_and_resample_df(dataframes["brokerages"], range)
-                ).update_layout(margin=subplot_margin),
-            ),
-        ]
-        fs: list[FigureData] = []
-        for args in nonranged_graphs_generate:
-            fs.append(self.plot_generate(*args, layout))
-        for r in ranges:
-            for args in ranged_graphs_generate:
-                fs.append(self.plot_generate(*args, layout, r))
-        for f in fs:
-            self.plotly_graphs[self.make_redis_key(f.name, f.range)] = pickle.dumps(
-                f.fig_json
             )
+        )
+        fs.append(
+            FigureData(
+                name="investing_allocation",
+                range=None,
+                fig=executor.submit(plot.make_investing_allocation_section),
+            )
+        )
+        fs.append(
+            FigureData(
+                name="loan",
+                range=None,
+                fig=executor.submit(
+                    plot.make_loan_section,
+                    options_data.opts.options_value_by_brokerage,
+                    subplot_margin,
+                ),
+            )
+        )
+        for r in ranges:
+            fs.append(
+                FigureData(
+                    name="assets_breakdown",
+                    range=r,
+                    fig=executor.submit(
+                        plot.make_assets_breakdown_section,
+                        self.limit_and_resample_df(dataframes["all"], r),
+                        subplot_margin,
+                    ),
+                )
+            )
+            fs.append(
+                FigureData(
+                    name="investing_retirement",
+                    range=r,
+                    fig=executor.submit(
+                        plot.make_investing_retirement_section,
+                        self.limit_and_resample_df(
+                            dataframes["all"][
+                                ["pillar2", "ira", "commodities", "etfs"]
+                            ],
+                            r,
+                        ),
+                        subplot_margin,
+                    ),
+                )
+            )
+            fs.append(
+                FigureData(
+                    name="real_estate",
+                    range=r,
+                    fig=executor.submit(
+                        plot.make_real_estate_section,
+                        self.limit_and_resample_df(
+                            dataframes["real_estate"],
+                            r,
+                        ),
+                        subplot_margin,
+                    ),
+                )
+            )
+            fs.append(
+                FigureData(
+                    name="prices",
+                    range=r,
+                    fig=executor.submit(
+                        plot.make_prices_section,
+                        self.limit_and_resample_df(self.prices_df(r), r).sort_index(
+                            axis=1
+                        ),
+                        "Prices",
+                        subplot_margin,
+                    ),
+                )
+            )
+            fs.append(
+                FigureData(
+                    name="forex",
+                    range=r,
+                    fig=executor.submit(
+                        plot.make_forex_section,
+                        self.limit_and_resample_df(dataframes["forex"], r),
+                        "Forex",
+                        subplot_margin,
+                    ),
+                )
+            )
+            fs.append(
+                FigureData(
+                    name="interest_rate",
+                    range=r,
+                    fig=executor.submit(
+                        plot.make_interest_rate_section,
+                        self.limit_and_resample_df(dataframes["interest_rate"], r),
+                        subplot_margin,
+                    ),
+                )
+            )
+            fs.append(
+                FigureData(
+                    name="brokerage_total",
+                    range=r,
+                    fig=executor.submit(
+                        plot.make_brokerage_total_section,
+                        self.limit_and_resample_df(dataframes["brokerages"], r),
+                        subplot_margin,
+                    ),
+                )
+            )
+        fjsons: list[FigureJson] = []
+        for f in fs:
+            fjsons.append(
+                FigureJson(
+                    fd=f, fig_json=executor.submit(f.fig.result().to_plotly_json)
+                )
+            )
+        for fj in fjsons:
+            self.plotly_graphs[self.make_redis_key(fj.fd.name, fj.fd.range)] = (
+                pickle.dumps(fj.fig_json.result())
+            )
+
         # Generate images with kaleido
         with tempfile.TemporaryDirectory() as dir:
-            mgio = MainGraphsImageOnly(self.db)
+            mgio = MainGraphsImageOnly()
             async with kaleido.Kaleido(n=os.cpu_count()) as k:
                 await k.write_fig_from_object(
                     self.make_kaleido_generator(fs, dir, mgio.make_redis_key)
@@ -383,19 +424,21 @@ class MainGraphs(GraphCommon):
         for f in figs:
             filename = filename_maker(f.name, f.range)
             yield dict(
-                fig=f.fig,
+                fig=f.fig.result(),
                 path=f"{dest_dir}/{filename}.png",
-                opts=dict(width=f.width, height=f.height),
+                opts=dict(
+                    width=1024, height=int(768 * self.get_plot_height_percent(f.name))
+                ),
             )
 
 
 class MainGraphsImageOnly(GraphCommon):
     REDIS_SUBKEY: ClassVar[str] = "PlotlyImageGraphs"
 
-    def __init__(self, db: walrus.Database):
+    def __init__(self):
         self.ui_image_ranged: dict[str, ui.image] = {}
         self.selected_range = DEFAULT_RANGE
-        self.image_graphs = db.Hash(self.REDIS_KEY)
+        self.image_graphs = common.WalrusDb().db.Hash(self.REDIS_KEY)
 
     def create(self):
         with ui.footer().classes("transparent q-py-none"):
@@ -430,7 +473,8 @@ class MainGraphsImageOnly(GraphCommon):
 
 
 def main():
-    asyncio.run(MainGraphs(common.WalrusDb().db).generate())
+    with ProcessPoolExecutor() as executor:
+        asyncio.run(MainGraphs().generate(executor))
 
 
 if __name__ == "__main__":

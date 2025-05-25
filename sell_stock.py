@@ -24,7 +24,7 @@ def sell_stock(stock: str, value: float) -> pd.DataFrame:
 
 
 def sell_from_rebalancing(
-    rebalancing_df: pd.DataFrame, brokerage_df: pd.DataFrame
+    rebalancing_df: pd.DataFrame, brokerage_amounts: dict[str, float]
 ) -> Optional[pd.DataFrame]:
     new_df = pd.DataFrame()
     for etf_type, etfs_in_type in balance_etfs.ETF_TYPE_MAP.items():
@@ -34,15 +34,17 @@ def sell_from_rebalancing(
         if to_sell <= 0:
             continue
         for etf in etfs_in_type:
-            if etf in brokerage_df.columns:
+            if etf in brokerage_amounts:
                 sell_df = sell_stock(etf, to_sell)
-                max_shares = brokerage_df.iloc[0][etf]
+                max_shares = brokerage_amounts[etf]
                 # Only sell what is available.
                 sell_df.loc[etf, "shares_to_sell"] = min(
                     max_shares,
                     typing.cast(float, sell_df.loc[etf, "shares_to_sell"]),
                 )
-                identical_etfs = brokerage_df.columns.intersection(etfs_in_type)
+                identical_etfs = set(brokerage_amounts.keys()).intersection(
+                    etfs_in_type
+                )
                 if len(identical_etfs) > 1:
                     sell_df["identical_to"] = " ".join(
                         sorted(set(identical_etfs) - set([etf]))
@@ -61,9 +63,7 @@ def sell_stock_brokerage(
     brokerage: Literal["ibkr", "schwab"], value: int
 ) -> Optional[pd.DataFrame]:
     # Find how much to balance
-    if (rebalancing_df := balance_etfs.get_rebalancing_df(amount=-value)) is None:
-        print("Cannot get rebalancing dataframe")
-        return None
+    rebalancing_df = balance_etfs.get_rebalancing_df(amount=-value)
     if "sell_only" not in rebalancing_df.columns:
         rebalancing_df["sell_only"] = rebalancing_df["usd_to_reconcile"]
     print(rebalancing_df)
@@ -72,13 +72,9 @@ def sell_stock_brokerage(
             account = "Interactive Brokers"
         case "schwab":
             account = "Charles Schwab Brokerage"
-    if (
-        brokerage_df := ledger_amounts.get_commodity_df(
-            ledger_amounts.LEDGER_LIMIT_ETFS + f' --limit "account=~/{account}/"'
-        )
-    ) is None:
-        print("No ETFs found")
-        return None
+    brokerage_amounts = ledger_amounts.get_commodity_amounts(
+        ledger_amounts.LEDGER_LIMIT_ETFS + f' --limit "account=~/{account}/"'
+    )
     # Take into account options assignment
     if (options_data := stock_options.get_options_data()) is None:
         raise ValueError("No options data available")
@@ -87,17 +83,15 @@ def sell_stock_brokerage(
         options_df = stock_options.after_assignment_df(
             typing.cast(pd.DataFrame, options_df.xs(account))
         )
-        for etf in brokerage_df.columns:
+        for etf in brokerage_amounts:
             try:
-                brokerage_df[etf] = brokerage_df[etf].add(
-                    options_df.loc[etf, "shares_change"], fill_value=0
-                )
+                brokerage_amounts[etf] += options_df.loc[etf, "shares_change"].sum()  # type: ignore
             except KeyError:
                 pass
     print("\nShares at brokerage including option assignment")
-    print(brokerage_df, "\n")
+    print(brokerage_amounts, "\n")
     remaining = value
-    if (sell_df := sell_from_rebalancing(rebalancing_df, brokerage_df)) is None:
+    if (sell_df := sell_from_rebalancing(rebalancing_df, brokerage_amounts)) is None:
         print("No ETFs to sell")
     i = 0
     while (sell_df is None) or (
@@ -111,7 +105,7 @@ def sell_stock_brokerage(
         ]
         new_rebalancing_df["sell_only"] = -remaining
         if (
-            new_sell_df := sell_from_rebalancing(new_rebalancing_df, brokerage_df)
+            new_sell_df := sell_from_rebalancing(new_rebalancing_df, brokerage_amounts)
         ) is not None:
             sell_df = pd.concat([sell_df, new_sell_df])
         i += 1

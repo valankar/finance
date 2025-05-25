@@ -5,7 +5,6 @@ from datetime import date, datetime
 
 import humanize
 import pandas as pd
-import walrus
 from loguru import logger
 from matplotlib.figure import Figure
 from nicegui import ui
@@ -26,6 +25,7 @@ class UIData(typing.NamedTuple):
     short_calls: list[RowGraphPair]
     vertical_spreads: list[RowGraphPair]
     iron_condors: list[RowGraphPair]
+    synthetics: list[RowGraphPair]
     ticker_spread_images: list[bytes]
     index_images: list[bytes]
 
@@ -34,8 +34,8 @@ class StockOptionsPage(GraphCommon):
     PL_GRID_COLUMNS: typing.ClassVar[int] = 3
     REDIS_SUBKEY: typing.ClassVar[str] = "StockOptionsPage UIData"
 
-    def __init__(self, db: walrus.Database):
-        self.image_graphs = db.Hash(self.REDIS_KEY)
+    def __init__(self):
+        self.image_graphs = common.WalrusDb().db.Hash(self.REDIS_KEY)
 
     @property
     def ui_data(self) -> UIData:
@@ -61,6 +61,7 @@ class StockOptionsPage(GraphCommon):
             short_calls=self.make_short_calls_data(options_data),
             vertical_spreads=self.make_vertical_spreads_data(options_data),
             iron_condors=self.make_iron_condors_data(options_data),
+            synthetics=self.make_synthetics_data(options_data),
             ticker_spread_images=self.make_ticker_spread_images(
                 options_data.opts.bull_put_spreads, options_data.opts.bear_call_spreads
             ),
@@ -144,6 +145,41 @@ class StockOptionsPage(GraphCommon):
 
     def make_short_calls_table(self, rows: list[RowGraphPair]):
         self.make_spread_section("Short Calls", rows, profit_color_col="profit option")
+
+    def make_synthetics_data(
+        self,
+        options_data: stock_options.OptionsData,
+    ) -> list[RowGraphPair]:
+        rows: list[RowGraphPair] = []
+        for d in options_data.opts.synthetics:
+            sd: stock_options.SpreadDetails = d.details
+            cd: stock_options.CommonDetails = sd.details
+            name = f"{cd.ticker} {sd.low_strike:.0f}/{sd.high_strike:.0f}"
+            risk = f"{sd.risk:.0f}"
+            half_mark = f"{cd.half_mark:.2f}"
+            double_mark = f"{cd.double_mark:.2f}"
+            profit = f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})"
+            rows.append(
+                RowGraphPair(
+                    row={
+                        "account": cd.account,
+                        "name": name,
+                        "expiration": f"{cd.expiration} ({(cd.expiration - date.today()).days}d)",
+                        "type": "Synthetic",
+                        "count": cd.amount,
+                        "intrinsic value": f"{cd.intrinsic_value:.0f}",
+                        "maximum loss": risk,
+                        "contract price": f"{cd.contract_price:.0f}",
+                        "half mark": half_mark,
+                        "double mark": double_mark,
+                        "quote": f"{cd.quote:.0f}",
+                        "profit": profit,
+                        "ticker price": cd.ticker_price,
+                    },
+                    graph=None,
+                )
+            )
+        return rows
 
     def make_vertical_spreads_data(
         self,
@@ -461,6 +497,7 @@ class StockOptionsPage(GraphCommon):
         self.make_spread_section(
             "Short Calls", self.ui_data.short_calls, profit_color_col="profit option"
         )
+        self.make_spread_section("Synthetics", self.ui_data.synthetics)
         self.make_spread_section("Vertical Spreads", self.ui_data.vertical_spreads)
         self.make_spread_section("Iron Condors", self.ui_data.iron_condors)
         self.make_box_spread_sections("Box Spreads", data.opts.box_spreads)
@@ -486,7 +523,7 @@ def body_cell_slot(
 
 
 def main():
-    StockOptionsPage(common.WalrusDb().db).generate()
+    StockOptionsPage().generate()
 
 
 if __name__ == "__main__":

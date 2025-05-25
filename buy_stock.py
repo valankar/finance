@@ -22,9 +22,7 @@ def buy_stock(stock: str, value: float) -> pd.DataFrame:
 
 def buy_stock_any(value: int):
     # Find how much to balance
-    if (rebalancing_df := balance_etfs.get_rebalancing_df(amount=value)) is None:
-        print("Cannot get rebalancing dataframe")
-        return
+    rebalancing_df = balance_etfs.get_rebalancing_df(amount=value)
     print(rebalancing_df)
     new_df = pd.DataFrame()
     for etf_type, etfs_in_type in balance_etfs.ETF_TYPE_MAP.items():

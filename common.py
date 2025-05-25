@@ -69,6 +69,11 @@ class TickerOption(typing.NamedTuple):
     strike: float
 
 
+class FutureQuote(typing.NamedTuple):
+    mark: float
+    multiplier: float
+
+
 @singleton
 class Schwab:
     SCHWAB_TOKEN_FILE: ClassVar[str] = f"{CODE_DIR}/.schwab_token.json"
@@ -132,7 +137,6 @@ class Schwab:
                 invert = True
             case "SMI":
                 return 0
-        logger.info(f"Fetching ticker {ticker}")
         try:
             p = self.client.get_quotes([ticker]).json()[ticker]
         except KeyError:
@@ -144,12 +148,13 @@ class Schwab:
             value = p["quote"]["lastPrice"]
         else:
             logger.error(p)
-            raise GetTickerError("cannot find schwab field")
+            raise GetTickerError("cannot find schwab price field")
         if value == 0:
             raise GetTickerError("received 0 as quote")
+        logger.info(f"{ticker=} {value=}")
         return value if not invert else 1 / value
 
-    def get_option_quote(self, t: TickerOption) -> float | None:
+    def get_option_quote(self, t: TickerOption) -> Optional[float]:
         ticker = t.ticker
         option_tickers = [ticker]
         if ticker == "SPX":
@@ -167,6 +172,18 @@ class Schwab:
             except KeyError:
                 logger.error(f"Cannot find quote for {symbol=}")
         return None
+
+    def get_future_quote(self, ticker: str) -> FutureQuote:
+        j = {}
+        try:
+            j = self.client.get_quotes([ticker]).json()[ticker]
+            mark = j["quote"]["mark"]
+            multiplier = j["reference"]["futureMultiplier"]
+            q = FutureQuote(mark=mark, multiplier=multiplier)
+            logger.info(f"{ticker=} {q=}")
+            return q
+        except KeyError:
+            raise GetTickerError(f"Cannot find future quote for {ticker=} {j=}")
 
 
 @contextmanager
@@ -212,6 +229,11 @@ def get_ticker(ticker: str) -> float:
 @WalrusDb().cache.cached(timeout=30 * 60)
 def get_option_quote(t: TickerOption) -> float | None:
     return Schwab().get_option_quote(t)
+
+
+@WalrusDb().cache.cached(timeout=30 * 60)
+def get_future_quote(ticker: str) -> FutureQuote:
+    return Schwab().get_future_quote(ticker)
 
 
 def get_ticker_alphavantage(ticker: str) -> float:

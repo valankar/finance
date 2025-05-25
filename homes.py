@@ -80,6 +80,9 @@ def get_real_estate_df() -> pd.DataFrame:
         common.read_sql_table("real_estate_rents")
         .pivot_table(index="date", columns="name", values="value")
         .add_suffix(" Rent")
+        .resample("D")
+        .last()
+        .interpolate()
     )
     return (
         common.reduce_merge_asof([price_df, rent_df]).interpolate().sort_index(axis=1)

@@ -76,7 +76,9 @@ def centered_title(fig: Figure, title: str):
     fig.update_layout(title={"text": title, "x": 0.5, "xanchor": "center"})
 
 
-def make_assets_breakdown_section(daily_df: pd.DataFrame) -> Figure:
+def make_assets_breakdown_section(
+    daily_df: pd.DataFrame, margin: dict[str, int]
+) -> Figure:
     """Make assets trend section."""
     columns = [
         ("total", "Total"),
@@ -114,10 +116,13 @@ def make_assets_breakdown_section(daily_df: pd.DataFrame) -> Figure:
     add_hline_current(section, daily_df, "total_retirement", 2, 2)
     add_hline_current(section, daily_df, "total_investing", 1, 1)
     add_hline_current(section, daily_df, "total_liquid", 1, 2)
+    section.update_layout(margin=margin)
     return section
 
 
-def make_investing_retirement_section(invret_df: pd.DataFrame) -> Figure:
+def make_investing_retirement_section(
+    invret_df: pd.DataFrame, margin: dict[str, int]
+) -> Figure:
     """Make investing and retirement section."""
     columns = [
         ("pillar2", "Pillar 2"),
@@ -145,10 +150,13 @@ def make_investing_retirement_section(invret_df: pd.DataFrame) -> Figure:
     add_hline_current(section, invret_df, "ira", 0, 2)
     add_hline_current(section, invret_df, "commodities", 1, 1)
     add_hline_current(section, invret_df, "etfs", 1, 2)
+    section.update_layout(margin=margin)
     return section
 
 
-def make_real_estate_section(real_estate_df: pd.DataFrame) -> Figure:
+def make_real_estate_section(
+    real_estate_df: pd.DataFrame, margin: dict[str, int]
+) -> Figure:
     """Line graph of real estate."""
     cols = [x for x in real_estate_df.columns if "Percent" not in x]
     section = px.line(
@@ -170,6 +178,7 @@ def make_real_estate_section(real_estate_df: pd.DataFrame) -> Figure:
     for i, p in enumerate(reversed(homes.PROPERTIES)):
         add_hline_current(section, real_estate_df, f"{p.name} Price", i + 1, 1)
         add_hline_current(section, real_estate_df, f"{p.name} Rent", i + 1, 2)
+    section.update_layout(margin=margin)
     return section
 
 
@@ -226,9 +235,7 @@ def make_investing_allocation_section() -> Figure:
         subplot_titles=("Current", "Rebalancing Required"),
         specs=[[{"type": "pie"}, {"type": "xy"}]],
     )
-    if (dataframe := balance_etfs.get_rebalancing_df(0)) is None:
-        return changes_section
-
+    dataframe = balance_etfs.get_rebalancing_df(0)
     label_col = (
         ("US Large Cap", "US_LARGE_CAP"),
         ("US Small Cap", "US_SMALL_CAP"),
@@ -261,7 +268,7 @@ def make_investing_allocation_section() -> Figure:
 
 
 def make_allocation_profit_section(
-    daily_df: pd.DataFrame, real_estate_df: pd.DataFrame
+    daily_df: pd.DataFrame, real_estate_df: pd.DataFrame, margin: dict[str, int]
 ) -> Figure:
     """Make asset allocation and day changes section."""
     real_estate_df = real_estate_df.copy()
@@ -312,10 +319,13 @@ def make_allocation_profit_section(
     changes_section.update_traces(
         row=1, col=1, textinfo="percent+label", textposition="inside"
     )
+    changes_section.update_layout(margin=margin)
     return changes_section
 
 
-def make_prices_section(prices_df: pd.DataFrame, title: str) -> Figure:
+def make_prices_section(
+    prices_df: pd.DataFrame, title: str, margin: dict[str, int]
+) -> Figure:
     """Make section with prices graphs."""
     fig = px.line(
         prices_df,
@@ -325,10 +335,13 @@ def make_prices_section(prices_df: pd.DataFrame, title: str) -> Figure:
     fig.update_yaxes(title_text="%")
     fig.update_xaxes(title_text="")
     centered_title(fig, title)
+    fig.update_layout(margin=margin)
     return fig
 
 
-def make_forex_section(forex_df: pd.DataFrame, title: str) -> Figure:
+def make_forex_section(
+    forex_df: pd.DataFrame, title: str, margin: dict[str, int]
+) -> Figure:
     """Make section with forex graphs."""
     fig = px.line(
         forex_df,
@@ -346,10 +359,13 @@ def make_forex_section(forex_df: pd.DataFrame, title: str) -> Figure:
     fig.update_yaxes(title_text="USD")
     fig.update_xaxes(title_text="")
     centered_title(fig, title)
+    fig.update_layout(margin=margin)
     return fig
 
 
-def make_interest_rate_section(interest_df: pd.DataFrame) -> Figure:
+def make_interest_rate_section(
+    interest_df: pd.DataFrame, margin: dict[str, int]
+) -> Figure:
     """Make interest rate section."""
     # astype needed due to https://github.com/plotly/Kaleido/issues/236
     fig = px.line(
@@ -360,10 +376,13 @@ def make_interest_rate_section(interest_df: pd.DataFrame) -> Figure:
     )
     fig.update_yaxes(title_text="Percent")
     fig.update_xaxes(title_text="")
+    fig.update_layout(margin=margin)
     return fig
 
 
-def make_brokerage_total_section(brokerage_df: pd.DataFrame) -> Figure:
+def make_brokerage_total_section(
+    brokerage_df: pd.DataFrame, margin: dict[str, int]
+) -> Figure:
     section = make_subplots(
         rows=1,
         cols=len(margin_loan.LOAN_BROKERAGES),
@@ -383,10 +402,13 @@ def make_brokerage_total_section(brokerage_df: pd.DataFrame) -> Figure:
     section.update_traces(showlegend=False)
     section.update_xaxes(title_text="")
     centered_title(section, "Brokerage Values")
+    section.update_layout(margin=margin)
     return section
 
 
-def make_loan_section(options_value_by_brokerage: dict[str, float]) -> Figure:
+def make_loan_section(
+    options_value_by_brokerage: dict[str, float], margin: dict[str, int]
+) -> Figure:
     """Make section with margin loans."""
 
     section = make_subplots(
@@ -445,6 +467,7 @@ def make_loan_section(options_value_by_brokerage: dict[str, float]) -> Figure:
     section.update_traces(showlegend=False)
     section.update_xaxes(title_text="")
     centered_title(section, "Margin/Box Loans")
+    section.update_layout(margin=margin)
     return section
 
 

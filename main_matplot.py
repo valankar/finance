@@ -1,5 +1,6 @@
 import io
 import itertools
+from concurrent.futures import Future, ProcessPoolExecutor
 from datetime import datetime, timedelta
 from typing import Callable, ClassVar, Literal, NamedTuple, Optional, Sequence, cast
 
@@ -7,7 +8,6 @@ import matplotlib.colors as mcolors
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
-import walrus
 from loguru import logger
 from matplotlib.figure import Figure
 from matplotlib.typing import ColorType
@@ -27,6 +27,18 @@ from main_graphs import (
 )
 
 plt.style.use("dark_background")
+
+
+LAYOUT: Literal["constrained", "compressed", "tight"] = "constrained"
+
+
+class GraphGenerationError(Exception):
+    pass
+
+
+class GraphResult(NamedTuple):
+    f: Future[bytes]
+    redis_key: str
 
 
 class BreakdownSection(NamedTuple):
@@ -56,12 +68,11 @@ class Matplots(GraphCommon):
         "Total Net Worth Change w/o Real Estate Month Over Month"
     )
     MARGIN_LOAN: ClassVar[str] = "Margin Loan"
-    LAYOUT: ClassVar[Literal["constrained", "compressed", "tight"]] = "constrained"
 
-    def __init__(self, db: walrus.Database):
+    def __init__(self):
         self.ui_image_ranged: dict[str, ui.image] = {}
         self.selected_range = DEFAULT_RANGE
-        self.image_graphs = db.Hash(self.REDIS_KEY)
+        self.image_graphs = common.WalrusDb().db.Hash(self.REDIS_KEY)
         self.assets_section = BreakdownSection(
             title="Assets",
             dataframe=lambda: common.read_sql_table("history"),
@@ -198,271 +209,10 @@ class Matplots(GraphCommon):
                 if uii := self.ui_image(name, make_redis_key=False):
                     self.ui_image_ranged[self.make_ui_key(name)] = uii
 
-    def make_image_graph(self, fig: Figure) -> bytes:
-        data = io.BytesIO()
-        fig.savefig(data, format="png")
-        return data.getvalue()
-
-    def get_real_estate_change_df(self) -> pd.DataFrame:
-        real_estate_df = homes.get_real_estate_df()
-        cols = [f"{home.name} Price" for home in homes.PROPERTIES]
-        for home in cols:
-            real_estate_df[f"{home} Percent Change"] = (
-                (
-                    real_estate_df[home]
-                    - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
-                )
-                / real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
-            )
-        return real_estate_df
-
-    def make_total_bar_mom(self, column: str) -> bytes:
-        df = common.read_sql_table("history")
-        df = df.resample("ME").last().interpolate().diff().dropna().iloc[-36:]
-        x = df.index
-        return self.make_bar_graph(
-            "Month Over Month",
-            x,
-            df[column],
-            rotate_x_labels=True,
-            width=[timedelta(25)] * len(x),
-        )
-
-    def make_total_bar_yoy(self, column: str) -> bytes:
-        df = common.read_sql_table("history")
-        df = df.resample("YE").last().interpolate().diff().dropna().iloc[-6:]
-        # Re-align at beginning of year.
-        df.index = pd.DatetimeIndex(df.index.strftime("%Y-01-01"))  # type: ignore
-        x = df.index
-        y = df[column]
-        return self.make_bar_graph(
-            "Year Over Year",
-            x,
-            y,
-            labels=[f"{v:,.0f}" for v in y],
-            width=[timedelta(330)] * len(x),
-        )
-
-    def make_bar_graph(
-        self,
-        title: str,
-        x: Sequence[str] | pd.DatetimeIndex | pd.Index,
-        y: Sequence[float] | pd.Series,
-        labels: Optional[Sequence[str]] = None,
-        rotate_x_labels: bool = False,
-        width: Optional[Sequence | float] = 0.8,
-    ) -> bytes:
-        fig = Figure(layout=self.LAYOUT)
-        ax = fig.subplots()
-        colors = ["tab:green" if v > 0 else "tab:red" for v in y]
-        p = ax.bar(x, y, color=colors, width=width)  # type: ignore
-        if labels:
-            ax.bar_label(p, labels=labels, label_type="center")
-        ax.set_title(title)
-        if rotate_x_labels:
-            fig.autofmt_xdate()
-        return self.make_image_graph(fig)
-
-    def make_real_estate_change_bar_yearly(self) -> bytes:
-        real_estate_df = self.get_real_estate_change_df()
-        cols = [f"{home.name} Price" for home in homes.PROPERTIES]
-        values = []
-        percent = []
-        for home in cols:
-            time_diff = (
-                real_estate_df[home].index[-1]
-                - real_estate_df[home].first_valid_index()
-            )  # type: ignore
-            value_diff = (
-                real_estate_df.iloc[-1][home]
-                - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
-            )
-            percent_diff = real_estate_df.iloc[-1][f"{home} Percent Change"]
-            v = (value_diff / time_diff.days) * 365
-            values.append(v)
-            p = (percent_diff / time_diff.days) * 365
-            percent.append(f"{v:,.0f}\n{p:.1%}")
-        return self.make_bar_graph(
-            "Real Estate Yearly Average Change Since Purchase", cols, values, percent
-        )
-
-    def make_real_estate_change_bar(self) -> bytes:
-        real_estate_df = self.get_real_estate_change_df()
-        cols = [f"{home.name} Price" for home in homes.PROPERTIES]
-        values = []
-        percent = []
-        for home in cols:
-            v = (
-                real_estate_df.iloc[-1][home]
-                - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
-            )
-            values.append(v)
-            p = real_estate_df.iloc[-1][f"{home} Percent Change"]
-            percent.append(f"{v:,.0f}\n{p:.1%}")
-        return self.make_bar_graph(
-            "Real Estate Change Since Purchase", cols, values, percent
-        )
-
-    def make_asset_allocation_pie(self) -> bytes:
-        latest_df = common.read_sql_last("history")
-        labels = ["Investing", "Real Estate", "Retirement"]
-        values = [
-            latest_df["total_investing"].iloc[-1],
-            latest_df["total_real_estate"].iloc[-1],
-            latest_df["total_retirement"].iloc[-1],
-        ]
-        if (liquid := latest_df["total_liquid"].iloc[-1]) > 0:
-            labels.append("Liquid")
-            values.append(liquid)
-        return self.make_pie_graph(labels, values)
-
-    def make_investing_allocation_section(self) -> Optional[tuple[bytes, bytes]]:
-        if (df := balance_etfs.get_rebalancing_df(0)) is None:
-            return None
-        label_col = (
-            ("US Large Cap", "US_LARGE_CAP"),
-            ("US Small Cap", "US_SMALL_CAP"),
-            ("US Bonds", "US_BONDS"),
-            ("International Developed", "INTERNATIONAL_DEVELOPED"),
-            ("International Emerging", "INTERNATIONAL_EMERGING"),
-            ("Gold", "COMMODITIES_GOLD"),
-            ("Silver", "COMMODITIES_SILVER"),
-            ("Crypto", "COMMODITIES_CRYPTO"),
-        )
-        labels = [name for name, _ in label_col]
-        values = [cast(float, df.loc[col]["value"]) for _, col in label_col]
-        pie_current = self.make_pie_graph(labels, values)
-        values = [cast(float, df.loc[col]["usd_to_reconcile"]) for _, col in label_col]
-        bar_labels = [f"{v:,.0f}" for v in values]
-        rebalancing = self.make_bar_graph(
-            "Rebalancing Required",
-            labels,
-            values,
-            labels=bar_labels,
-            rotate_x_labels=True,
-        )
-        return pie_current, rebalancing
-
-    def make_pie_graph(self, labels: Sequence[str], values: Sequence[float]) -> bytes:
-        fig = Figure(layout=self.LAYOUT)
-        ax = fig.subplots()
-        color = list(mcolors.TABLEAU_COLORS.values())
-        ax.pie(values, labels=labels, autopct="%1.1f%%", colors=color)
-        return self.make_image_graph(fig)
-
-    def make_loan_section(self) -> list[tuple[str, bytes]]:
-        graphs = []
-        if (od := stock_options.get_options_data()) is None:
-            return graphs
-        for broker in margin_loan.LOAN_BROKERAGES:
-            if (
-                df := margin_loan.get_balances_broker(
-                    broker, od.opts.options_value_by_brokerage
-                )
-            ) is None:
-                continue
-            categories = ["Equity", "Loan", "Equity - Loan"]
-            amounts = [
-                df["Equity Balance"].iloc[-1],
-                df["Loan Balance"].iloc[-1],
-                df["Total"].iloc[-1],
-            ]
-            bottom = [0, amounts[0], 0]
-            labels = [f"{x:,.0f}" for x in amounts]
-            fig = Figure(layout=self.LAYOUT)
-            ax = fig.subplots()
-            colors = ["tab:green" if v > 0 else "tab:red" for v in amounts]
-            p = ax.bar(categories, amounts, bottom=bottom, color=colors)
-            ax.bar_label(p, labels=labels, label_type="center")
-            percent_balance = (
-                df["Equity Balance"].iloc[-1] - df["30% Equity Balance"].iloc[-1]
-            )
-            ax.axhline(percent_balance, color="yellow", linestyle="--")
-            percent_balance = (
-                df["Equity Balance"].iloc[-1] - df["50% Equity Balance"].iloc[-1]
-            )
-            ax.axhline(percent_balance, color="red", linestyle="--")
-            ax.axhline(df["50% Equity Balance"].iloc[-1], color="red", linestyle="--")
-            for percent, y in ((30, 0.2), (50, 0.1)):
-                distance = f"Distance to {percent}%"
-                remaining = df[distance].iloc[-1]
-                ax.annotate(
-                    f"{distance}: {remaining:,.0f}",
-                    xy=(0.5, y),
-                    xycoords="axes fraction",
-                    ha="center",
-                    va="center",
-                )
-            ax.set_title(broker.name)
-            graphs.append((broker.name, self.make_image_graph(fig)))
-        return graphs
-
-    def make_dataframe_multiline_graph(self, df: pd.DataFrame) -> bytes:
-        fig = Figure(figsize=(15, 5), layout=self.LAYOUT)
-        ax = fig.subplots()
-        locator = mdates.AutoDateLocator()
-        formatter = mdates.ConciseDateFormatter(locator, show_offset=False)
-        ax.xaxis.set_major_locator(locator)
-        ax.xaxis.set_major_formatter(formatter)
-        for column in df.columns:
-            ax.plot(
-                df.index,
-                df[column],
-                label=column,
-            )
-        ax.legend()
-        return self.make_image_graph(fig)
-
-    def make_dataframe_line_graph(
-        self,
-        df: pd.DataFrame,
-        column: str,
-        title: str,
-        line_color: ColorType,
-        figsize: Optional[tuple[float, float]] = (15, 5),
-    ) -> bytes:
-        fig = Figure(figsize=figsize, layout=self.LAYOUT)
-        ax = fig.subplots()
-        locator = mdates.AutoDateLocator()
-        formatter = mdates.ConciseDateFormatter(locator, show_offset=False)
-        ax.xaxis.set_major_locator(locator)
-        ax.xaxis.set_major_formatter(formatter)
-        ax.plot(
-            df.index,
-            df[column],
-            color=line_color,
-            linewidth=2,
-        )
-        ax.set_title(title)
-        first_value = df[column].loc[df[column].first_valid_index()]
-        last_value = df[column].loc[df[column].last_valid_index()]
-        ax.axhline(
-            y=last_value,
-            color="gray",
-            linestyle="--",
-        )
-        if abs(last_value) < 100:
-            annotation = f"{last_value:.2f}"
-        else:
-            annotation = f"{last_value:,.0f}"
-        if first_value != 0:
-            percent_change = (last_value - first_value) / first_value
-            if first_value < 0:
-                percent_change *= -1
-            annotation += f" {percent_change:+.1%}"
-        ax.annotate(
-            annotation,
-            xy=(0.5, 0.5),
-            xycoords="figure fraction",
-            ha="center",
-            va="center",
-            fontsize=18,
-        )
-        return self.make_image_graph(fig)
-
-    def generate(self):
+    def generate(self, executor: ProcessPoolExecutor):
         logger.info("Generating Matplot graphs")
         start_time = datetime.now()
+        results: list[GraphResult] = []
         for r in RANGES:
             for section in [
                 self.assets_section,
@@ -473,14 +223,18 @@ class Matplots(GraphCommon):
                 color = iter(itertools.cycle(mcolors.TABLEAU_COLORS.values()))
                 cols: list[tuple[str, str]] = self.get_column_titles(section)
                 for column, title in cols:
-                    graph = self.make_dataframe_line_graph(
-                        self.limit_and_resample_df(section.dataframe(), r),
-                        column,
-                        title,
-                        next(color),
+                    results.append(
+                        GraphResult(
+                            executor.submit(
+                                make_dataframe_line_graph,
+                                self.limit_and_resample_df(section.dataframe(), r),
+                                column,
+                                title,
+                                next(color),
+                            ),
+                            self.make_redis_key(section.title, column, r),
+                        )
                     )
-                    redis_key = self.make_redis_key(section.title, column, r)
-                    self.image_graphs[redis_key] = graph
 
             for section in [
                 self.brokerage_values_section,
@@ -488,40 +242,68 @@ class Matplots(GraphCommon):
                 color = iter(itertools.cycle(mcolors.TABLEAU_COLORS.values()))
                 cols: list[tuple[str, str]] = self.get_column_titles(section)
                 for column, title in cols:
-                    graph = self.make_dataframe_line_graph(
-                        self.limit_and_resample_df(section.dataframe(), r),
-                        column,
-                        title,
-                        next(color),
-                        figsize=None,
+                    results.append(
+                        GraphResult(
+                            executor.submit(
+                                make_dataframe_line_graph,
+                                self.limit_and_resample_df(section.dataframe(), r),
+                                column,
+                                title,
+                                next(color),
+                                figsize=None,
+                            ),
+                            self.make_redis_key(section.title, column, r),
+                        )
                     )
-                    redis_key = self.make_redis_key(section.title, column, r)
-                    self.image_graphs[redis_key] = graph
 
             for section in [self.interest_rate_section, self.prices_section]:
-                graph = self.make_dataframe_multiline_graph(
-                    self.limit_and_resample_df(section.dataframe(r), r)
+                results.append(
+                    GraphResult(
+                        executor.submit(
+                            make_dataframe_multiline_graph,
+                            self.limit_and_resample_df(section.dataframe(r), r),
+                        ),
+                        self.make_redis_key(section.title, r),
+                    )
                 )
-                redis_key = self.make_redis_key(section.title, r)
-                self.image_graphs[redis_key] = graph
 
-        if ia := self.make_investing_allocation_section():
-            self.image_graphs[self.make_redis_key(self.INVESTING_ALLOCATION_PIE)] = ia[
-                0
-            ]
-            self.image_graphs[self.make_redis_key(self.REBALANCING_BAR)] = ia[1]
-        for broker, graph in self.make_loan_section():
-            self.image_graphs[self.make_redis_key(self.MARGIN_LOAN, broker)] = graph
-
-        self.image_graphs[self.make_redis_key(self.ASSET_PIE)] = (
-            self.make_asset_allocation_pie()
+        results.append(
+            GraphResult(
+                executor.submit(make_investing_allocation_pie),
+                self.make_redis_key(self.INVESTING_ALLOCATION_PIE),
+            )
         )
-        self.image_graphs[self.make_redis_key(self.RE_CHANGE)] = (
-            self.make_real_estate_change_bar()
+        results.append(
+            GraphResult(
+                executor.submit(make_investing_allocation_bar),
+                self.make_redis_key(self.REBALANCING_BAR),
+            )
         )
-        self.image_graphs[self.make_redis_key(self.RE_YEARLY_CHANGE)] = (
-            self.make_real_estate_change_bar_yearly()
+        results.append(
+            GraphResult(
+                executor.submit(make_asset_allocation_pie),
+                self.make_redis_key(self.ASSET_PIE),
+            )
         )
+        results.append(
+            GraphResult(
+                executor.submit(make_real_estate_change_bar),
+                self.make_redis_key(self.RE_CHANGE),
+            )
+        )
+        results.append(
+            GraphResult(
+                executor.submit(make_real_estate_change_bar_yearly),
+                self.make_redis_key(self.RE_YEARLY_CHANGE),
+            )
+        )
+        for broker in margin_loan.LOAN_BROKERAGES:
+            results.append(
+                GraphResult(
+                    executor.submit(make_loan_graph, broker),
+                    self.make_redis_key(self.MARGIN_LOAN, broker.name),
+                )
+            )
         total_changes = {
             "total": (self.TOTAL_CHANGE_YOY, self.TOTAL_CHANGE_MOM),
             "total_no_homes": (
@@ -529,22 +311,305 @@ class Matplots(GraphCommon):
                 self.TOTAL_NO_RE_CHANGE_MOM,
             ),
         }
-
         for column, keys in total_changes.items():
-            self.image_graphs[self.make_redis_key(keys[0])] = self.make_total_bar_yoy(
-                column
+            results.append(
+                GraphResult(
+                    executor.submit(make_total_bar_yoy, column),
+                    self.make_redis_key(keys[0]),
+                )
             )
-            self.image_graphs[self.make_redis_key(keys[1])] = self.make_total_bar_mom(
-                column
+            results.append(
+                GraphResult(
+                    executor.submit(make_total_bar_mom, column),
+                    self.make_redis_key(keys[1]),
+                )
             )
 
+        for r in results:
+            self.image_graphs[r.redis_key] = r.f.result()
         end_time = datetime.now()
         last_generation_duration = end_time - start_time
         logger.info(f"Graph generation time for Matplot: {last_generation_duration}")
 
 
+def make_dataframe_line_graph(
+    df: pd.DataFrame,
+    column: str,
+    title: str,
+    line_color: ColorType,
+    figsize: Optional[tuple[float, float]] = (15, 5),
+) -> bytes:
+    fig = Figure(figsize=figsize, layout=LAYOUT)
+    ax = fig.subplots()
+    locator = mdates.AutoDateLocator()
+    formatter = mdates.ConciseDateFormatter(locator, show_offset=False)
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+    ax.plot(
+        df.index,
+        df[column],
+        color=line_color,
+        linewidth=2,
+    )
+    ax.set_title(title)
+    first_value = df[column].loc[df[column].first_valid_index()]
+    last_value = df[column].loc[df[column].last_valid_index()]
+    ax.axhline(
+        y=last_value,
+        color="gray",
+        linestyle="--",
+    )
+    if abs(last_value) < 100:
+        annotation = f"{last_value:.2f}"
+    else:
+        annotation = f"{last_value:,.0f}"
+    if first_value != 0:
+        percent_change = (last_value - first_value) / first_value
+        if first_value < 0:
+            percent_change *= -1
+        annotation += f" {percent_change:+.1%}"
+    ax.annotate(
+        annotation,
+        xy=(0.5, 0.5),
+        xycoords="figure fraction",
+        ha="center",
+        va="center",
+        fontsize=18,
+    )
+    return make_image_graph(fig)
+
+
+def make_dataframe_multiline_graph(df: pd.DataFrame) -> bytes:
+    fig = Figure(figsize=(15, 5), layout=LAYOUT)
+    ax = fig.subplots()
+    locator = mdates.AutoDateLocator()
+    formatter = mdates.ConciseDateFormatter(locator, show_offset=False)
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+    for column in df.columns:
+        ax.plot(
+            df.index,
+            df[column],
+            label=column,
+        )
+    ax.legend()
+    return make_image_graph(fig)
+
+
+def make_image_graph(fig: Figure) -> bytes:
+    data = io.BytesIO()
+    fig.savefig(data, format="png")
+    return data.getvalue()
+
+
+def make_pie_graph(labels: Sequence[str], values: Sequence[float]) -> bytes:
+    fig = Figure(layout=LAYOUT)
+    ax = fig.subplots()
+    color = list(mcolors.TABLEAU_COLORS.values())
+    ax.pie(values, labels=labels, autopct="%1.1f%%", colors=color)
+    return make_image_graph(fig)
+
+
+def make_bar_graph(
+    title: str,
+    x: Sequence[str] | pd.DatetimeIndex | pd.Index,
+    y: Sequence[float] | pd.Series,
+    labels: Optional[Sequence[str]] = None,
+    rotate_x_labels: bool = False,
+    width: Optional[Sequence | float] = 0.8,
+) -> bytes:
+    fig = Figure(layout=LAYOUT)
+    ax = fig.subplots()
+    colors = ["tab:green" if v > 0 else "tab:red" for v in y]
+    p = ax.bar(x, y, color=colors, width=width)  # type: ignore
+    if labels:
+        ax.bar_label(p, labels=labels, label_type="center")
+    ax.set_title(title)
+    if rotate_x_labels:
+        fig.autofmt_xdate()
+    return make_image_graph(fig)
+
+
+INVESTING_ALLOCATION_LABEL_COL = (
+    ("US Large Cap", "US_LARGE_CAP"),
+    ("US Small Cap", "US_SMALL_CAP"),
+    ("US Bonds", "US_BONDS"),
+    ("International Developed", "INTERNATIONAL_DEVELOPED"),
+    ("International Emerging", "INTERNATIONAL_EMERGING"),
+    ("Gold", "COMMODITIES_GOLD"),
+    ("Silver", "COMMODITIES_SILVER"),
+    ("Crypto", "COMMODITIES_CRYPTO"),
+)
+
+
+def make_investing_allocation_pie() -> bytes:
+    df = balance_etfs.get_rebalancing_df(0)
+    labels = [name for name, _ in INVESTING_ALLOCATION_LABEL_COL]
+    values = [
+        cast(float, df.loc[col]["value"]) for _, col in INVESTING_ALLOCATION_LABEL_COL
+    ]
+    pie_current = make_pie_graph(labels, values)
+    return pie_current
+
+
+def make_investing_allocation_bar() -> bytes:
+    df = balance_etfs.get_rebalancing_df(0)
+    labels = [name for name, _ in INVESTING_ALLOCATION_LABEL_COL]
+    values = [
+        cast(float, df.loc[col]["usd_to_reconcile"])
+        for _, col in INVESTING_ALLOCATION_LABEL_COL
+    ]
+    bar_labels = [f"{v:,.0f}" for v in values]
+    rebalancing = make_bar_graph(
+        "Rebalancing Required",
+        labels,
+        values,
+        labels=bar_labels,
+        rotate_x_labels=True,
+    )
+    return rebalancing
+
+
+def make_asset_allocation_pie() -> bytes:
+    latest_df = common.read_sql_last("history")
+    labels = ["Investing", "Real Estate", "Retirement"]
+    values = [
+        latest_df["total_investing"].iloc[-1],
+        latest_df["total_real_estate"].iloc[-1],
+        latest_df["total_retirement"].iloc[-1],
+    ]
+    if (liquid := latest_df["total_liquid"].iloc[-1]) > 0:
+        labels.append("Liquid")
+        values.append(liquid)
+    return make_pie_graph(labels, values)
+
+
+def get_real_estate_change_df() -> pd.DataFrame:
+    real_estate_df = homes.get_real_estate_df()
+    cols = [f"{home.name} Price" for home in homes.PROPERTIES]
+    for home in cols:
+        real_estate_df[f"{home} Percent Change"] = (
+            (
+                real_estate_df[home]
+                - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
+            )
+            / real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
+        )
+    return real_estate_df
+
+
+def make_real_estate_change_bar() -> bytes:
+    real_estate_df = get_real_estate_change_df()
+    cols = [f"{home.name} Price" for home in homes.PROPERTIES]
+    values = []
+    percent = []
+    for home in cols:
+        v = (
+            real_estate_df.iloc[-1][home]
+            - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
+        )
+        values.append(v)
+        p = real_estate_df.iloc[-1][f"{home} Percent Change"]
+        percent.append(f"{v:,.0f}\n{p:.1%}")
+    return make_bar_graph("Real Estate Change Since Purchase", cols, values, percent)
+
+
+def make_real_estate_change_bar_yearly() -> bytes:
+    real_estate_df = get_real_estate_change_df()
+    cols = [f"{home.name} Price" for home in homes.PROPERTIES]
+    values = []
+    percent = []
+    for home in cols:
+        time_diff = (
+            real_estate_df[home].index[-1] - real_estate_df[home].first_valid_index()
+        )  # type: ignore
+        value_diff = (
+            real_estate_df.iloc[-1][home]
+            - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
+        )
+        percent_diff = real_estate_df.iloc[-1][f"{home} Percent Change"]
+        v = (value_diff / time_diff.days) * 365
+        values.append(v)
+        p = (percent_diff / time_diff.days) * 365
+        percent.append(f"{v:,.0f}\n{p:.1%}")
+    return make_bar_graph(
+        "Real Estate Yearly Average Change Since Purchase", cols, values, percent
+    )
+
+
+def make_total_bar_yoy(column: str) -> bytes:
+    df = common.read_sql_table("history")
+    df = df.resample("YE").last().interpolate().diff().dropna().iloc[-6:]
+    # Re-align at beginning of year.
+    df.index = pd.DatetimeIndex(df.index.strftime("%Y-01-01"))  # type: ignore
+    x = df.index
+    y = df[column]
+    return make_bar_graph(
+        "Year Over Year",
+        x,
+        y,
+        labels=[f"{v:,.0f}" for v in y],
+        width=[timedelta(330)] * len(x),
+    )
+
+
+def make_total_bar_mom(column: str) -> bytes:
+    df = common.read_sql_table("history")
+    df = df.resample("ME").last().interpolate().diff().dropna().iloc[-36:]
+    x = df.index
+    return make_bar_graph(
+        "Month Over Month",
+        x,
+        df[column],
+        rotate_x_labels=True,
+        width=[timedelta(25)] * len(x),
+    )
+
+
+def make_loan_graph(broker: margin_loan.LoanBrokerage) -> bytes:
+    if (od := stock_options.get_options_data()) is None:
+        raise GraphGenerationError("No options data")
+    if (
+        df := margin_loan.get_balances_broker(
+            broker, od.opts.options_value_by_brokerage
+        )
+    ) is None:
+        raise GraphGenerationError("No broker balance")
+    categories = ["Equity", "Loan", "Equity - Loan"]
+    amounts = [
+        df["Equity Balance"].iloc[-1],
+        df["Loan Balance"].iloc[-1],
+        df["Total"].iloc[-1],
+    ]
+    bottom = [0, amounts[0], 0]
+    labels = [f"{x:,.0f}" for x in amounts]
+    fig = Figure(layout=LAYOUT)
+    ax = fig.subplots()
+    colors = ["tab:green" if v > 0 else "tab:red" for v in amounts]
+    p = ax.bar(categories, amounts, bottom=bottom, color=colors)
+    ax.bar_label(p, labels=labels, label_type="center")
+    percent_balance = df["Equity Balance"].iloc[-1] - df["30% Equity Balance"].iloc[-1]
+    ax.axhline(percent_balance, color="yellow", linestyle="--")
+    percent_balance = df["Equity Balance"].iloc[-1] - df["50% Equity Balance"].iloc[-1]
+    ax.axhline(percent_balance, color="red", linestyle="--")
+    ax.axhline(df["50% Equity Balance"].iloc[-1], color="red", linestyle="--")
+    for percent, y in ((30, 0.2), (50, 0.1)):
+        distance = f"Distance to {percent}%"
+        remaining = df[distance].iloc[-1]
+        ax.annotate(
+            f"{distance}: {remaining:,.0f}",
+            xy=(0.5, y),
+            xycoords="axes fraction",
+            ha="center",
+            va="center",
+        )
+    ax.set_title(broker.name)
+    return make_image_graph(fig)
+
+
 def main():
-    Matplots(common.WalrusDb().db).generate()
+    with ProcessPoolExecutor() as executor:
+        Matplots().generate(executor)
 
 
 if __name__ == "__main__":
