@@ -7,6 +7,7 @@ from typing import Optional
 import pandas as pd
 
 import common
+import futures
 import ledger_amounts
 import stock_options
 
@@ -52,7 +53,9 @@ def get_prices_wide_df() -> pd.DataFrame:
         .last()
         .interpolate()
     )
-    prices_df = prices_df[sorted(prices_df.columns.intersection(list(get_tickers())))]
+    cols = get_tickers()
+    cols |= set(futures.Futures().futures_df.groupby("commodity").first().index)
+    prices_df = prices_df[sorted(prices_df.columns.intersection(list(cols)))]
     return prices_df
 
 
@@ -67,25 +70,16 @@ def get_prices_percent_diff_df(
     return prices_df
 
 
-def convert_long():
-    etfs = common.read_sql_table("schwab_etfs_prices")
-    ira = common.read_sql_table("schwab_ira_prices")
-    df = common.reduce_merge_asof([etfs, ira])
-    df = (
-        df.reset_index()
-        .melt(id_vars="date", var_name="ticker", value_name="price")
-        .set_index("date")
-        .sort_index()
-        .dropna()
-    )
-    common.to_sql(df, TICKER_PRICES_TABLE, if_exists="replace")
-
-
 def main():
     """Main."""
     for ticker in sorted(get_tickers()):
         common.insert_sql(
             TICKER_PRICES_TABLE, {"ticker": ticker, "price": common.get_ticker(ticker)}
+        )
+    for row in futures.Futures().futures_df.groupby("commodity").first().itertuples():
+        common.insert_sql(
+            TICKER_PRICES_TABLE,
+            {"ticker": row.Index, "price": row.current_price},  # type: ignore
         )
 
 

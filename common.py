@@ -43,8 +43,8 @@ LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
 GET_TICKER_TIMEOUT = 30
 PLOTLY_THEME = "plotly_dark"
-CURRENCIES_REGEX = r"^(\\$|CHF|EUR|GBP|SGD|SWVXX)$"
-COMMODITIES_REGEX = "^(GLD|GLDM|SGOL|SIVR|COIN|BITX|MSTR)$"
+# Include currency equivalents like money markets. See https://yieldfinder.app/money_markets
+CURRENCIES_REGEX = r"^(\\$|CHF|EUR|GBP|SGD|SWVXX|SGOV|TFLO)$"
 OPTIONS_LOAN_REGEX = '^("SPX|"SMI) '
 LEDGER_CURRENCIES_OPTIONS_CMD = f"{LEDGER_PREFIX} --limit 'commodity=~/{CURRENCIES_REGEX}/ or commodity=~/{OPTIONS_LOAN_REGEX}/'"
 BROKERAGES = ("Interactive Brokers", "Charles Schwab Brokerage")
@@ -198,6 +198,7 @@ def pandas_options():
 GET_TICKER_FAILURES: set[str] = set()
 
 
+@WalrusDb().cache.cached(timeout=30 * 60)
 def get_ticker_all(ticker: str) -> float:
     """Get ticker prices by trying various methods."""
     get_ticker_methods = (
@@ -223,17 +224,20 @@ def get_ticker_all(ticker: str) -> float:
 
 @WalrusDb().cache.cached(timeout=30 * 60)
 def get_ticker(ticker: str) -> float:
-    return Schwab().get_quote(ticker)
+    with WalrusDb().db.lock("schwab", ttl=LOCK_TTL_SECONDS * 1000):
+        return Schwab().get_quote(ticker)
 
 
 @WalrusDb().cache.cached(timeout=30 * 60)
 def get_option_quote(t: TickerOption) -> float | None:
-    return Schwab().get_option_quote(t)
+    with WalrusDb().db.lock("schwab", ttl=LOCK_TTL_SECONDS * 1000):
+        return Schwab().get_option_quote(t)
 
 
 @WalrusDb().cache.cached(timeout=30 * 60)
 def get_future_quote(ticker: str) -> FutureQuote:
-    return Schwab().get_future_quote(ticker)
+    with WalrusDb().db.lock("schwab", ttl=LOCK_TTL_SECONDS * 1000):
+        return Schwab().get_future_quote(ticker)
 
 
 def get_ticker_alphavantage(ticker: str) -> float:

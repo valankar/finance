@@ -3,7 +3,9 @@
 
 import os
 from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime
 
+import humanize
 import valkey
 from cyclopts import App
 from loguru import logger
@@ -30,6 +32,7 @@ async def run_all(
     matplot: bool = True,
     plotly: bool = True,
 ):
+    start_time = datetime.now()
     with common.WalrusDb().db.lock(
         common.SCRIPT_LOCK_NAME, ttl=common.LOCK_TTL_SECONDS * 1000
     ):
@@ -53,6 +56,9 @@ async def run_all(
             if o := r.result():
                 logger.info(o)
         valkey.Valkey(host=os.environ.get("REDIS_HOST", "localhost")).bgsave()
+    logger.info(
+        f"Total time for run: {humanize.precisedelta(datetime.now() - start_time)}"
+    )
 
 
 if __name__ == "__main__":

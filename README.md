@@ -25,7 +25,7 @@ TICKER="^SSMI"
 ./add_ticker.py --ticker ^SPX
 ```
 
-Update `common.py` (`COMMODITIES_REGEX`) and `balance_etfs.py` to include new ticker.
+Update `balance_etfs.py` to include new ticker.
 
 ## Debugging playright
 

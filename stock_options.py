@@ -889,15 +889,11 @@ def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
     for broker in common.BROKERAGES:
         option_risk = opts.all_options.query("account == @broker")["value"].sum()
         if (brokerage := margin_loan.find_loan_brokerage(broker)) is not None:
-            if (
-                df := margin_loan.get_balances_broker(
-                    brokerage, opts.options_value_by_brokerage
-                )
-            ) is not None:
-                netliq = df["Total"].sum()
-                print(
-                    f"{broker} option value as percentage of net liquidity: {abs(option_risk / netliq):.2%} (${option_risk:.0f})"
-                )
+            df = margin_loan.get_balances_broker(brokerage)
+            netliq = df["Total"].sum()
+            print(
+                f"{broker} option value as percentage of net liquidity: {abs(option_risk / netliq):.2%} (${option_risk:.0f})"
+            )
 
     if show_spreads:
         if opts.bull_put_spreads:

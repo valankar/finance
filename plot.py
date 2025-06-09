@@ -52,7 +52,7 @@ def add_hline_current(
             percent_annotation = ""
     fig.add_hline(
         y=current,
-        annotation_text=f"{current:,.{precision}f} {percent_annotation}",
+        annotation_text=f"{current:,.{precision}f} {percent_annotation} ({current - earliest:,.0f})",
         line_dash="dot",
         line_color="gray",
         annotation_position=annotation_position,
@@ -127,8 +127,6 @@ def make_investing_retirement_section(
     columns = [
         ("pillar2", "Pillar 2"),
         ("ira", "IRA"),
-        ("commodities", "Gold, Silver, Crypto"),
-        ("etfs", "ETFs"),
     ]
     section = px.line(
         invret_df,
@@ -139,7 +137,7 @@ def make_investing_retirement_section(
         labels={"value": "USD"},
     )
     update_facet_titles(section, columns)
-    centered_title(section, "Investing & Retirement")
+    centered_title(section, "Retirement")
     section.update_xaxes(title_text="", showticklabels=True)
     section.update_yaxes(title_text="")
     section.update_yaxes(matches=None)
@@ -148,8 +146,6 @@ def make_investing_retirement_section(
     section.update_traces(showlegend=False)
     add_hline_current(section, invret_df, "pillar2", 0, 1)
     add_hline_current(section, invret_df, "ira", 0, 2)
-    add_hline_current(section, invret_df, "commodities", 1, 1)
-    add_hline_current(section, invret_df, "etfs", 1, 2)
     section.update_layout(margin=margin)
     return section
 
@@ -249,7 +245,7 @@ def make_investing_allocation_section() -> Figure:
     values = [dataframe.loc[col]["value"] for _, col in label_col]
     pie_total = go.Pie(labels=[name for name, _ in label_col], values=values)
     changes_section.add_trace(pie_total, row=1, col=1)
-    changes_section.update_traces(row=1, col=1, textinfo="percent+value")
+    changes_section.update_traces(row=1, col=1, textinfo="percent")
 
     # Rebalancing
     values = [dataframe.loc[col]["usd_to_reconcile"] for _, col in label_col]
@@ -397,6 +393,7 @@ def make_brokerage_total_section(
             y=broker.name,
         )
         fig.for_each_trace(lambda t: section.add_trace(t, row=1, col=i))
+        add_hline_current(section, brokerage_df, broker.name, 1, i)
     section.update_yaxes(matches=None)
     section.update_yaxes(title_text="USD", col=1)
     section.update_traces(showlegend=False)
@@ -406,9 +403,7 @@ def make_brokerage_total_section(
     return section
 
 
-def make_loan_section(
-    options_value_by_brokerage: dict[str, float], margin: dict[str, int]
-) -> Figure:
+def make_loan_section(margin: dict[str, int]) -> Figure:
     """Make section with margin loans."""
 
     section = make_subplots(
@@ -457,10 +452,8 @@ def make_loan_section(
             )
 
     for i, broker in enumerate(margin_loan.LOAN_BROKERAGES, start=1):
-        if (
-            df := margin_loan.get_balances_broker(broker, options_value_by_brokerage)
-        ) is not None:
-            add_loan_graph(df, i)
+        df = margin_loan.get_balances_broker(broker)
+        add_loan_graph(df, i)
 
     section.update_yaxes(matches=None)
     section.update_yaxes(title_text="USD", col=1)

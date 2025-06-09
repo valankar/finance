@@ -1,0 +1,32 @@
+version: '3'
+
+tasks:
+  dev-restart:
+    cmds:
+      - docker compose --profile development down
+      - docker compose --profile development up -d accounts-dev
+  dev-check:
+    cmds:
+      - echo 'Check dev and hit enter to proceed'
+      - read
+    interactive: true
+  dev-build:
+    cmds:
+      - docker build -t accounts .
+      - task: dev-restart
+      - task: dev-check
+      - docker image prune -f
+  prod-build:
+    cmds:
+      - ssh -t $HOST 'cd code/accounts && docker compose down accounts accounts_hourly accounts_daily'
+      - uv run sync_prod.py
+      - ssh -t $HOST 'cd code/accounts && docker build -t accounts . && docker image prune -f && docker compose up -d'
+    env:
+      HOST: valankar@cachyos-server
+  upgrade:
+    cmds:
+      - uv lock --upgrade
+      - uv sync
+      - task: dev-build
+      - task: prod-build
+

@@ -7,7 +7,7 @@ import humanize
 import pandas as pd
 from loguru import logger
 from matplotlib.figure import Figure
-from nicegui import ui
+from nicegui import html, ui
 from nicegui.elements.table import Table
 
 import common
@@ -493,7 +493,7 @@ class StockOptionsPage(GraphCommon):
             ui.label(
                 f"Staleness: {humanize.naturaldelta(datetime.now() - data.updated)}"
             )
-        ui.html(f"<PRE>{data.main_output}</PRE>")
+        html.pre(data.main_output)
         self.make_spread_section(
             "Short Calls", self.ui_data.short_calls, profit_color_col="profit option"
         )

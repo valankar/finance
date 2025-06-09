@@ -5,9 +5,10 @@ import os
 import pickle
 import tempfile
 from concurrent.futures import Future, ProcessPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, ClassVar, Generator, NamedTuple, Optional, cast
+from typing import Callable, ClassVar, Generator, Optional, cast
 
 import humanize
 import kaleido
@@ -25,7 +26,6 @@ import etfs
 import homes
 import latest_values
 import plot
-import stock_options
 
 RANGES = ["All", "3y", "2y", "1y", "YTD", "6m", "3m", "1m", "1d"]
 DEFAULT_RANGE = "1y"
@@ -33,15 +33,12 @@ DEFAULT_RANGE = "1y"
 pio.templates.default = common.PLOTLY_THEME
 
 
-class FigureData(NamedTuple):
+@dataclass
+class FigureData:
     name: str
-    range: Optional[str]
     fig: Future[Figure]
-
-
-class FigureJson(NamedTuple):
-    fd: FigureData
-    fig_json: Future[dict]
+    range: Optional[str] = None
+    fig_json: Optional[Future[dict]] = None
 
 
 class GraphCommon:
@@ -156,7 +153,9 @@ class GraphCommon:
             ui.link("Static Images", "/image_only")
             ui.link("Matplot", "/matplot")
             ui.link("Stock Options", "/stock_options")
+            ui.link("Futures", "/futures")
             ui.link("Transactions", "/transactions")
+            ui.link("Latest Values", "/latest_values")
 
 
 class MainGraphs(GraphCommon):
@@ -165,7 +164,7 @@ class MainGraphs(GraphCommon):
     REDIS_SUBKEY: ClassVar[str] = "PlotlyGraphs"
     LAYOUT: ClassVar[tuple[tuple[str, str], ...]] = (
         ("assets_breakdown", "96vh"),
-        ("investing_retirement", "75vh"),
+        ("investing_retirement", "45vh"),
         ("real_estate", "96vh"),
         ("allocation_profit", "75vh"),
         ("change", "50vh"),
@@ -240,13 +239,10 @@ class MainGraphs(GraphCommon):
             "forex": common.read_sql_table("forex"),
             "interest_rate": plot.get_interest_rate_df(),
         }
-        if (options_data := stock_options.get_options_data()) is None:
-            raise ValueError("No options data available")
         fs: list[FigureData] = []
         fs.append(
             FigureData(
                 name="allocation_profit",
-                range=None,
                 fig=executor.submit(
                     plot.make_allocation_profit_section,
                     dataframes["all"],
@@ -258,7 +254,6 @@ class MainGraphs(GraphCommon):
         fs.append(
             FigureData(
                 name="change",
-                range=None,
                 fig=executor.submit(
                     plot.make_change_section,
                     dataframes["all"],
@@ -270,7 +265,6 @@ class MainGraphs(GraphCommon):
         fs.append(
             FigureData(
                 name="change_no_homes",
-                range=None,
                 fig=executor.submit(
                     plot.make_change_section,
                     dataframes["all"],
@@ -282,17 +276,14 @@ class MainGraphs(GraphCommon):
         fs.append(
             FigureData(
                 name="investing_allocation",
-                range=None,
                 fig=executor.submit(plot.make_investing_allocation_section),
             )
         )
         fs.append(
             FigureData(
                 name="loan",
-                range=None,
                 fig=executor.submit(
                     plot.make_loan_section,
-                    options_data.opts.options_value_by_brokerage,
                     subplot_margin,
                 ),
             )
@@ -316,9 +307,7 @@ class MainGraphs(GraphCommon):
                     fig=executor.submit(
                         plot.make_investing_retirement_section,
                         self.limit_and_resample_df(
-                            dataframes["all"][
-                                ["pillar2", "ira", "commodities", "etfs"]
-                            ],
+                            dataframes["all"][["pillar2", "ira"]],
                             r,
                         ),
                         subplot_margin,
@@ -387,18 +376,8 @@ class MainGraphs(GraphCommon):
                     ),
                 )
             )
-        fjsons: list[FigureJson] = []
         for f in fs:
-            fjsons.append(
-                FigureJson(
-                    fd=f, fig_json=executor.submit(f.fig.result().to_plotly_json)
-                )
-            )
-        for fj in fjsons:
-            self.plotly_graphs[self.make_redis_key(fj.fd.name, fj.fd.range)] = (
-                pickle.dumps(fj.fig_json.result())
-            )
-
+            f.fig_json = executor.submit(f.fig.result().to_plotly_json)
         # Generate images with kaleido
         with tempfile.TemporaryDirectory() as dir:
             mgio = MainGraphsImageOnly()
@@ -411,9 +390,15 @@ class MainGraphs(GraphCommon):
                 p = Path(f)
                 # Filename stem is redis key
                 mgio.image_graphs[p.stem] = p.read_bytes()
-        end_time = datetime.now()
-        last_generation_duration = end_time - start_time
-        logger.info(f"Graph generation time for Plotly: {last_generation_duration}")
+        # Store Plotly json
+        for f in fs:
+            if f.fig_json:
+                self.plotly_graphs[self.make_redis_key(f.name, f.range)] = pickle.dumps(
+                    f.fig_json.result()
+                )
+        logger.info(
+            f"Graph generation time for Plotly: {humanize.precisedelta(datetime.now() - start_time)}"
+        )
 
     def make_kaleido_generator(
         self,

@@ -108,7 +108,6 @@ class LedgerUI:
     @ui.refreshable_method
     async def main_page(self):
         self.reset()
-        await ui.context.client.connected()
         with ui.grid().classes("w-full gap-0 md:grid-cols-2"):
             with ui.card():
                 with ui.grid(columns=2):

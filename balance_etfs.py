@@ -23,13 +23,13 @@ COMMODITIES_PERCENTAGE = {
 COMMODITIES_PERCENTAGE_FLOOR = 8
 # See https://testfol.io/?s=fkCyZLoXExo
 ETF_TYPE_MAP = {
-    "COMMODITIES_GOLD": ["GLD", "GLDM", "SGOL"],
+    "COMMODITIES_GOLD": ["GLD", "GLDM", "SGOL", "/MGC"],
     "COMMODITIES_SILVER": ["SIVR"],
-    "COMMODITIES_CRYPTO": ["COIN", "BITX", "MSTR"],
+    "COMMODITIES_CRYPTO": ["COIN", "BITX", "MSTR", "/MBT"],
     "US_SMALL_CAP": ["SCHA", "VB", "IWM", "/M2K", "/RTY"],
-    "US_LARGE_CAP": ["SCHX", "VOO", "VV", "/MES"],
-    "US_BONDS": ["BND", "SCHO", "SCHR", "SCHZ", "SGOV", "SWAGX", "/10Y"],
-    "INTERNATIONAL_DEVELOPED": ["SCHF", "SWISX", "VEA"],
+    "US_LARGE_CAP": ["SCHX", "SPLG", "VOO", "VV", "/MES"],
+    "US_BONDS": ["BND", "SCHO", "SCHR", "SCHZ", "SWAGX", "/10Y"],
+    "INTERNATIONAL_DEVELOPED": ["SCHF", "SWISX", "VEA", "/MFS"],
     "INTERNATIONAL_EMERGING": ["SCHE", "VWO"],
 }
 FUTURES_INVERSE_CORRELATION = {"/10Y"}
@@ -124,9 +124,6 @@ def convert_etfs_to_types(etfs_df, etf_type_map: dict[str, list[str]]):
 
 def get_desired_df(
     amount: int,
-    include_options: bool,
-    otm: bool,
-    long_calls: bool,
     adjustment: dict[str, int],
 ) -> pd.DataFrame:
     """Get dataframe, cost to get to desired allocation."""
@@ -135,27 +132,22 @@ def get_desired_df(
     # Add in options value
     if (options_data := stock_options.get_options_data()) is None:
         raise ValueError("No options data available")
-    opts_tickers = options_data.opts.pruned_options.groupby("ticker").sum()[["value"]]
     futures_tickers = futures.Futures().notional_values_df
     futures_tickers.loc[
         futures_tickers.index.isin(FUTURES_INVERSE_CORRELATION), "value"
     ] *= -1
-    for df in (opts_tickers, futures_tickers):
-        etfs_df = etfs_df.add(df, fill_value=0)
-    if include_options:
-        # This is for options exercise value.
-        options_df = options_data.opts.pruned_options
-        if long_calls:
-            query = "((count > 0) or (count < 0))"
-        else:
-            query = "(count < 0)"
-        if otm:
-            query += " & ~in_the_money"
-        else:
-            query += " & in_the_money"
-        itm_df = stock_options.after_assignment_df(options_df.query(query))
-        print("Options:\n", itm_df)
-        etfs_df["value"] = etfs_df["value"].add(itm_df["value_change"], fill_value=0)
+    etfs_df = etfs_df.add(futures_tickers, fill_value=0)
+    # Treat ITM options as their exercise value.
+    options_df = options_data.opts.pruned_options
+    itm_df = stock_options.after_assignment_df(options_df.query("in_the_money == True"))
+    etfs_df = etfs_df.add(
+        itm_df[["value_change"]].rename(columns={"value_change": "value"}), fill_value=0
+    )
+    # Treat OTM options as their option value.
+    otm_df = (
+        options_df.query("in_the_money == False").groupby("ticker").sum()[["value"]]
+    )
+    etfs_df = etfs_df.add(otm_df, fill_value=0)
     wanted_df = pd.DataFrame({"wanted_percent": pd.Series(desired_allocation)})
     mf_df = convert_etfs_to_types(etfs_df, ETF_TYPE_MAP)
     for category, adjust in adjustment.items():
@@ -199,17 +191,11 @@ def get_sell_only_df(allocation_df: pd.DataFrame, amount: int) -> pd.DataFrame:
 
 def get_rebalancing_df(
     amount: int,
-    include_options: bool = False,
-    otm: bool = False,
-    long_calls: bool = False,
     adjustment: Optional[dict[str, int]] = None,
 ) -> pd.DataFrame:
     """Get rebalancing dataframe."""
     allocation_df = get_desired_df(
         amount=amount,
-        include_options=include_options,
-        otm=otm,
-        long_calls=long_calls,
         adjustment=adjustment or {},
     )
     if amount > 0:
@@ -230,9 +216,6 @@ def validate_adjustment(_, value: dict[str, int]):
 @app.default
 def main(
     value: int = 0,
-    include_options: bool = False,
-    otm: bool = False,
-    long_calls: bool = False,
     commodities_percentage_floor: int = COMMODITIES_PERCENTAGE_FLOOR,
     adjustment: Annotated[
         dict[str, int], Parameter(validator=validate_adjustment)
@@ -244,12 +227,6 @@ def main(
     ----------
     value: int
         Amount to buy/sell. Positive means buy, negative means sell.
-    include_options: bool
-        Include options in the calculation.
-    otm: bool
-        Include options that are out of the money.
-    long_calls: bool
-        Include long calls in the calculation.
     commodities_percentage_floor: int
         Minimum percentage of commodities.
     adjustment: dict[str, int]
@@ -260,9 +237,6 @@ def main(
     COMMODITIES_PERCENTAGE_FLOOR = commodities_percentage_floor
     df = get_rebalancing_df(
         amount=value,
-        include_options=include_options,
-        otm=otm,
-        long_calls=long_calls,
         adjustment=adjustment,
     )
     print(df)

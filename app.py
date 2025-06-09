@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Plot weight graph."""
 
+import contextlib
 import io
 import os
 import re
@@ -11,7 +12,7 @@ import pandas as pd
 import plotly.io as pio
 from fastapi import Request
 from loguru import logger
-from nicegui import app, run, ui
+from nicegui import app, html, run, ui
 from plotly.graph_objects import Figure
 from starlette.responses import RedirectResponse
 
@@ -19,6 +20,7 @@ import balance_etfs
 import common
 import futures
 import i_and_e
+import latest_values
 import ledger_ui
 import main_graphs
 import stock_options
@@ -110,7 +112,7 @@ async def i_and_e_page():
     skel.delete()
 
 
-@ui.page("/ledger", title="Ledger", response_timeout=30)
+@ui.page("/ledger", title="Ledger")
 async def ledger_page():
     """Generate income & expenses page."""
     log_request()
@@ -128,8 +130,10 @@ async def stock_options_page():
 def latest_values_page():
     """Latest values."""
     log_request()
-    output = subprocess.check_output(f"{common.CODE_DIR}/latest_values.sh", text=True)
-    ui.html(f"<PRE>{output}</PRE>")
+    with contextlib.redirect_stdout(io.StringIO()) as output:
+        with common.pandas_options():
+            latest_values.main()
+    html.pre(output.getvalue())
 
 
 @ui.page("/balance_etfs", title="Balance ETFs")
@@ -139,15 +143,21 @@ def balance_etfs_page(amount: int = 0):
     log_request()
     with common.pandas_options():
         df = balance_etfs.get_rebalancing_df(amount=amount)
-        ui.html(f"<PRE>{df}</PRE>")
+        html.pre(str(df))
 
 
 @ui.page("/futures", title="Futures")
-def futures_page():
+async def futures_page():
     log_request()
-    with common.pandas_options():
-        df = futures.Futures().futures_df
-        ui.html(f"<PRE>{df}</PRE>")
+
+    def render() -> str:
+        with common.pandas_options():
+            df = futures.Futures().futures_df
+            total = df["value"].sum()
+            notional = df.groupby(level="account")["notional_value"].sum()
+            return f"{df}\n\nTotal value: {total:.0f}\n\nNotional value by account:\n{notional}"
+
+    html.pre(await run.io_bound(render))
 
 
 def floatify(string: str) -> float:

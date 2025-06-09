@@ -3,11 +3,13 @@
 
 import io
 import subprocess
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 import pandas as pd
+from loguru import logger
 
 import common
+import futures
 import ledger_amounts
 import stock_options
 
@@ -37,31 +39,40 @@ LOAN_BROKERAGES = (
 )
 
 
-def find_loan_brokerage(broker: str) -> Optional[LoanBrokerage]:
+def find_loan_brokerage(broker: str) -> LoanBrokerage:
     for brokerage in LOAN_BROKERAGES:
         if brokerage.name == broker:
             return brokerage
-    return None
+    raise ValueError(f"Brokerage {broker} not found")
 
 
-def get_loan_brokerage(broker: LoanBrokerage) -> Optional[LoanBrokerage]:
-    for brokerage in LOAN_BROKERAGES:
-        if brokerage.name == broker.name:
-            return brokerage
-    return None
-
-
-def get_balances_broker(
-    broker: LoanBrokerage, options_value_by_brokerage: dict[str, float]
-) -> Optional[pd.DataFrame]:
-    if (brokerage := get_loan_brokerage(broker)) is None:
-        return None
-    loan_df = load_loan_balance_df(brokerage)
-    equity_df = load_ledger_equity_balance_df(brokerage)
-    if options_value := options_value_by_brokerage.get(brokerage.name):
+@common.WalrusDb().cache.cached(timeout=30 * 60)
+def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
+    loan_df = load_loan_balance_df(broker)
+    equity_df = load_ledger_equity_balance_df(broker)
+    if not (od := stock_options.get_options_data()):
+        raise ValueError("Could not get options data")
+    if options_value := od.opts.options_value_by_brokerage.get(broker.name):
+        logger.info(f"Options value for {broker.name}: {options_value:.0f}")
         equity_df.iloc[-1, equity_df.columns.get_loc("Equity Balance")] += (  # type: ignore
             options_value
         )
+    futures_df = futures.Futures().futures_df
+    try:
+        futures_value = futures_df.xs(broker.name, level="account")["value"].sum()
+        notional_value = futures_df.xs(broker.name, level="account")[
+            "notional_value"
+        ].sum()
+        logger.info(f"Futures value for {broker.name}: {futures_value:.0f}")
+        logger.info(f"Futures notional value for {broker.name}: {notional_value:.0f}")
+        equity_df.iloc[-1, equity_df.columns.get_loc("Equity Balance")] += (  # type: ignore
+            notional_value
+        )
+        loan_df.iloc[-1, loan_df.columns.get_loc("Loan Balance")] -= (  # type: ignore
+            notional_value - futures_value
+        )
+    except KeyError:
+        pass
     equity_df["30% Equity Balance"] = equity_df["Equity Balance"] * 0.3
     equity_df["50% Equity Balance"] = equity_df["Equity Balance"] * 0.5
     equity_df["Loan Balance"] = loan_df.iloc[-1]["Loan Balance"]
@@ -100,21 +111,14 @@ def load_loan_balance_df(brokerage: LoanBrokerage) -> pd.DataFrame:
         parse_dates=True,
         names=["date", "Loan Balance"],
     )
-    loan_balance_df.loc[loan_balance_df["Loan Balance"] > 0, "Loan Balance"] = 0
     return loan_balance_df
 
 
 def main():
     """Main."""
-    if (options_data := stock_options.get_options_data()) is None:
-        raise ValueError("No options data available")
     for brokerage in LOAN_BROKERAGES:
-        if (
-            df := get_balances_broker(
-                brokerage, options_data.opts.options_value_by_brokerage
-            )
-        ) is not None:
-            print(brokerage.name, "\n", df.round(2), "\n")
+        df = get_balances_broker(brokerage)
+        print(brokerage.name, "\n", df.round(2), "\n")
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from concurrent.futures import Future, ProcessPoolExecutor
 from datetime import datetime, timedelta
 from typing import Callable, ClassVar, Literal, NamedTuple, Optional, Sequence, cast
 
+import humanize
 import matplotlib.colors as mcolors
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -19,7 +20,6 @@ import common
 import homes
 import margin_loan
 import plot
-import stock_options
 from main_graphs import (
     DEFAULT_RANGE,
     RANGES,
@@ -86,13 +86,11 @@ class Matplots(GraphCommon):
             ],
         )
         self.investing_retirement_section = BreakdownSection(
-            title="Investing & Retirement",
-            dataframe=lambda: common.read_sql_table("history"),
+            title="Retirement",
+            dataframe=lambda: common.read_sql_table("history")[["pillar2", "ira"]],
             column_titles=[
                 ("pillar2", "Pillar 2"),
                 ("ira", "IRA"),
-                ("commodities", "Commodities"),
-                ("etfs", "ETFs"),
             ],
         )
         self.real_estate_section = BreakdownSection(
@@ -327,9 +325,9 @@ class Matplots(GraphCommon):
 
         for r in results:
             self.image_graphs[r.redis_key] = r.f.result()
-        end_time = datetime.now()
-        last_generation_duration = end_time - start_time
-        logger.info(f"Graph generation time for Matplot: {last_generation_duration}")
+        logger.info(
+            f"Graph generation time for Matplot: {humanize.precisedelta(datetime.now() - start_time)}"
+        )
 
 
 def make_dataframe_line_graph(
@@ -367,7 +365,7 @@ def make_dataframe_line_graph(
         percent_change = (last_value - first_value) / first_value
         if first_value < 0:
             percent_change *= -1
-        annotation += f" {percent_change:+.1%}"
+        annotation += f" {percent_change:+.1%} ({last_value - first_value:,.0f})"
     ax.annotate(
         annotation,
         xy=(0.5, 0.5),
@@ -567,14 +565,7 @@ def make_total_bar_mom(column: str) -> bytes:
 
 
 def make_loan_graph(broker: margin_loan.LoanBrokerage) -> bytes:
-    if (od := stock_options.get_options_data()) is None:
-        raise GraphGenerationError("No options data")
-    if (
-        df := margin_loan.get_balances_broker(
-            broker, od.opts.options_value_by_brokerage
-        )
-    ) is None:
-        raise GraphGenerationError("No broker balance")
+    df = margin_loan.get_balances_broker(broker)
     categories = ["Equity", "Loan", "Equity - Loan"]
     amounts = [
         df["Equity Balance"].iloc[-1],

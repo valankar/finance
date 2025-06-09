@@ -5,9 +5,23 @@ import pandas as pd
 
 import common
 
+# Not available at Schwab.
+SPECIAL_FUTURES = {
+    "/MFS": {
+        "multiplier": 50,
+        "mark_method": lambda: common.get_ticker_all("MFS=F"),
+    }
+}
+
 
 class Futures:
     def future_quote(self, ticker: str) -> pd.Series:
+        for t, d in SPECIAL_FUTURES.items():
+            if ticker.startswith(t):
+                mark = d["mark_method"]()
+                multiplier = d["multiplier"]
+                return pd.Series([mark, multiplier])
+
         fq = common.get_future_quote(ticker)
         return pd.Series([fq.mark, fq.multiplier])
 
