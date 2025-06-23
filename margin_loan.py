@@ -46,36 +46,46 @@ def find_loan_brokerage(broker: str) -> LoanBrokerage:
     raise ValueError(f"Brokerage {broker} not found")
 
 
-@common.WalrusDb().cache.cached(timeout=30 * 60)
+@common.walrus_db.cache.cached()
 def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
     loan_df = load_loan_balance_df(broker)
     equity_df = load_ledger_equity_balance_df(broker)
+    notional_value = equity_df["Equity Balance"].sum()
+    cash_balance = loan_df["Loan Balance"].sum()
+    portfolio_equity = notional_value + cash_balance
     if not (od := stock_options.get_options_data()):
         raise ValueError("Could not get options data")
     if options_value := od.opts.options_value_by_brokerage.get(broker.name):
-        logger.info(f"Options value for {broker.name}: {options_value:.0f}")
-        equity_df.iloc[-1, equity_df.columns.get_loc("Equity Balance")] += (  # type: ignore
-            options_value
+        logger.info(f"Options value for {broker.name}: {options_value.value:.0f}")
+        logger.info(
+            f"Options notional value for {broker.name}: {options_value.notional_value:.0f}"
         )
+        notional_value += options_value.notional_value
+        portfolio_equity += options_value.value
     futures_df = futures.Futures().futures_df
     try:
         futures_value = futures_df.xs(broker.name, level="account")["value"].sum()
-        notional_value = futures_df.xs(broker.name, level="account")[
+        futures_notional_value = futures_df.xs(broker.name, level="account")[
             "notional_value"
         ].sum()
         logger.info(f"Futures value for {broker.name}: {futures_value:.0f}")
-        logger.info(f"Futures notional value for {broker.name}: {notional_value:.0f}")
-        equity_df.iloc[-1, equity_df.columns.get_loc("Equity Balance")] += (  # type: ignore
-            notional_value
+        logger.info(
+            f"Futures notional value for {broker.name}: {futures_notional_value:.0f}"
         )
-        loan_df.iloc[-1, loan_df.columns.get_loc("Loan Balance")] -= (  # type: ignore
-            notional_value - futures_value
-        )
+        notional_value += futures_notional_value
+        portfolio_equity += futures_value
     except KeyError:
         pass
+    logger.info(f"Cash balance for for {broker.name}: {cash_balance:.0f}")
+    logger.info(f"Portfolio notional value for {broker.name}: {notional_value:.0f}")
+    logger.info(f"Portfolio equity for {broker.name}: {portfolio_equity:.0f}")
+    equity_df["Equity Balance"] = notional_value
+    equity_df["Leverage Ratio"] = notional_value / portfolio_equity
     equity_df["30% Equity Balance"] = equity_df["Equity Balance"] * 0.3
     equity_df["50% Equity Balance"] = equity_df["Equity Balance"] * 0.5
-    equity_df["Loan Balance"] = loan_df.iloc[-1]["Loan Balance"]
+    equity_df["Loan Balance"] = portfolio_equity - (
+        equity_df["Leverage Ratio"] * portfolio_equity
+    )
     equity_df["Total"] = equity_df["Equity Balance"] + equity_df["Loan Balance"]
     equity_df["Distance to 30%"] = (
         equity_df["Loan Balance"] + equity_df["30% Equity Balance"]

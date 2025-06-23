@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from functools import reduce
 from pathlib import Path
-from typing import Any, ClassVar, Generator, Mapping, Optional
+from typing import Any, ClassVar, Final, Generator, Mapping, Optional
 
 import duckdb
 import pandas as pd
@@ -24,7 +24,6 @@ import yfinance
 from authlib.integrations.starlette_client import OAuth, StarletteOAuth2App
 from loguru import logger
 from playwright.sync_api import sync_playwright
-from pyngleton import singleton
 from schwab.client import AsyncClient, Client
 from schwab.orders.options import OptionSymbol
 
@@ -55,11 +54,13 @@ class GetTickerError(Exception):
     """Error getting ticker."""
 
 
-@singleton
 class WalrusDb:
     def __init__(self):
         self.db = walrus.Database(host=os.environ.get("REDIS_HOST", "localhost"))
         self.cache = self.db.cache()
+
+
+walrus_db: Final[WalrusDb] = WalrusDb()
 
 
 class TickerOption(typing.NamedTuple):
@@ -74,7 +75,16 @@ class FutureQuote(typing.NamedTuple):
     multiplier: float
 
 
-@singleton
+class OptionQuote(typing.NamedTuple):
+    mark: float
+    delta: float
+
+
+schwab_lock: Final[walrus.Lock] = walrus_db.db.lock(
+    "schwab", ttl=LOCK_TTL_SECONDS * 1000
+)
+
+
 class Schwab:
     SCHWAB_TOKEN_FILE: ClassVar[str] = f"{CODE_DIR}/.schwab_token.json"
 
@@ -154,21 +164,30 @@ class Schwab:
         logger.info(f"{ticker=} {value=}")
         return value if not invert else 1 / value
 
-    def get_option_quote(self, t: TickerOption) -> Optional[float]:
+    def get_option_quote(self, t: TickerOption) -> Optional[OptionQuote]:
         ticker = t.ticker
         option_tickers = [ticker]
         if ticker == "SPX":
             option_tickers.append(f"{ticker}W")
         for option_ticker in option_tickers:
             if t.expiration < date.today():
-                return 0
+                return None
             symbol = OptionSymbol(
                 option_ticker, t.expiration, t.contract_type[0], str(t.strike)
             ).build()
             try:
-                value = self.client.get_quotes([symbol]).json()[symbol]["quote"]["mark"]
-                logger.info(f"{symbol=} {value=}")
-                return value
+                j = self.client.get_quotes([symbol]).json()[symbol]
+                mark = j["quote"]["mark"]
+                delta = j["quote"]["delta"]
+                # Delta is sometimes completely wrong
+                if abs(delta) > 1:
+                    underlying = j["quote"]["underlyingPrice"]
+                    if t.contract_type == "CALL":
+                        delta = 1 if underlying > t.strike else 0
+                    elif t.contract_type == "PUT":
+                        delta = -1 if underlying < t.strike else 0
+                logger.info(f"{symbol=} {mark=} {delta=}")
+                return OptionQuote(mark=mark, delta=delta)
             except KeyError:
                 logger.error(f"Cannot find quote for {symbol=}")
         return None
@@ -186,6 +205,9 @@ class Schwab:
             raise GetTickerError(f"Cannot find future quote for {ticker=} {j=}")
 
 
+schwab_conn: Final[Schwab] = Schwab()
+
+
 @contextmanager
 def pandas_options():
     """Set pandas output options."""
@@ -198,7 +220,7 @@ def pandas_options():
 GET_TICKER_FAILURES: set[str] = set()
 
 
-@WalrusDb().cache.cached(timeout=30 * 60)
+@walrus_db.cache.cached()
 def get_ticker_all(ticker: str) -> float:
     """Get ticker prices by trying various methods."""
     get_ticker_methods = (
@@ -222,22 +244,22 @@ def get_ticker_all(ticker: str) -> float:
     raise GetTickerError("No more methods to get ticker price")
 
 
-@WalrusDb().cache.cached(timeout=30 * 60)
+@schwab_lock
+@walrus_db.cache.cached()
 def get_ticker(ticker: str) -> float:
-    with WalrusDb().db.lock("schwab", ttl=LOCK_TTL_SECONDS * 1000):
-        return Schwab().get_quote(ticker)
+    return schwab_conn.get_quote(ticker)
 
 
-@WalrusDb().cache.cached(timeout=30 * 60)
-def get_option_quote(t: TickerOption) -> float | None:
-    with WalrusDb().db.lock("schwab", ttl=LOCK_TTL_SECONDS * 1000):
-        return Schwab().get_option_quote(t)
+@schwab_lock
+@walrus_db.cache.cached()
+def get_option_quote(t: TickerOption) -> OptionQuote | None:
+    return schwab_conn.get_option_quote(t)
 
 
-@WalrusDb().cache.cached(timeout=30 * 60)
+@schwab_lock
+@walrus_db.cache.cached()
 def get_future_quote(ticker: str) -> FutureQuote:
-    with WalrusDb().db.lock("schwab", ttl=LOCK_TTL_SECONDS * 1000):
-        return Schwab().get_future_quote(ticker)
+    return schwab_conn.get_future_quote(ticker)
 
 
 def get_ticker_alphavantage(ticker: str) -> float:
@@ -279,13 +301,13 @@ def get_latest_forex() -> pd.Series:
 def duckdb_lock(
     read_only: bool = False,
 ) -> Generator[duckdb.DuckDBPyConnection, None, None]:
-    with WalrusDb().db.lock(DUCKDB_LOCK_NAME, ttl=LOCK_TTL_SECONDS * 1000):
+    with walrus_db.db.lock(DUCKDB_LOCK_NAME, ttl=LOCK_TTL_SECONDS * 1000):
         with duckdb.connect(DUCKDB, read_only=read_only) as con:
             yield con
 
 
 def compact_db():
-    with WalrusDb().db.lock(DUCKDB_LOCK_NAME, ttl=LOCK_TTL_SECONDS * 1000):
+    with walrus_db.db.lock(DUCKDB_LOCK_NAME, ttl=LOCK_TTL_SECONDS * 1000):
         with temporary_file_move(DUCKDB) as new_db:
             with duckdb.connect() as con:
                 con.execute(f"ATTACH '{DUCKDB}' as old")

@@ -1,28 +1,79 @@
 import io
+import pickle
 import subprocess
+import typing
+from datetime import datetime
 
 import pandas as pd
+from loguru import logger
 
 import common
 
-# Not available at Schwab.
-SPECIAL_FUTURES = {
-    "/MFS": {
-        "multiplier": 50,
-        "mark_method": lambda: common.get_ticker_all("MFS=F"),
-    }
+MONTH_CODES: dict[str, str] = {
+    "F": "Jan",
+    "G": "Feb",
+    "H": "Mar",
+    "J": "Apr",
+    "K": "May",
+    "M": "Jun",
+    "N": "Jul",
+    "Q": "Aug",
+    "U": "Sep",
+    "V": "Oct",
+    "X": "Nov",
+    "Z": "Dec",
 }
+
+MULTIPLIERS: dict[str, float] = {
+    "10Y": 1000,
+    "M2K": 5,
+    "MBT": 0.1,
+    "MES": 5,
+    "MFS": 50,
+    "MGC": 10,
+}
+
+REDIS_KEY = "FuturesData"
+
+
+class IceUnknownFuture(Exception):
+    pass
+
+
+class FuturesData(typing.NamedTuple):
+    main_output: str
+    updated: datetime
+
+
+@common.walrus_db.cache.cached()
+def get_future_quote_mfs(ticker: str) -> common.FutureQuote:
+    month_prefix = MONTH_CODES[ticker[4]]
+    year = ticker[5:]
+    contract = f"{month_prefix}{year}"
+    logger.info(f"Looking for {ticker=} {contract=}")
+    with common.run_with_browser_page(
+        "https://www.ice.com/products/31196848/MSCI-EAFE-Index-Future/data"
+    ) as page:
+        cell = page.get_by_role("cell", name=contract)
+        row = cell.locator("xpath=ancestor::tr")
+        if price := row.locator("td").nth(1).text_content():
+            q = common.FutureQuote(
+                mark=float(price), multiplier=MULTIPLIERS[ticker[1:4]]
+            )
+            logger.info(f"{ticker=} {q=}")
+            return q
+    raise IceUnknownFuture("cannot find price")
 
 
 class Futures:
     def future_quote(self, ticker: str) -> pd.Series:
-        for t, d in SPECIAL_FUTURES.items():
-            if ticker.startswith(t):
-                mark = d["mark_method"]()
-                multiplier = d["multiplier"]
-                return pd.Series([mark, multiplier])
-
-        fq = common.get_future_quote(ticker)
+        if ticker.startswith("/MFS"):
+            fq = get_future_quote_mfs(ticker)
+        else:
+            fq = common.get_future_quote(ticker)
+            m = MULTIPLIERS[ticker[1:4]]
+            if fq.multiplier != m:
+                fq = common.FutureQuote(mark=fq.mark, multiplier=m)
         return pd.Series([fq.mark, fq.multiplier])
 
     @property
@@ -83,3 +134,19 @@ class Futures:
             .rename(columns={"notional_value": "value"})
         )
         return df
+
+    @property
+    def redis_data(self) -> FuturesData:
+        return pickle.loads(common.walrus_db.db[REDIS_KEY])
+
+    def save_to_redis(self):
+        with common.pandas_options():
+            df = self.futures_df
+            total = df["value"].sum()
+            notional = df.groupby(level="account")["notional_value"].sum()
+            main_output = f"{df}\n\nTotal value: {total:.0f}\n\nNotional value by account:\n{notional}"
+        data = FuturesData(
+            main_output=main_output,
+            updated=datetime.now(),
+        )
+        common.walrus_db.db[REDIS_KEY] = pickle.dumps(data)

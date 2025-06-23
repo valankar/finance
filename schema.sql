@@ -1,4 +1,4 @@
-CREATE TABLE brokerage_totals(date TIMESTAMP, "Equity Balance" DOUBLE, "30% Equity Balance" DOUBLE, "50% Equity Balance" DOUBLE, "Loan Balance" DOUBLE, Total DOUBLE, "Distance to 30%" DOUBLE, "Distance to 50%" DOUBLE, Brokerage VARCHAR);
+CREATE TABLE brokerage_totals(date TIMESTAMP, "Equity Balance" DOUBLE, "30% Equity Balance" DOUBLE, "50% Equity Balance" DOUBLE, "Loan Balance" DOUBLE, Total DOUBLE, "Distance to 30%" DOUBLE, "Distance to 50%" DOUBLE, Brokerage VARCHAR, "Leverage Ratio" DOUBLE);
 CREATE TABLE fedfunds(date TIMESTAMP_NS, "percent" DOUBLE);
 CREATE TABLE forex(date TIMESTAMP, CHFUSD DOUBLE, SGDUSD DOUBLE);
 CREATE TABLE history(date TIMESTAMP, total_liquid DOUBLE, total_real_estate DOUBLE, total_retirement DOUBLE, total_investing DOUBLE, ira DOUBLE, pillar2 DOUBLE);

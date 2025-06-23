@@ -428,7 +428,7 @@ def make_loan_section(margin: dict[str, int]) -> Figure:
             ],
         )
         section.add_trace(fig, row=1, col=col)
-        for i, percent_hline in enumerate((30, 50), start=1):
+        for i, percent_hline in enumerate((50, 30), start=1):
             percent_balance = (
                 df.iloc[-1]["Equity Balance"]
                 - df.iloc[-1][f"{percent_hline}% Equity Balance"]
@@ -450,6 +450,14 @@ def make_loan_section(margin: dict[str, int]) -> Figure:
                 row=1,
                 col=col,
             )
+        section.add_annotation(
+            text=f"Leverage ratio: {df.iloc[-1]['Leverage Ratio']:.2f}",
+            showarrow=False,
+            x="Loan",
+            y=df.iloc[-1]["Equity Balance"] * (3 / 10),
+            row=1,
+            col=col,
+        )
 
     for i, broker in enumerate(margin_loan.LOAN_BROKERAGES, start=1):
         df = margin_loan.get_balances_broker(broker)
@@ -498,7 +506,8 @@ def make_total_bar_mom(daily_df: pd.DataFrame, column: str) -> Figure:
         diff_df,
         x=diff_df.index,
         y=column,
-        trendline="lowess",
+        # https://github.com/statsmodels/statsmodels/issues/9584
+        # trendline="lowess",
     )
     line_chart.for_each_trace(
         lambda t: monthly_bar.add_trace(t), selector={"mode": "lines"}

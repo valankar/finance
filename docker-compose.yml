@@ -2,7 +2,6 @@ services:
   accounts: &accounts
     image: ${IMAGE}
     container_name: accounts
-    init: true
     volumes: &volumes
       - ${HOME}/code/accounts:/app/code/accounts
       - ${HOME}/code/ledger:/app/code/ledger
@@ -13,14 +12,12 @@ services:
       SCHWAB_SECRET: ${SCHWAB_SECRET}
       SCHWAB_CALLBACK_URI: ${SCHWAB_CALLBACK_URI}
       FRED_API_KEY: ${FRED_API_KEY}
-    labels: &labels
-      com.centurylinklabs.watchtower.no-pull: true
     restart: unless-stopped
     networks: &networks
       - cloudflare
     depends_on: &depends_on
-      valkey:
-        condition: service_started
+      - valkey
+      - selenium
 
   accounts-dev:
     <<: *accounts
@@ -29,44 +26,14 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      valkey-dev:
-        condition: service_started
+      - valkey-dev
 
   accounts_hourly:
-    image: ${IMAGE}
+    <<: *accounts
+    restart: no
     profiles: [ "scripts" ]
     container_name: accounts_hourly
-    volumes: *volumes
-    environment: *environment
-    labels: *labels
-    networks: *networks
-    depends_on: *depends_on
     command: "/app/code/accounts/finance_hourly.py"
-
-  accounts_daily:
-    image: ${IMAGE}
-    profiles: [ "scripts" ]
-    container_name: accounts_daily
-    volumes: *volumes
-    environment: *environment
-    labels: *labels
-    networks: *networks
-    depends_on: &daily_depends_on
-      <<: *depends_on
-      selenium:
-        condition: service_healthy
-    command: "/app/code/accounts/finance_daily.py"
-
-  accounts_daily_script:
-    image: ${IMAGE}
-    profiles: [ "scripts" ]
-    container_name: accounts_daily_script
-    volumes: *volumes
-    environment: *environment
-    labels: *labels
-    networks: *networks
-    depends_on: *daily_depends_on
-    command: "/app/code/accounts/${SCRIPT}"
 
   valkey: &valkey
     image: valkey/valkey
@@ -87,16 +54,14 @@ services:
 
   selenium: &selenium
     image: selenium/standalone-chromium
-    profiles: [ "scripts" ]
     container_name: selenium
     shm_size: 2g
     environment:
       - SE_ENABLE_TRACING=false
+    restart: unless-stopped
     networks: *networks
     ports:
       - "7900:7900"
-    healthcheck:
-      test: [ "CMD", "/opt/bin/check-grid.sh", "--host", "0.0.0.0", "--port", "4444" ]
 
   selenium-dev:
     <<: *selenium

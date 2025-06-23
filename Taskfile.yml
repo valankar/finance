@@ -1,32 +1,62 @@
 version: '3'
 
+vars:
+  HOST: valankar@cachyos-server
+  UNISON_CMD: unison -batch -terse
+  PROJECT_NAME: accounts
+  IMAGE_NAME: 192.168.0.4:5000/{{.PROJECT_NAME}}
+
 tasks:
-  dev-restart:
+  dev-valkey-restart:
     cmds:
-      - docker compose --profile development down
-      - docker compose --profile development up -d accounts-dev
-  dev-check:
-    cmds:
-      - echo 'Check dev and hit enter to proceed'
-      - read
-    interactive: true
+      - docker compose --profile development restart valkey-dev
+    sources:
+      - ./web/valkey/dump.rdb
   dev-build:
     cmds:
-      - docker build -t accounts .
-      - task: dev-restart
-      - task: dev-check
+      - docker build -t {{.IMAGE_NAME}} .
+      - docker push {{.IMAGE_NAME}}
+      - docker compose --profile development up -d {{.PROJECT_NAME}}-dev
       - docker image prune -f
-  prod-build:
+  prod-push:
     cmds:
-      - ssh -t $HOST 'cd code/accounts && docker compose down accounts accounts_hourly accounts_daily'
-      - uv run sync_prod.py
-      - ssh -t $HOST 'cd code/accounts && docker build -t accounts . && docker image prune -f && docker compose up -d'
-    env:
-      HOST: valankar@cachyos-server
-  upgrade:
+      - task: prod-sync
+      - ssh {{.HOST}} 'cd code/{{.PROJECT_NAME}} && docker compose up -d && docker image prune -f'
+  prod-sync-ledger:
+    cmds:
+      - >
+        {{.UNISON_CMD}} -force {{.LEDGER_DIR}}
+        -forcepartial "Path ledger.ledger -> ssh://{{.HOST}}/code/ledger"
+        -forcepartial "Path prices.db -> ssh://{{.HOST}}/code/ledger"
+        -ignore 'Path __pycache__'
+        {{.LEDGER_DIR}} ssh://{{.HOST}}/code/ledger
+    vars:
+      LEDGER_DIR: '{{.HOME}}/code/ledger'
+    status:
+      - test -n "$NO_SYNC_LEDGER"
+  prod-sync:
+    cmds:
+      - >
+        {{.UNISON_CMD}} -force .
+        -forcepartial "BelowPath web -> ssh://{{.HOST}}/code/{{.PROJECT_NAME}}"
+        -forcepartial 'Path .schwab_token.json -> newer'
+        -ignore 'Path .venv' -ignore 'Path __pycache__' -ignore 'Path .task'
+        . ssh://{{.HOST}}/code/{{.PROJECT_NAME}}
+      - task: prod-sync-ledger
+      - task: dev-valkey-restart
+  update-packages:
     cmds:
       - uv lock --upgrade
       - uv sync
+      - git diff --quiet uv.lock || git commit uv.lock -m "Update packages"
+    generates:
+      - uv.lock
+  upgrade:
+    deps:
+      - update-packages
+    cmds:
       - task: dev-build
-      - task: prod-build
+      - task: prod-push
+    sources:
+      - uv.lock
 

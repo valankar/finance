@@ -6,8 +6,10 @@ import io
 import os
 import re
 import subprocess
+from datetime import datetime
 from typing import Awaitable, Iterable
 
+import humanize
 import pandas as pd
 import plotly.io as pio
 from fastapi import Request
@@ -149,15 +151,10 @@ def balance_etfs_page(amount: int = 0):
 @ui.page("/futures", title="Futures")
 async def futures_page():
     log_request()
-
-    def render() -> str:
-        with common.pandas_options():
-            df = futures.Futures().futures_df
-            total = df["value"].sum()
-            notional = df.groupby(level="account")["notional_value"].sum()
-            return f"{df}\n\nTotal value: {total:.0f}\n\nNotional value by account:\n{notional}"
-
-    html.pre(await run.io_bound(render))
+    data = futures.Futures().redis_data
+    with ui.row().classes("items-center"):
+        ui.label(f"Staleness: {humanize.naturaldelta(datetime.now() - data.updated)}")
+    html.pre(data.main_output)
 
 
 def floatify(string: str) -> float:
@@ -233,13 +230,13 @@ async def transactions_page():
 async def schwab_login(request: Request) -> RedirectResponse:
     if not (uri := os.environ.get("SCHWAB_CALLBACK_URI")):
         raise ValueError("SCHWAB_CALLBACK_URI not defined")
-    return await common.Schwab().oauth.authorize_redirect(request, uri)
+    return await common.schwab_conn.oauth.authorize_redirect(request, uri)
 
 
 @app.get("/callback")
 async def schwab_callback(request: Request) -> RedirectResponse:
-    token = await common.Schwab().oauth.authorize_access_token(request)
-    common.Schwab().write_token(token)
+    token = await common.schwab_conn.oauth.authorize_access_token(request)
+    common.schwab_conn.write_token(token)
     return RedirectResponse("/")
 
 

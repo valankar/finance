@@ -13,7 +13,9 @@ from loguru import logger
 import brokerages
 import common
 import etfs
+import finance_daily
 import forex
+import futures
 import history
 import index_prices
 import ledger_prices_db
@@ -27,17 +29,22 @@ app = App()
 
 
 @app.default
-async def run_all(
+def run_all(
     calculate: bool = True,
+    daily: bool = True,
+    flush_cache: bool = True,
     matplot: bool = True,
     plotly: bool = True,
 ):
     start_time = datetime.now()
-    with common.WalrusDb().db.lock(
+    with common.walrus_db.db.lock(
         common.SCRIPT_LOCK_NAME, ttl=common.LOCK_TTL_SECONDS * 1000
     ):
+        if flush_cache:
+            common.walrus_db.cache.flush()
         if calculate:
             stock_options.generate_options_data()
+            futures.Futures().save_to_redis()
             etfs.main()
             index_prices.main()
             forex.main()
@@ -56,6 +63,8 @@ async def run_all(
             if o := r.result():
                 logger.info(o)
         valkey.Valkey(host=os.environ.get("REDIS_HOST", "localhost")).bgsave()
+        if daily:
+            finance_daily.run_all()
     logger.info(
         f"Total time for run: {humanize.precisedelta(datetime.now() - start_time)}"
     )

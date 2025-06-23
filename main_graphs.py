@@ -180,7 +180,7 @@ class MainGraphs(GraphCommon):
     def __init__(self):
         self.ui_plotly_ranged: dict[str, ui.plotly] = {}
         self.selected_range = DEFAULT_RANGE
-        self.plotly_graphs = common.WalrusDb().db.Hash(self.REDIS_KEY)
+        self.plotly_graphs = common.walrus_db.db.Hash(self.REDIS_KEY)
 
     def get_plotly_json(self, key: str) -> Optional[dict]:
         if graph := self.plotly_graphs.get(key):
@@ -423,7 +423,7 @@ class MainGraphsImageOnly(GraphCommon):
     def __init__(self):
         self.ui_image_ranged: dict[str, ui.image] = {}
         self.selected_range = DEFAULT_RANGE
-        self.image_graphs = common.WalrusDb().db.Hash(self.REDIS_KEY)
+        self.image_graphs = common.walrus_db.db.Hash(self.REDIS_KEY)
 
     def create(self):
         with ui.footer().classes("transparent q-py-none"):

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Balance portfolio based on SWYGX."""
 
-from typing import Annotated, Any, Optional
+from typing import Any, Optional
 
 import pandas as pd
-from cyclopts import App, Parameter
+from cyclopts import App
+from loguru import logger
 
 import common
 import etfs
@@ -25,7 +26,7 @@ COMMODITIES_PERCENTAGE_FLOOR = 8
 ETF_TYPE_MAP = {
     "COMMODITIES_GOLD": ["GLD", "GLDM", "SGOL", "/MGC"],
     "COMMODITIES_SILVER": ["SIVR"],
-    "COMMODITIES_CRYPTO": ["COIN", "BITX", "MSTR", "/MBT"],
+    "COMMODITIES_CRYPTO": ["BITX", "IBIT", "MSTR", "/MBT"],
     "US_SMALL_CAP": ["SCHA", "VB", "IWM", "/M2K", "/RTY"],
     "US_LARGE_CAP": ["SCHX", "SPLG", "VOO", "VV", "/MES"],
     "US_BONDS": ["BND", "SCHO", "SCHR", "SCHZ", "SWAGX", "/10Y"],
@@ -35,7 +36,7 @@ ETF_TYPE_MAP = {
 FUTURES_INVERSE_CORRELATION = {"/10Y"}
 # These get expanded out into US_SMALL_CAP and US_LARGE_CAP according to allocation
 # of SWTSX.
-TOTAL_MARKET_FUNDS = ["SWTSX", "SCHB"]
+TOTAL_MARKET_FUNDS = ["SWTSX", "SCHB", "VTSAX", "VTI"]
 
 
 class RebalancingError(Exception):
@@ -129,6 +130,14 @@ def get_desired_df(
     """Get dataframe, cost to get to desired allocation."""
     desired_allocation = get_desired_allocation()
     etfs_df = etfs.get_etfs_df()[["value"]]
+    for ticker, adjust in adjustment.items():
+        if ticker in ETF_TYPE_MAP:
+            continue
+        logger.info(f"Adjusting {ticker=} {adjust=}")
+        if ticker in etfs_df.index:
+            etfs_df.loc[ticker, "value"] += adjust  # type: ignore
+        else:
+            etfs_df.loc[ticker, "value"] = adjust
     # Add in options value
     if (options_data := stock_options.get_options_data()) is None:
         raise ValueError("No options data available")
@@ -137,21 +146,25 @@ def get_desired_df(
         futures_tickers.index.isin(FUTURES_INVERSE_CORRELATION), "value"
     ] *= -1
     etfs_df = etfs_df.add(futures_tickers, fill_value=0)
-    # Treat ITM options as their exercise value.
     options_df = options_data.opts.pruned_options
-    itm_df = stock_options.after_assignment_df(options_df.query("in_the_money == True"))
     etfs_df = etfs_df.add(
-        itm_df[["value_change"]].rename(columns={"value_change": "value"}), fill_value=0
+        options_df.groupby("ticker")
+        .sum()[["notional_value"]]
+        .rename(columns={"notional_value": "value"}),
+        fill_value=0,
     )
-    # Treat OTM options as their option value.
-    otm_df = (
-        options_df.query("in_the_money == False").groupby("ticker").sum()[["value"]]
-    )
-    etfs_df = etfs_df.add(otm_df, fill_value=0)
     wanted_df = pd.DataFrame({"wanted_percent": pd.Series(desired_allocation)})
     mf_df = convert_etfs_to_types(etfs_df, ETF_TYPE_MAP)
+    # Treat Pillar 2 as bonds
+    mf_df.loc["US_BONDS", "value"] += common.read_sql_last("history")["pillar2"].iloc[
+        -1
+    ]
     for category, adjust in adjustment.items():
-        mf_df.loc[category] += adjust
+        if category not in ETF_TYPE_MAP:
+            continue
+        if category in mf_df.index:
+            logger.info(f"Adjusting {category=} {adjust=}")
+            mf_df.loc[category] += adjust
     total = mf_df["value"].sum()
     mf_df["current_percent"] = (mf_df["value"] / total) * 100
     mf_df = mf_df.join(wanted_df, how="outer").fillna(0).sort_index()
@@ -208,18 +221,11 @@ def get_rebalancing_df(
 app = App()
 
 
-def validate_adjustment(_, value: dict[str, int]):
-    if not set(value).issubset(set(ETF_TYPE_MAP)):
-        raise ValueError("Unknown ETF category")
-
-
 @app.default
 def main(
     value: int = 0,
     commodities_percentage_floor: int = COMMODITIES_PERCENTAGE_FLOOR,
-    adjustment: Annotated[
-        dict[str, int], Parameter(validator=validate_adjustment)
-    ] = {},
+    adjustment: dict[str, int] = {},
 ):
     """Balance ETFs.
 
@@ -230,7 +236,7 @@ def main(
     commodities_percentage_floor: int
         Minimum percentage of commodities.
     adjustment: dict[str, int]
-        Adjustments to a category's current balance.
+        Adjustments to a category's (or ETF's) current balance.
         Example: --adjustment.INTERNATIONAL_DEVELOPED -10000
     """
     global COMMODITIES_PERCENTAGE_FLOOR

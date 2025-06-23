@@ -18,7 +18,6 @@ from loguru import logger
 import common
 import etfs
 import ledger_ops
-import margin_loan
 
 REDIS_KEY = "OptionsData"
 
@@ -92,6 +91,11 @@ class BrokerExpirationValues(typing.NamedTuple):
     values: list[ExpirationValue]
 
 
+class OptionsValue(typing.NamedTuple):
+    value: float
+    notional_value: float
+
+
 class OptionsAndSpreads(typing.NamedTuple):
     all_options: pd.DataFrame
     # Options with box, bull put, and bear call spreads removed.
@@ -106,7 +110,7 @@ class OptionsAndSpreads(typing.NamedTuple):
     bull_put_spreads_no_ic: list[Spread]
     bear_call_spreads_no_ic: list[Spread]
     synthetics: list[Spread]
-    options_value_by_brokerage: dict[str, float]
+    options_value_by_brokerage: dict[str, OptionsValue]
 
 
 class OptionsData(typing.NamedTuple):
@@ -159,10 +163,11 @@ def add_options_quotes(options_df: pd.DataFrame):
     if not len(tickers):
         return options_df
     prices = []
+    deltas = []
     for idx, row in options_df.iterrows():
         expiration = typing.cast(tuple, idx)[2].date()
         ticker = row["ticker"]
-        price = common.get_option_quote(
+        quote = common.get_option_quote(
             common.TickerOption(
                 ticker=ticker,
                 expiration=expiration,
@@ -170,12 +175,22 @@ def add_options_quotes(options_df: pd.DataFrame):
                 strike=row["strike"],
             ),
         )
-        if price is None:
-            price = 0
+        price = delta = 0
+        if quote:
+            price = quote.mark
+            delta = quote.delta
         prices.append(price)
+        deltas.append(delta)
     options_df["quote"] = prices
+    options_df["delta"] = deltas
     options_df["value"] = (
         options_df["count"] * options_df["quote"] * options_df["multiplier"]
+    )
+    options_df["notional_value"] = (
+        options_df["delta"]
+        * options_df["strike"]
+        * options_df["count"]
+        * options_df["multiplier"]
     )
     return options_df
 
@@ -745,10 +760,13 @@ def get_options_value_by_brokerage(
     pruned_options: pd.DataFrame,
     bull_put_spreads: list[Spread],
     bear_call_spreads: list[Spread],
-) -> dict[str, float]:
-    values: dict[str, float] = {}
+) -> dict[str, OptionsValue]:
+    values: dict[str, OptionsValue] = {}
     for broker in common.BROKERAGES:
         options_value = pruned_options.query(f"account == '{broker}'")["value"].sum()
+        options_notional_value = pruned_options.query(f"account == '{broker}'")[
+            "notional_value"
+        ].sum()
         dfs = [s.df for s in bull_put_spreads + bear_call_spreads]
         if dfs:
             spread_df = pd.concat(dfs)
@@ -759,9 +777,9 @@ def get_options_value_by_brokerage(
             options_value += spread_df.query(
                 f"account == '{broker}' and ticker == 'SPX'"
             )["intrinsic_value"].sum()
-        if options_value:
-            logger.info(f"Options value for {broker}: {options_value}")
-            values[broker] = options_value
+        values[broker] = OptionsValue(
+            value=options_value, notional_value=options_notional_value
+        )
     return values
 
 
@@ -836,11 +854,11 @@ def generate_options_data():
         main_output=main_output,
         updated=datetime.now(),
     )
-    common.WalrusDb().db[REDIS_KEY] = pickle.dumps(data)
+    common.walrus_db.db[REDIS_KEY] = pickle.dumps(data)
 
 
 def get_options_data() -> typing.Optional[OptionsData]:
-    db = common.WalrusDb().db
+    db = common.walrus_db.db
     if REDIS_KEY not in db:
         logger.error("No options data found")
         return None
@@ -886,15 +904,6 @@ def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
                 remove_zero_columns(opts.pruned_options.xs(broker, level="account")),  # type: ignore
                 "\n",
             )
-    for broker in common.BROKERAGES:
-        option_risk = opts.all_options.query("account == @broker")["value"].sum()
-        if (brokerage := margin_loan.find_loan_brokerage(broker)) is not None:
-            df = margin_loan.get_balances_broker(brokerage)
-            netliq = df["Total"].sum()
-            print(
-                f"{broker} option value as percentage of net liquidity: {abs(option_risk / netliq):.2%} (${option_risk:.0f})"
-            )
-
     if show_spreads:
         if opts.bull_put_spreads:
             print("Bull put spreads")

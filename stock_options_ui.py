@@ -35,7 +35,7 @@ class StockOptionsPage(GraphCommon):
     REDIS_SUBKEY: typing.ClassVar[str] = "StockOptionsPage UIData"
 
     def __init__(self):
-        self.image_graphs = common.WalrusDb().db.Hash(self.REDIS_KEY)
+        self.image_graphs = common.walrus_db.db.Hash(self.REDIS_KEY)
 
     @property
     def ui_data(self) -> UIData:

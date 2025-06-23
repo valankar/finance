@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Run daily finance functions."""
 
-import argparse
-import sys
 from functools import partial
 from typing import Callable, NamedTuple
 
@@ -54,46 +52,20 @@ def make_daily_methods() -> list[DailyMethod]:
     ]
 
 
-def methods_run_needed() -> bool:
-    needs_run = []
+def run_all():
+    failed_methods = []
+    cache = common.walrus_db.db.cache("Daily Methods", default_timeout=24 * 60 * 60)
     for method in make_daily_methods():
-        if not common.WalrusDb().cache.get(method.name):
-            logger.info(f"Method {method.name} needs to run")
-            needs_run.append(method)
-    return bool(needs_run)
-
-
-def main():
-    """Main."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--methods-run-needed", default=False, action=argparse.BooleanOptionalAction
-    )
-    args = parser.parse_args()
-    if args.methods_run_needed:
-        if methods_run_needed():
-            sys.exit(1)
-        else:
-            sys.exit()
-    with common.WalrusDb().db.lock(
-        common.SCRIPT_LOCK_NAME, ttl=common.LOCK_TTL_SECONDS * 1000
-    ):
-        failed_methods = []
-        for method in make_daily_methods():
-            if common.WalrusDb().cache.get(method.name):
-                continue
-            try:
-                logger.info(f"Running {method.name}")
-                method.method()
-                common.WalrusDb().cache.set(method.name, True, timeout=24 * 60 * 60)
-            except Exception:
-                logger.exception("Failed")
-                failed_methods.append(method)
-        if failed_methods:
-            for m in failed_methods:
-                logger.error(f"Failed method {m.name}")
-            raise MethodFailed()
-
-
-if __name__ == "__main__":
-    main()
+        if cache.get(method.name):
+            continue
+        try:
+            logger.info(f"Running {method.name}")
+            method.method()
+            cache.set(method.name, True)
+        except Exception:
+            logger.exception("Failed")
+            failed_methods.append(method)
+    if failed_methods:
+        for m in failed_methods:
+            logger.error(f"Failed method {m.name}")
+        raise MethodFailed()

@@ -72,7 +72,7 @@ class Matplots(GraphCommon):
     def __init__(self):
         self.ui_image_ranged: dict[str, ui.image] = {}
         self.selected_range = DEFAULT_RANGE
-        self.image_graphs = common.WalrusDb().db.Hash(self.REDIS_KEY)
+        self.image_graphs = common.walrus_db.db.Hash(self.REDIS_KEY)
         self.assets_section = BreakdownSection(
             title="Assets",
             dataframe=lambda: common.read_sql_table("history"),
@@ -446,6 +446,7 @@ def make_investing_allocation_pie() -> bytes:
     values = [
         cast(float, df.loc[col]["value"]) for _, col in INVESTING_ALLOCATION_LABEL_COL
     ]
+    values = [x if x >= 0 else 0 for x in values]
     pie_current = make_pie_graph(labels, values)
     return pie_current
 
@@ -594,6 +595,13 @@ def make_loan_graph(broker: margin_loan.LoanBrokerage) -> bytes:
             ha="center",
             va="center",
         )
+    ax.annotate(
+        f"Leverage ratio: {df.iloc[-1]['Leverage Ratio']:.2f}",
+        xy=(0.5, 0.3),
+        xycoords="axes fraction",
+        ha="center",
+        va="center",
+    )
     ax.set_title(broker.name)
     return make_image_graph(fig)
 
