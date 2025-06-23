@@ -9,12 +9,11 @@ This is a project to keep track of finances. It generates graphs like the follow
 Generally you will not be able to use this as is and it will need lots of modifications. This
 is just to get you started.
 
-The `cron_hourly.sh` script should be run hourly. This stores all the historical data and creates plots.
-
-Crontab example:
+The `finance_hourly.py` script should be run hourly. This stores all the historical data and creates plots.
+This could be run with a systemd timer:
 
 ```shell
-@hourly             $HOME/code/accounts/cron_hourly.sh
+docker compose up accounts_hourly --force-recreate --exit-code-from accounts_hourly
 ```
 
 ## Adding new indices
