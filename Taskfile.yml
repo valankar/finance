@@ -1,10 +1,10 @@
 version: '3'
 
 vars:
-  HOST: valankar@cachyos-server
+  HOST: valankar@localhost
   UNISON_CMD: unison -batch -terse
   PROJECT_NAME: accounts
-  IMAGE_NAME: 192.168.0.4:5000/{{.PROJECT_NAME}}
+  IMAGE_NAME: '{{.PROJECT_NAME}}'
 
 tasks:
   dev-valkey-restart:
@@ -15,7 +15,6 @@ tasks:
   dev-build:
     cmds:
       - docker build -t {{.IMAGE_NAME}} .
-      - docker push {{.IMAGE_NAME}}
       - docker compose --profile development up -d {{.PROJECT_NAME}}-dev
       - docker image prune -f
   prod-push:

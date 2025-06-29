@@ -2,7 +2,7 @@ services:
   accounts: &accounts
     image: ${IMAGE}
     container_name: accounts
-    volumes: &volumes
+    volumes:
       - ${HOME}/code/accounts:/app/code/accounts
       - ${HOME}/code/ledger:/app/code/ledger
     environment: &environment
@@ -13,20 +13,24 @@ services:
       SCHWAB_CALLBACK_URI: ${SCHWAB_CALLBACK_URI}
       FRED_API_KEY: ${FRED_API_KEY}
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.no-pull: true
     networks: &networks
       - cloudflare
-    depends_on: &depends_on
+    depends_on:
       - valkey
       - selenium
 
   accounts-dev:
     <<: *accounts
+    environment:
+      <<: *environment
+      REDIS_HOST: valkey-dev
     container_name: accounts-dev
     profiles: [ "development" ]
-    ports:
-      - "8080:8080"
     depends_on:
       - valkey-dev
+      - selenium
 
   accounts_hourly:
     <<: *accounts
@@ -48,11 +52,11 @@ services:
   
   valkey-dev:
     <<: *valkey
+    container_name: valkey-dev
+    user: "1001:1001"
     profiles: [ "development" ]
-    ports:
-      - "6379:6379"
 
-  selenium: &selenium
+  selenium:
     image: selenium/standalone-chromium
     container_name: selenium
     shm_size: 2g
@@ -60,16 +64,6 @@ services:
       - SE_ENABLE_TRACING=false
     restart: unless-stopped
     networks: *networks
-    ports:
-      - "7900:7900"
-
-  selenium-dev:
-    <<: *selenium
-    container_name: selenium-dev
-    profiles: [ "development" ]
-    ports:
-      - "7901:7900"
-      - "4444:4444"
 
 networks:
   cloudflare:

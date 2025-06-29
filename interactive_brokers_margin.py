@@ -37,7 +37,8 @@ def get_interest_rate(currency, loan):
     with common.run_with_browser_page(
         "https://www.interactivebrokers.com/en/trading/margin-rates.php"
     ) as page:
-        page.get_by_role("link", name=" Accept Cookies").click()
+        page.get_by_text("Stay on US website").click()
+        page.get_by_role("link", name="Accept Cookies").click()
         page.locator("#int_calc_db_balance").click()
         page.locator("#int_calc_db_balance").fill(f"{loan}")
         page.locator("#int_calc_db_currency").select_option(currency)
