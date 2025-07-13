@@ -46,7 +46,7 @@ def find_loan_brokerage(broker: str) -> LoanBrokerage:
     raise ValueError(f"Brokerage {broker} not found")
 
 
-@common.walrus_db.cache.cached()
+@common.walrus_db.cache.cached(key_fn=lambda a, _: a[0].name)
 def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
     loan_df = load_loan_balance_df(broker)
     equity_df = load_ledger_equity_balance_df(broker)
@@ -81,18 +81,10 @@ def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
     logger.info(f"Portfolio equity for {broker.name}: {portfolio_equity:.0f}")
     equity_df["Equity Balance"] = notional_value
     equity_df["Leverage Ratio"] = notional_value / portfolio_equity
-    equity_df["30% Equity Balance"] = equity_df["Equity Balance"] * 0.3
-    equity_df["50% Equity Balance"] = equity_df["Equity Balance"] * 0.5
     equity_df["Loan Balance"] = portfolio_equity - (
         equity_df["Leverage Ratio"] * portfolio_equity
     )
     equity_df["Total"] = equity_df["Equity Balance"] + equity_df["Loan Balance"]
-    equity_df["Distance to 30%"] = (
-        equity_df["Loan Balance"] + equity_df["30% Equity Balance"]
-    )
-    equity_df["Distance to 50%"] = (
-        equity_df["Loan Balance"] + equity_df["50% Equity Balance"]
-    )
     return equity_df
 
 

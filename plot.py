@@ -418,32 +418,33 @@ def make_loan_section(margin: dict[str, int]) -> Figure:
         df: pd.DataFrame,
         col: int,
     ):
+        total = df.iloc[-1]["Total"]
+        equity_balance = df.iloc[-1]["Equity Balance"]
+        loan_balance = df.iloc[-1]["Loan Balance"]
         fig = go.Waterfall(
             measure=["relative", "relative", "total"],
             x=["Equity", "Loan", "Equity - Loan"],
             y=[
-                df.iloc[-1]["Equity Balance"],
-                df.iloc[-1]["Loan Balance"],
+                equity_balance,
+                loan_balance,
                 0,
             ],
         )
         section.add_trace(fig, row=1, col=col)
-        for i, percent_hline in enumerate((50, 30), start=1):
-            percent_balance = (
-                df.iloc[-1]["Equity Balance"]
-                - df.iloc[-1][f"{percent_hline}% Equity Balance"]
-            )
+        i = 1
+        for i, leverage in enumerate((5.0, 2.0, 1.5), start=1):
+            leverage_balance = equity_balance / leverage
             section.add_hline(
-                y=percent_balance,
-                annotation_text=f"{percent_hline}% Equity Balance",
+                y=leverage_balance,
+                annotation_text=f"{leverage} Leverage",
                 line_dash="dot",
                 line_color="gray",
                 row=1,  # type: ignore
                 col=col,  # type: ignore
             )
-            remaining = df.iloc[-1][f"Distance to {percent_hline}%"]
+            remaining = total - leverage_balance
             section.add_annotation(
-                text=f"Distance to {percent_hline}%: {remaining:,.0f}",
+                text=f"Distance to {leverage}: {remaining:,.0f}",
                 showarrow=False,
                 x="Loan",
                 y=df.iloc[-1]["Equity Balance"] * (i / 10),
@@ -454,7 +455,7 @@ def make_loan_section(margin: dict[str, int]) -> Figure:
             text=f"Leverage ratio: {df.iloc[-1]['Leverage Ratio']:.2f}",
             showarrow=False,
             x="Loan",
-            y=df.iloc[-1]["Equity Balance"] * (3 / 10),
+            y=df.iloc[-1]["Equity Balance"] * ((i + 1) / 10),
             row=1,
             col=col,
         )
@@ -506,8 +507,7 @@ def make_total_bar_mom(daily_df: pd.DataFrame, column: str) -> Figure:
         diff_df,
         x=diff_df.index,
         y=column,
-        # https://github.com/statsmodels/statsmodels/issues/9584
-        # trendline="lowess",
+        trendline="lowess",
     )
     line_chart.for_each_trace(
         lambda t: monthly_bar.add_trace(t), selector={"mode": "lines"}
@@ -536,9 +536,6 @@ def get_interest_rate_df() -> pd.DataFrame:
     swvxx_df = common.load_sql_and_rename_col(
         "swvxx_yield", rename_cols={"percent": "Schwab SWVXX"}
     )
-    wealthfront_df = common.load_sql_and_rename_col(
-        "wealthfront_cash_yield", rename_cols={"percent": "Wealthfront Cash"}
-    )
     ibkr_df = common.load_sql_and_rename_col(
         "interactive_brokers_margin_rates",
         rename_cols={"USD": "USD IBKR Margin", "CHF": "CHF IBKR Margin"},
@@ -549,7 +546,6 @@ def get_interest_rate_df() -> pd.DataFrame:
             fedfunds_df,
             sofr_df,
             swvxx_df,
-            wealthfront_df,
             ibkr_df,
         ],
     )

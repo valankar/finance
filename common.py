@@ -57,7 +57,7 @@ class GetTickerError(Exception):
 class WalrusDb:
     def __init__(self):
         self.db = walrus.Database(host=os.environ.get("REDIS_HOST", "localhost"))
-        self.cache = self.db.cache()
+        self.cache = walrus.Cache(self.db)
 
 
 walrus_db: Final[WalrusDb] = WalrusDb()

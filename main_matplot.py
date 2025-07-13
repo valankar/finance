@@ -568,10 +568,13 @@ def make_total_bar_mom(column: str) -> bytes:
 def make_loan_graph(broker: margin_loan.LoanBrokerage) -> bytes:
     df = margin_loan.get_balances_broker(broker)
     categories = ["Equity", "Loan", "Equity - Loan"]
+    total = df.iloc[-1]["Total"]
+    equity_balance = df.iloc[-1]["Equity Balance"]
+    loan_balance = df.iloc[-1]["Loan Balance"]
     amounts = [
-        df["Equity Balance"].iloc[-1],
-        df["Loan Balance"].iloc[-1],
-        df["Total"].iloc[-1],
+        equity_balance,
+        loan_balance,
+        total,
     ]
     bottom = [0, amounts[0], 0]
     labels = [f"{x:,.0f}" for x in amounts]
@@ -580,24 +583,22 @@ def make_loan_graph(broker: margin_loan.LoanBrokerage) -> bytes:
     colors = ["tab:green" if v > 0 else "tab:red" for v in amounts]
     p = ax.bar(categories, amounts, bottom=bottom, color=colors)
     ax.bar_label(p, labels=labels, label_type="center")
-    percent_balance = df["Equity Balance"].iloc[-1] - df["30% Equity Balance"].iloc[-1]
-    ax.axhline(percent_balance, color="yellow", linestyle="--")
-    percent_balance = df["Equity Balance"].iloc[-1] - df["50% Equity Balance"].iloc[-1]
-    ax.axhline(percent_balance, color="red", linestyle="--")
-    ax.axhline(df["50% Equity Balance"].iloc[-1], color="red", linestyle="--")
-    for percent, y in ((30, 0.2), (50, 0.1)):
-        distance = f"Distance to {percent}%"
-        remaining = df[distance].iloc[-1]
+    i = 1
+    for i, leverage in enumerate((5.0, 2.0, 1.5), start=1):
+        leverage_balance = equity_balance / leverage
+        ax.axhline(leverage_balance, color="gray", linestyle="--")
+        distance = f"Distance to {leverage}"
+        remaining = total - leverage_balance
         ax.annotate(
             f"{distance}: {remaining:,.0f}",
-            xy=(0.5, y),
+            xy=(0.5, i / 10),
             xycoords="axes fraction",
             ha="center",
             va="center",
         )
     ax.annotate(
         f"Leverage ratio: {df.iloc[-1]['Leverage Ratio']:.2f}",
-        xy=(0.5, 0.3),
+        xy=(0.5, (i + 1) / 10),
         xycoords="axes fraction",
         ha="center",
         va="center",

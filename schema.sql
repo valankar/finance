@@ -1,4 +1,4 @@
-CREATE TABLE brokerage_totals(date TIMESTAMP, "Equity Balance" DOUBLE, "30% Equity Balance" DOUBLE, "50% Equity Balance" DOUBLE, "Loan Balance" DOUBLE, Total DOUBLE, "Distance to 30%" DOUBLE, "Distance to 50%" DOUBLE, Brokerage VARCHAR, "Leverage Ratio" DOUBLE);
+CREATE TABLE brokerage_totals(date TIMESTAMP, "Equity Balance" DOUBLE, "Loan Balance" DOUBLE, Total DOUBLE, Brokerage VARCHAR, "Leverage Ratio" DOUBLE);
 CREATE TABLE fedfunds(date TIMESTAMP_NS, "percent" DOUBLE);
 CREATE TABLE forex(date TIMESTAMP, CHFUSD DOUBLE, SGDUSD DOUBLE);
 CREATE TABLE history(date TIMESTAMP, total_liquid DOUBLE, total_real_estate DOUBLE, total_retirement DOUBLE, total_investing DOUBLE, ira DOUBLE, pillar2 DOUBLE);
@@ -13,4 +13,3 @@ CREATE TABLE swygx_holdings(date TIMESTAMP, SCHX DOUBLE, SCHF DOUBLE, SCHZ DOUBL
 CREATE TABLE ticker_prices(date TIMESTAMP, ticker VARCHAR, price DOUBLE);
 CREATE TABLE IF NOT EXISTS "toshl_expenses_export_2023-01-01"(Date TIMESTAMP, Category VARCHAR, Tags VARCHAR, "Expense amount" DOUBLE, Currency VARCHAR, "In main currency" DOUBLE, "Main currency" VARCHAR, Description VARCHAR);
 CREATE TABLE IF NOT EXISTS "toshl_income_export_2023-01-01"(Date TIMESTAMP, Category VARCHAR, Tags VARCHAR, "Income amount" DOUBLE, Currency VARCHAR, "In main currency" DOUBLE, "Main currency" VARCHAR, Description VARCHAR);
-CREATE TABLE wealthfront_cash_yield(date TIMESTAMP, "percent" DOUBLE);

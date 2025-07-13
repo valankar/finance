@@ -6,6 +6,9 @@ vars:
   PROJECT_NAME: accounts
   IMAGE_NAME: '{{.PROJECT_NAME}}'
 
+includes:
+  common: ../CommonTasks.yml
+
 tasks:
   dev-valkey-restart:
     cmds:
@@ -43,16 +46,9 @@ tasks:
         . ssh://{{.HOST}}/code/{{.PROJECT_NAME}}
       - task: prod-sync-ledger
       - task: dev-valkey-restart
-  update-packages:
-    cmds:
-      - uv lock --upgrade
-      - uv sync
-      - git diff --quiet uv.lock || git commit uv.lock -m "Update packages"
-    generates:
-      - uv.lock
   upgrade:
     deps:
-      - update-packages
+      - task: common:update-packages
     cmds:
       - task: dev-build
       - task: prod-push

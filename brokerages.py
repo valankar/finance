@@ -32,7 +32,10 @@ def main():
     if not dfs:
         logger.error("No brokerage data found.")
         return
-    common.to_sql(pd.concat(dfs), TABLE_NAME)
+    df = pd.concat(dfs)[
+        ["Equity Balance", "Loan Balance", "Total", "Brokerage", "Leverage Ratio"]
+    ]
+    common.to_sql(df, TABLE_NAME)
 
 
 if __name__ == "__main__":
