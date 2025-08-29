@@ -2,6 +2,7 @@ services:
   accounts: &accounts
     image: ${IMAGE}
     container_name: accounts
+    init: true
     volumes:
       - ${HOME}/code/accounts:/app/code/accounts
       - ${HOME}/code/ledger:/app/code/ledger

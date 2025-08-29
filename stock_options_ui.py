@@ -189,6 +189,7 @@ class StockOptionsPage(GraphCommon):
         for spreads, spread_type in (
             (options_data.opts.bull_put_spreads_no_ic, "Bull Put"),
             (options_data.opts.bear_call_spreads_no_ic, "Bear Call"),
+            (options_data.opts.bull_call_spreads, "Bull Call"),
         ):
             for d in spreads:
                 sd: stock_options.SpreadDetails = d.details
@@ -198,12 +199,15 @@ class StockOptionsPage(GraphCommon):
                 half_mark = f"{cd.half_mark:.2f}"
                 double_mark = f"{cd.double_mark:.2f}"
                 profit = f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})"
-                if spread_type == "Bull Put":
-                    graph = self.make_bull_put_pl_graph(sd)
-                elif spread_type == "Bear Call":
-                    graph = self.make_bear_call_pl_graph(sd)
-                else:
-                    continue
+                match spread_type:
+                    case "Bull Put":
+                        graph = self.make_bull_put_pl_graph(sd)
+                    case "Bear Call":
+                        graph = self.make_bear_call_pl_graph(sd)
+                    case "Bull Call":
+                        graph = self.make_bull_call_pl_graph(sd)
+                    case _:
+                        continue
                 rows.append(
                     RowGraphPair(
                         row={
@@ -452,7 +456,9 @@ class StockOptionsPage(GraphCommon):
         ax.plot(x, y, marker=".", color="tab:blue")
         ax.set_xlabel("Price")
         ax.set_ylabel("P/L")
-        ax.set_title(f"{cd.account} {cd.ticker} {cd.expiration} Bull Put")
+        ax.set_title(
+            f"{cd.account} {cd.ticker} {d.low_strike}/{d.high_strike} {cd.expiration} Bull Put"
+        )
         ax.axvline(cd.ticker_price, color=line_color, linestyle="--")
         return self.make_image_graph(fig)
 
@@ -477,7 +483,36 @@ class StockOptionsPage(GraphCommon):
         ax.plot(x, y, marker=".", color="tab:blue")
         ax.set_xlabel("Price")
         ax.set_ylabel("P/L")
-        ax.set_title(f"{cd.account} {cd.ticker} {cd.expiration} Bear Call")
+        ax.set_title(
+            f"{cd.account} {cd.ticker} {d.low_strike}/{d.high_strike} {cd.expiration} Bear Call"
+        )
+        ax.axvline(cd.ticker_price, color=line_color, linestyle="--")
+        return self.make_image_graph(fig)
+
+    def make_bull_call_pl_graph(self, d: stock_options.SpreadDetails) -> bytes:
+        cd = d.details
+        breakeven = self.find_x_intercept(
+            d.low_strike, -cd.contract_price, d.high_strike, d.risk, 0
+        )
+        x = [d.low_strike, breakeven, d.high_strike]
+        y = [-cd.contract_price, 0, d.risk]
+        line_color = "red"
+        if cd.ticker_price > breakeven or cd.contract_price < 0:
+            line_color = "green"
+        if cd.ticker_price > d.high_strike:
+            x.append(cd.ticker_price)
+            y.append(d.risk)
+        else:
+            x.insert(0, cd.ticker_price)
+            y.insert(0, -cd.contract_price)
+        fig = Figure()
+        ax = fig.subplots()
+        ax.plot(x, y, marker=".", color="tab:blue")
+        ax.set_xlabel("Price")
+        ax.set_ylabel("P/L")
+        ax.set_title(
+            f"{cd.account} {cd.ticker} {d.low_strike}/{d.high_strike} {cd.expiration} Bull Call"
+        )
         ax.axvline(cd.ticker_price, color=line_color, linestyle="--")
         return self.make_image_graph(fig)
 

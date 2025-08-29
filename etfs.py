@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Calculate ETF values."""
 
+import functools
 from datetime import datetime
 from typing import Optional
 
@@ -40,10 +41,11 @@ def get_price_from_db(ticker: str) -> float:
 def get_tickers() -> set:
     cols = set(ledger_amounts.get_etfs_amounts().keys())
     if od := stock_options.get_options_data():
-        cols |= set(od.opts.pruned_options["ticker"].unique())
+        cols |= set(od.opts.all_options["ticker"].unique())
     return cols
 
 
+@functools.cache
 def get_prices_wide_df() -> pd.DataFrame:
     prices_df = (
         common.read_sql_table(TICKER_PRICES_TABLE)

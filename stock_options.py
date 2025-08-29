@@ -109,6 +109,7 @@ class OptionsAndSpreads(typing.NamedTuple):
     # These do not include spreads part of iron condors.
     bull_put_spreads_no_ic: list[Spread]
     bear_call_spreads_no_ic: list[Spread]
+    bull_call_spreads: list[Spread]
     synthetics: list[Spread]
     options_value_by_brokerage: dict[str, OptionsValue]
 
@@ -489,6 +490,27 @@ def find_bear_call_spreads(options_df: pd.DataFrame) -> list[Spread]:
     return spreads
 
 
+def find_bull_call_spreads(options_df: pd.DataFrame) -> list[Spread]:
+    """Find bull call spreads. Remove box spreads before calling."""
+    spreads = []
+    for index, row in options_df.iterrows():
+        ticker = row["ticker"]  # noqa: F841
+        # Find a long CALL
+        if row["type"] == "CALL" and row["count"] > 0:
+            # The long CALL
+            low_long_call = options_df.query(
+                'ticker == @ticker & type == "CALL" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == @row["count"]'
+            )
+            # Find a short CALL at higher strike, same expiration and broker
+            high_short_call = options_df.query(
+                'ticker == @ticker & type == "CALL" & strike > @row["strike"] & expiration == @index[2] & account == @index[0] & count == -@row["count"]'
+            )
+            for i in range(len(high_short_call)):
+                found = pd.concat([low_long_call, high_short_call.iloc[i : i + 1]])
+                spreads.append(Spread(df=found, details=get_spread_details(found)))
+    return spreads
+
+
 def find_iron_condors(
     bull_put_spreads: list[Spread], bear_call_spreads: list[Spread]
 ) -> list[IronCondor]:
@@ -757,26 +779,14 @@ def summarize_spread(spread: Spread, title: str):
 
 
 def get_options_value_by_brokerage(
-    pruned_options: pd.DataFrame,
-    bull_put_spreads: list[Spread],
-    bear_call_spreads: list[Spread],
+    all_options: pd.DataFrame,
 ) -> dict[str, OptionsValue]:
     values: dict[str, OptionsValue] = {}
     for broker in common.BROKERAGES:
-        options_value = pruned_options.query(f"account == '{broker}'")["value"].sum()
-        options_notional_value = pruned_options.query(f"account == '{broker}'")[
+        options_value = all_options.query(f"account == '{broker}'")["value"].sum()
+        options_notional_value = all_options.query(f"account == '{broker}'")[
             "notional_value"
         ].sum()
-        dfs = [s.df for s in bull_put_spreads + bear_call_spreads]
-        if dfs:
-            spread_df = pd.concat(dfs)
-            options_value += spread_df.query(
-                f"account == '{broker}' and ticker != 'SPX'"
-            )["value"].sum()
-            # SPX spreads handled differently.
-            options_value += spread_df.query(
-                f"account == '{broker}' and ticker == 'SPX'"
-            )["intrinsic_value"].sum()
         values[broker] = OptionsValue(
             value=options_value, notional_value=options_notional_value
         )
@@ -793,6 +803,7 @@ def get_options_and_spreads() -> OptionsAndSpreads:
     pruned_options = remove_spreads(pruned_options, [s.df for s in bear_call_spreads])
     iron_condors = find_iron_condors(bull_put_spreads, bear_call_spreads)
     synthetics = find_synthetics(pruned_options)
+    bull_call_spreads = find_bull_call_spreads(pruned_options)
 
     def get_spread_no_ic(spreads: list[Spread]) -> list[Spread]:
         pruned_spreads: list[Spread] = []
@@ -806,11 +817,7 @@ def get_options_and_spreads() -> OptionsAndSpreads:
     bull_put_spreads_no_ic = get_spread_no_ic(bull_put_spreads)
     bear_call_spreads_no_ic = get_spread_no_ic(bear_call_spreads)
     short_calls = get_short_call_details(pruned_options)
-    options_value_by_brokerage = get_options_value_by_brokerage(
-        pruned_options,
-        bull_put_spreads,
-        bear_call_spreads,
-    )
+    options_value_by_brokerage = get_options_value_by_brokerage(all_options)
     return OptionsAndSpreads(
         all_options=all_options,
         pruned_options=pruned_options,
@@ -821,6 +828,7 @@ def get_options_and_spreads() -> OptionsAndSpreads:
         iron_condors=iron_condors,
         bull_put_spreads_no_ic=bull_put_spreads_no_ic,
         bear_call_spreads_no_ic=bear_call_spreads_no_ic,
+        bull_call_spreads=bull_call_spreads,
         synthetics=synthetics,
         options_value_by_brokerage=options_value_by_brokerage,
     )
@@ -868,7 +876,7 @@ def get_options_data() -> typing.Optional[OptionsData]:
 def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
     if not opts:
         opts = get_options_and_spreads()
-    if len(otm_df := opts.pruned_options.query("in_the_money == False")):
+    if len(otm_df := opts.all_options.query("in_the_money == False")):
         print("Out of the money")
         print(
             remove_zero_columns(
@@ -883,7 +891,7 @@ def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
             ),
             "\n",
         )
-    if len(itm_df := opts.pruned_options.query("in_the_money == True")):
+    if len(itm_df := opts.all_options.query("in_the_money == True")):
         print("In the money")
         print(remove_zero_columns(itm_df.drop(columns="in_the_money")), "\n")
     itm_df = get_itm_df(opts)

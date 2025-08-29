@@ -2,12 +2,12 @@
 """Run hourly finance functions."""
 
 import os
-from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 
 import humanize
 import valkey
 from cyclopts import App
+from dask.distributed import Client
 from loguru import logger
 
 import brokerages
@@ -21,7 +21,6 @@ import index_prices
 import ledger_prices_db
 import main_graphs
 import main_matplot
-import push_web
 import stock_options
 import stock_options_ui
 
@@ -51,17 +50,16 @@ def run_all(
             ledger_prices_db.main()
             history.main()
             brokerages.main()
-            push_web.main()
-        with ProcessPoolExecutor() as e:
+        with Client() as e:
             results = []
             if plotly:
                 results.append(e.submit(main_graphs.main))
             if matplot:
                 results.append(e.submit(main_matplot.main))
                 results.append(e.submit(stock_options_ui.main))
-        for r in results:
-            if o := r.result():
-                logger.info(o)
+            for r in results:
+                if o := r.result():
+                    logger.info(o)
         valkey.Valkey(host=os.environ.get("REDIS_HOST", "localhost")).bgsave()
         if daily:
             finance_daily.run_all()

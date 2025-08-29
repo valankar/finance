@@ -126,7 +126,7 @@ class Futures:
     @property
     def notional_values_df(self) -> pd.DataFrame:
         df = self.futures_df.reset_index()[["commodity", "notional_value"]]
-        df["ticker"] = df["commodity"].str[:-3]
+        df.loc[:, "ticker"] = df["commodity"].str[:-3]
         df = (
             df.drop(columns="commodity")
             .groupby("ticker")

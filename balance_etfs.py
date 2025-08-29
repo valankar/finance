@@ -28,10 +28,10 @@ ETF_TYPE_MAP = {
     "COMMODITIES_SILVER": ["SIVR"],
     "COMMODITIES_CRYPTO": ["BITX", "IBIT", "MSTR", "/MBT"],
     "US_SMALL_CAP": ["SCHA", "VB", "IWM", "/M2K", "/RTY"],
-    "US_LARGE_CAP": ["SCHX", "SPLG", "VOO", "VV", "/MES"],
-    "US_BONDS": ["BND", "SCHO", "SCHR", "SCHZ", "SWAGX", "/10Y"],
-    "INTERNATIONAL_DEVELOPED": ["SCHF", "SWISX", "VEA", "/MFS"],
-    "INTERNATIONAL_EMERGING": ["SCHE", "VWO"],
+    "US_LARGE_CAP": ["SCHX", "SPLG", "SPY", "VOO", "VV", "/MES"],
+    "US_BONDS": ["BND", "SCHO", "SCHR", "SCHZ", "SWAGX", "TLH", "TLT", "/10Y"],
+    "INTERNATIONAL_DEVELOPED": ["EFA", "SCHF", "SWISX", "VEA", "/MFS"],
+    "INTERNATIONAL_EMERGING": ["EEM", "SCHE", "VWO"],
 }
 FUTURES_INVERSE_CORRELATION = {"/10Y"}
 # These get expanded out into US_SMALL_CAP and US_LARGE_CAP according to allocation
@@ -146,7 +146,7 @@ def get_desired_df(
         futures_tickers.index.isin(FUTURES_INVERSE_CORRELATION), "value"
     ] *= -1
     etfs_df = etfs_df.add(futures_tickers, fill_value=0)
-    options_df = options_data.opts.pruned_options
+    options_df = options_data.opts.all_options
     etfs_df = etfs_df.add(
         options_df.groupby("ticker")
         .sum()[["notional_value"]]

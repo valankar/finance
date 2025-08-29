@@ -4,7 +4,6 @@ import glob
 import os
 import pickle
 import tempfile
-from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,11 +13,11 @@ import humanize
 import kaleido
 import pandas as pd
 import plotly.io as pio
+from dask.distributed import Future, get_client
 from dateutil.relativedelta import relativedelta
 from loguru import logger
 from nicegui import run, ui
 from nicegui.tailwind_types.text_color import TextColor
-from plotly.graph_objects import Figure
 
 import brokerages
 import common
@@ -36,9 +35,8 @@ pio.templates.default = common.PLOTLY_THEME
 @dataclass
 class FigureData:
     name: str
-    fig: Future[Figure]
+    fig: Future
     range: Optional[str] = None
-    fig_json: Optional[Future[dict]] = None
 
 
 class GraphCommon:
@@ -226,9 +224,10 @@ class MainGraphs(GraphCommon):
                 return float(int(height[:-2]) / 100)
         return 1.0
 
-    async def generate(self, executor: ProcessPoolExecutor):
+    async def generate(self):
         """Generate and save all Plotly graphs."""
         logger.info("Generating Plotly graphs")
+        executor = get_client()
         ranges = RANGES
         subplot_margin = common.SUBPLOT_MARGIN
         start_time = datetime.now()
@@ -376,8 +375,7 @@ class MainGraphs(GraphCommon):
                     ),
                 )
             )
-        for f in fs:
-            f.fig_json = executor.submit(f.fig.result().to_plotly_json)
+        fig_json_fs = executor.map(lambda x: x.to_plotly_json(), [f.fig for f in fs])
         # Generate images with kaleido
         with tempfile.TemporaryDirectory() as dir:
             mgio = MainGraphsImageOnly()
@@ -391,11 +389,10 @@ class MainGraphs(GraphCommon):
                 # Filename stem is redis key
                 mgio.image_graphs[p.stem] = p.read_bytes()
         # Store Plotly json
-        for f in fs:
-            if f.fig_json:
-                self.plotly_graphs[self.make_redis_key(f.name, f.range)] = pickle.dumps(
-                    f.fig_json.result()
-                )
+        for f, j in zip(fs, fig_json_fs, strict=True):
+            self.plotly_graphs[self.make_redis_key(f.name, f.range)] = pickle.dumps(
+                j.result()
+            )
         logger.info(
             f"Graph generation time for Plotly: {humanize.precisedelta(datetime.now() - start_time)}"
         )
@@ -412,7 +409,8 @@ class MainGraphs(GraphCommon):
                 fig=f.fig.result(),
                 path=f"{dest_dir}/{filename}.png",
                 opts=dict(
-                    width=1024, height=int(768 * self.get_plot_height_percent(f.name))
+                    width=1024,
+                    height=int(768 * self.get_plot_height_percent(f.name)),
                 ),
             )
 
@@ -458,8 +456,7 @@ class MainGraphsImageOnly(GraphCommon):
 
 
 def main():
-    with ProcessPoolExecutor() as executor:
-        asyncio.run(MainGraphs().generate(executor))
+    asyncio.run(MainGraphs().generate())
 
 
 if __name__ == "__main__":

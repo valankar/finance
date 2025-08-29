@@ -9,7 +9,6 @@ import pandas as pd
 from cyclopts import App, Parameter, Token
 from dateutil import parser
 from loguru import logger
-from playwright.sync_api import TimeoutError
 
 import common
 
@@ -84,9 +83,10 @@ def get_real_estate_df() -> pd.DataFrame:
         .last()
         .interpolate()
     )
-    return (
+    merged = (
         common.reduce_merge_asof([price_df, rent_df]).interpolate().sort_index(axis=1)
     )
+    return merged.rolling("30D").mean()
 
 
 def get_property(name: str) -> Property | None:
@@ -109,24 +109,6 @@ def get_redfin_estimate(url_path):
         )
 
 
-def get_zillow_estimates(url_path):
-    """Get home and rent value from Zillow."""
-    logger.info(f"Getting Zillow estimate for {url_path}")
-    with common.run_with_browser_page(f"https://www.zillow.com{url_path}") as page:
-        try:
-            price = page.get_by_test_id("price").get_by_text("$").inner_text()
-            rent = page.get_by_test_id("rent-zestimate").inner_text()
-        except TimeoutError:
-            logger.info("Got timeout error, trying with different matching")
-            if matches := re.search(
-                r"Zestimate.+: \$([\d,]+).*Rent Zestimate.+: \$([\d,]+)",
-                page.get_by_test_id("summary").inner_text(),
-            ):
-                price = matches[1]
-                rent = matches[2]
-        return [integerize_value(price), integerize_value(rent)]
-
-
 def write_prices_table(name, value, site, timestamp: typing.Optional[datetime] = None):
     """Write prices to sql."""
     common.insert_sql(
@@ -142,17 +124,6 @@ def write_rents_table(name, value, site):
 def process_redfin(p: Property):
     redfin = get_redfin_estimate(p.redfin_url)
     write_prices_table(p.name, redfin, "Redfin")
-
-
-def process_zillow(p: Property):
-    zillow, zillow_rent = get_zillow_estimates(p.zillow_url)
-    write_prices_table(p.name, zillow, "Zillow")
-    write_rents_table(p.name, zillow_rent, "Zillow")
-
-
-def do_fetch_prices(p: Property):
-    process_redfin(p)
-    process_zillow(p)
 
 
 app = App()
@@ -173,13 +144,10 @@ def main(
     zillow_rent: typing.Optional[CommaInt] = None,
     taxes_price: typing.Optional[CommaInt] = None,
     date: typing.Optional[str] = None,
-    fetch_prices: bool = False,
 ):
     """Main."""
     if name:
         if p := get_property(name):
-            if fetch_prices:
-                return do_fetch_prices(p)
             timestamp = None
             if date:
                 timestamp = parser.parse(date)

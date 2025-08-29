@@ -2,7 +2,7 @@ version: '3'
 
 vars:
   HOST: valankar@localhost
-  UNISON_CMD: unison -batch -terse
+  UNISON_CMD: unison -batch -terse -retry 3
   PROJECT_NAME: accounts
   IMAGE_NAME: '{{.PROJECT_NAME}}'
 
