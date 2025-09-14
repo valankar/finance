@@ -1,5 +1,6 @@
 import io
 import pickle
+import re
 import subprocess
 import typing
 from datetime import datetime
@@ -8,6 +9,7 @@ import pandas as pd
 from loguru import logger
 
 import common
+import ledger_ops
 
 MONTH_CODES: dict[str, str] = {
     "F": "Jan",
@@ -65,6 +67,24 @@ def get_future_quote_mfs(ticker: str) -> common.FutureQuote:
     raise IceUnknownFuture("cannot find price")
 
 
+def get_ledger_entries_command(broker: str, name: str) -> str:
+    return f"""{common.LEDGER_PREFIX} print expr 'any(commodity == "\\"{name}\\"" and account =~ /{broker}/)'"""
+
+
+def get_ledger_total(broker: str, future_name: str) -> float:
+    total = 0.0
+    ledger_cmd = get_ledger_entries_command(broker, future_name)
+    for entry in ledger_ops.get_ledger_entries_from_command(ledger_cmd):
+        for line in entry.full_list():
+            if future_name in line:
+                s = re.split(r"\s{2,}", line.lstrip())
+                count = int(s[1].split()[0])
+                amount = s[1].split("@")[-1].lstrip()
+                if amount.startswith("$"):
+                    total += float(amount[1:]) * count
+    return total
+
+
 class Futures:
     def future_quote(self, ticker: str) -> pd.Series:
         if ticker.startswith("/MFS"):
@@ -91,7 +111,8 @@ class Futures:
             count = int(line.split(maxsplit=1)[0])
             future_name = line.split(maxsplit=1)[1].strip().strip('"')
             commodity = future_name.split()[0]
-            trade_price = float(future_name.split()[-1])
+            current_price, multiplier = self.future_quote(commodity)
+            trade_price = get_ledger_total(account, future_name) / count / multiplier
             if account:
                 current_price, multiplier = self.future_quote(commodity)
                 entries.append(

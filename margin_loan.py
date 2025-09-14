@@ -23,18 +23,18 @@ class LoanBrokerage(NamedTuple):
 LOAN_BROKERAGES = (
     LoanBrokerage(
         name=(broker_name := "Interactive Brokers"),
-        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'{broker_name}'",
-        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'",
+        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'{broker_name}'$",
+        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'$",
     ),
     LoanBrokerage(
         name=(broker_name := "Charles Schwab Brokerage"),
-        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'{broker_name}'",
-        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'",
+        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'{broker_name}'$",
+        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'$",
     ),
     LoanBrokerage(
         name=(broker_name := "Charles Schwab PAL Brokerage"),
-        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Liabilities:'Charles Schwab PAL'",
-        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'",
+        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Liabilities:'Charles Schwab PAL'$",
+        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'$",
     ),
 )
 
@@ -46,7 +46,6 @@ def find_loan_brokerage(broker: str) -> LoanBrokerage:
     raise ValueError(f"Brokerage {broker} not found")
 
 
-@common.walrus_db.cache.cached(key_fn=lambda a, _: a[0].name)
 def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
     loan_df = load_loan_balance_df(broker)
     equity_df = load_ledger_equity_balance_df(broker)
@@ -84,7 +83,7 @@ def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
     equity_df["Loan Balance"] = portfolio_equity - (
         equity_df["Leverage Ratio"] * portfolio_equity
     )
-    equity_df["Total"] = equity_df["Equity Balance"] + equity_df["Loan Balance"]
+    equity_df["Total"] = portfolio_equity
     return equity_df
 
 
@@ -99,7 +98,7 @@ def load_ledger_equity_balance_df(brokerage: LoanBrokerage) -> pd.DataFrame:
         parse_dates=True,
         names=["date", "Equity Balance"],
     )
-    return equity_balance_df
+    return equity_balance_df.tail(1)
 
 
 def load_loan_balance_df(brokerage: LoanBrokerage) -> pd.DataFrame:
@@ -113,7 +112,7 @@ def load_loan_balance_df(brokerage: LoanBrokerage) -> pd.DataFrame:
         parse_dates=True,
         names=["date", "Loan Balance"],
     )
-    return loan_balance_df
+    return loan_balance_df.tail(1)
 
 
 def main():

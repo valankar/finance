@@ -7,7 +7,6 @@ requires-python = ">=3.12"
 dependencies = [
     "authlib>=1.5.2",
     "cyclopts>=3.11.1",
-    "dask[distributed]>=2025.7.0",
     "duckdb>=1.2.1",
     "fredapi>=0.5.2",
     "humanize>=4.12.3",

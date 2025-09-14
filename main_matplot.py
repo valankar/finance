@@ -1,5 +1,6 @@
 import io
 import itertools
+from concurrent.futures import Future, ProcessPoolExecutor
 from datetime import datetime, timedelta
 from typing import Callable, ClassVar, Literal, NamedTuple, Optional, Sequence, cast
 
@@ -8,7 +9,6 @@ import matplotlib.colors as mcolors
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
-from dask.distributed import Future, get_client
 from loguru import logger
 from matplotlib.figure import Figure
 from matplotlib.typing import ColorType
@@ -37,7 +37,7 @@ class GraphGenerationError(Exception):
 
 
 class GraphResult(NamedTuple):
-    f: Future
+    f: Future[bytes]
     redis_key: str
 
 
@@ -207,9 +207,8 @@ class Matplots(GraphCommon):
                 if uii := self.ui_image(name, make_redis_key=False):
                     self.ui_image_ranged[self.make_ui_key(name)] = uii
 
-    def generate(self):
+    def generate(self, executor: ProcessPoolExecutor):
         logger.info("Generating Matplot graphs")
-        executor = get_client()
         start_time = datetime.now()
         results: list[GraphResult] = []
         for r in RANGES:
@@ -609,7 +608,8 @@ def make_loan_graph(broker: margin_loan.LoanBrokerage) -> bytes:
 
 
 def main():
-    Matplots().generate()
+    with ProcessPoolExecutor() as executor:
+        Matplots().generate(executor)
 
 
 if __name__ == "__main__":

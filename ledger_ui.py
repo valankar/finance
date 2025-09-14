@@ -65,7 +65,12 @@ class LedgerUI:
                 }
             )
         self.aggrid.update()
-        self.aggrid.run_row_method("0", "setSelected", True)
+        ui.timer(
+            1,
+            lambda: self.aggrid
+            and self.aggrid.run_row_method("0", "setSelected", True, True),
+            once=True,
+        )
 
     def modify_ledger(self):
         if self.selected_index is not None:

@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """Run daily finance functions."""
 
-from functools import partial
 from typing import Callable, NamedTuple
 
 from loguru import logger
 
 import common
 import fedfunds
-import homes
 import interactive_brokers_margin
 import swtsx_market_cap
 import swvxx_yield
@@ -24,25 +22,12 @@ class MethodFailed(Exception):
     """One of the methods failed with exception."""
 
 
-def make_property_daily_methods() -> list[DailyMethod]:
-    methods = []
-    for p in homes.PROPERTIES:
-        methods.append(
-            DailyMethod(
-                name=f"Real Estate Redfin: {p.name}",
-                method=partial(homes.process_redfin, p),
-            )
-        )
-    return methods
-
-
 def make_daily_methods() -> list[DailyMethod]:
     return [
         DailyMethod(name="Fedfunds", method=fedfunds.main),
         DailyMethod(
             name="Interactive Brokers Margin", method=interactive_brokers_margin.main
         ),
-        *make_property_daily_methods(),
         DailyMethod(name="SWTSX Market Cap", method=swtsx_market_cap.main),
         DailyMethod(name="SWVXX Yield", method=swvxx_yield.main),
         DailyMethod(name="SWYGX Holdings", method=swygx_holdings.main),

@@ -2,12 +2,12 @@
 """Run hourly finance functions."""
 
 import os
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 
 import humanize
 import valkey
 from cyclopts import App
-from dask.distributed import Client
 from loguru import logger
 
 import brokerages
@@ -50,7 +50,7 @@ def run_all(
             ledger_prices_db.main()
             history.main()
             brokerages.main()
-        with Client() as e:
+        with ProcessPoolExecutor() as e:
             results = []
             if plotly:
                 results.append(e.submit(main_graphs.main))

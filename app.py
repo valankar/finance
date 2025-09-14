@@ -173,7 +173,7 @@ async def transactions_page():
             ("Charles Schwab Checking", r"\\$"),
             ("Interactive Brokers", r"\\$"),
             ("Interactive Brokers", "CHF"),
-            ("UBS Personal", "CHF"),
+            ("UBS Personal Account", "CHF"),
         ):
             with ui.column(align_items="center"):
                 ui.label(account if currency != "CHF" else f"{account} (CHF)")
@@ -181,7 +181,7 @@ async def transactions_page():
                 df = pd.read_csv(
                     io.StringIO(
                         subprocess.check_output(
-                            f"{ledger_cmd} '{account}'", text=True, shell=True
+                            f"{ledger_cmd} '{account}'$", text=True, shell=True
                         )
                     ),
                     header=0,
