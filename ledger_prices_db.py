@@ -54,10 +54,10 @@ def main():
 
         # Futures
         for row in futures.Futures().ledger_df.itertuples():
-            if row.future in commodities_written:
+            if row.commodity in commodities_written:
                 continue
             value = row.current_price * row.multiplier  # type: ignore
-            output_file.write(f'P {NOW} "{row.future}" ${value:.2f}\n')
+            output_file.write(f'P {NOW} "{row.commodity}" ${value:.2f}\n')
 
 
 if __name__ == "__main__":

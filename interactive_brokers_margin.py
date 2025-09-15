@@ -16,11 +16,13 @@ def get_ibkr_loan_balance(currency):
             ledger_currency = "\\\\$"
         case "CHF":
             ledger_currency = "CHF"
+        case _:
+            return 1
     value = int(
         float(
             subprocess.check_output(
                 f"{ledger_amounts.LEDGER_BALANCE_CMD} --limit 'commodity=~/^{ledger_currency}$/' "
-                "'Interactive Brokers'",
+                "'Interactive Brokers$'",
                 text=True,
                 shell=True,
             )

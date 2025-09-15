@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Calculate the maximum balance on pledged asset line given a monthly payment."""
 
+import functools
 import io
 import subprocess
 from typing import NamedTuple
@@ -46,6 +47,7 @@ def find_loan_brokerage(broker: str) -> LoanBrokerage:
     raise ValueError(f"Brokerage {broker} not found")
 
 
+@functools.cache
 def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
     loan_df = load_loan_balance_df(broker)
     equity_df = load_ledger_equity_balance_df(broker)
@@ -78,6 +80,7 @@ def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
     logger.info(f"Cash balance for for {broker.name}: {cash_balance:.0f}")
     logger.info(f"Portfolio notional value for {broker.name}: {notional_value:.0f}")
     logger.info(f"Portfolio equity for {broker.name}: {portfolio_equity:.0f}")
+    equity_df["Cash Balance"] = cash_balance
     equity_df["Equity Balance"] = notional_value
     equity_df["Leverage Ratio"] = notional_value / portfolio_equity
     equity_df["Loan Balance"] = portfolio_equity - (
