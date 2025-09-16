@@ -215,7 +215,6 @@ class Futures:
                 cash = margin_loan.get_balances_broker(
                     margin_loan.find_loan_brokerage(broker)
                 )["Cash Balance"].iloc[-1]
-                cash += total_by_account[broker]
                 req = margin_by_account[broker] * 2
                 percent = cash / req
                 margin_reqs.append(

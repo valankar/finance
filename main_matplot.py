@@ -154,7 +154,7 @@ class Matplots(GraphCommon):
         self.section_multiline(self.interest_rate_section)
 
         num_brokerages = len(margin_loan.LOAN_BROKERAGES)
-        self.section_title("Margin/Box Loans")
+        self.section_title("Brokerage Leverage")
         with ui.grid().classes(f"w-full gap-0 md:grid-cols-{num_brokerages}"):
             for broker in margin_loan.LOAN_BROKERAGES:
                 name = self.make_redis_key(self.MARGIN_LOAN, broker.name)

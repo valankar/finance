@@ -75,6 +75,7 @@ def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
         )
         notional_value += futures_notional_value
         portfolio_equity += futures_value
+        cash_balance += futures_value
     except KeyError:
         pass
     logger.info(f"Cash balance for for {broker.name}: {cash_balance:.0f}")

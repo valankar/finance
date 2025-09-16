@@ -1,0 +1,37 @@
+2025/09/12 Migros
+    Expenses:Food:Groceries                   $6.23
+    Liabilities:Apple Card
+2025/09/12 Futures trading
+    Assets:Investments:Interactive Brokers              -1 "/M2KU25" @ ($2423.10 * 5)
+    Assets:Investments:Interactive Brokers     $1518.76
+    Expenses:Broker:Fees                       $0.62
+    Assets:Investments:Interactive Brokers              1 "/M2KZ25" @ ($2441.50 * 5)
+    Expenses:Broker:Fees                       $0.62
+    Assets:Investments:Interactive Brokers              -6 "/MESU25" @ ($6592.50 * 5)
+    Assets:Investments:Interactive Brokers     $14056.31
+    Expenses:Broker:Fees                       $3.72
+    Assets:Investments:Interactive Brokers              6 "/MESZ25" @ ($6648.25 * 5)
+    Expenses:Broker:Fees                       $3.72
+    Assets:Investments:Interactive Brokers              -1 "/MFSU25" @ ($2760.90 * 50)
+    Assets:Investments:Interactive Brokers     $5350.86
+    Expenses:Broker:Fees                       $2.07
+    Assets:Investments:Interactive Brokers              1 "/MFSZ25" @ ($2778.40 * 50)
+    Expenses:Broker:Fees                       $2.07
+    Assets:Investments:Interactive Brokers:Futures
+2025/09/12 Stock trading
+    Assets:Investments:Charles Schwab Brokerage           61 SCHE @ $32.6858
+    Assets:Investments:Charles Schwab Brokerage
+2025/09/15 Options trading
+    Assets:Investments:Interactive Brokers   1 "SPY 10/17/2025 640 PUT" @ $400
+    Expenses:Broker:Fees                       $1.03
+    Assets:Investments:Interactive Brokers
+2025/09/15 Options trading
+    Assets:Investments:Charles Schwab Brokerage   -5 "EFA 10/17/2025 80 PUT" @ $6
+    Expenses:Broker:Fees                       $3.31
+    Assets:Investments:Charles Schwab Brokerage   5 "EFA 10/17/2025 92 PUT" @ $76
+    Expenses:Broker:Fees                       $3.30
+    Assets:Investments:Charles Schwab Brokerage   -2 "SPY 10/31/2025 660 PUT" @ $1098
+    Expenses:Broker:Fees                       $1.33
+    Assets:Investments:Charles Schwab Brokerage    2 "SPY 10/31/2025 640 PUT" @ $592
+    Expenses:Broker:Fees                       $1.32
+    Assets:Investments:Charles Schwab Brokerage

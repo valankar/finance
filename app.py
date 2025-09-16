@@ -6,7 +6,7 @@ import io
 import os
 import re
 import subprocess
-from datetime import datetime
+from datetime import date, datetime
 from typing import Awaitable, Iterable
 
 import humanize
@@ -167,6 +167,9 @@ async def transactions_page():
     if (data := stock_options.get_options_data()) is None:
         raise ValueError("No options data available")
     bev = data.bev
+    futures_by_account = (
+        futures.Futures().futures_df.groupby(level="account")["value"].sum()
+    )
     with ui.grid().classes("md:grid-cols-3"):
         for account, currency in (
             ("Charles Schwab Brokerage", r"\\$"),
@@ -174,6 +177,7 @@ async def transactions_page():
             ("Interactive Brokers", r"\\$"),
             ("Interactive Brokers", "CHF"),
             ("UBS Personal Account", "CHF"),
+            ("Assets:Cash", "CHF"),
         ):
             with ui.column(align_items="center"):
                 ui.label(account if currency != "CHF" else f"{account} (CHF)")
@@ -189,10 +193,18 @@ async def transactions_page():
                     parse_dates=["Date"],
                     converters={"Amount": floatify, "Balance": floatify},
                 )
+                vals = []
+                if currency.endswith("$") and account in futures_by_account:
+                    vals.append(
+                        (
+                            pd.Timestamp(date.today()),
+                            "Futures value",
+                            futures_by_account[account],
+                        )
+                    )
                 for ev in bev:
                     if ev.broker != account or currency == "CHF":
                         continue
-                    vals = []
                     for val in ev.values:
                         vals.append(
                             (
@@ -201,6 +213,7 @@ async def transactions_page():
                                 val.value,
                             )
                         )
+                if vals:
                     exp_df = pd.DataFrame(
                         data=vals, columns=["Date", "Payee", "Amount"]
                     )

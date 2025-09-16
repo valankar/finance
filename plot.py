@@ -468,7 +468,7 @@ def make_loan_section(margin: dict[str, int]) -> Figure:
     section.update_yaxes(title_text="USD", col=1)
     section.update_traces(showlegend=False)
     section.update_xaxes(title_text="")
-    centered_title(section, "Margin/Box Loans")
+    centered_title(section, "Brokerage Leverage")
     section.update_layout(margin=margin)
     return section
 
