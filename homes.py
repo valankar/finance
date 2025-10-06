@@ -8,7 +8,6 @@ from datetime import datetime
 import pandas as pd
 from cyclopts import App, Parameter, Token
 from dateutil import parser
-from loguru import logger
 
 import common
 
@@ -100,15 +99,6 @@ def integerize_value(value):
     return int(re.sub(r"\D", "", value))
 
 
-def get_redfin_estimate(url_path):
-    """Get home value from Redfin."""
-    logger.info(f"Getting Redfin estimate for {url_path}")
-    with common.run_with_browser_page(f"https://www.redfin.com{url_path}") as page:
-        return integerize_value(
-            page.get_by_text(re.compile(r"^\$[\d,]+$")).all()[0].inner_text()
-        )
-
-
 def write_prices_table(name, value, site, timestamp: typing.Optional[datetime] = None):
     """Write prices to sql."""
     common.insert_sql(
@@ -119,11 +109,6 @@ def write_prices_table(name, value, site, timestamp: typing.Optional[datetime] =
 def write_rents_table(name, value, site):
     """Write rents to sql."""
     common.insert_sql("real_estate_rents", {"name": name, "value": value, "site": site})
-
-
-def process_redfin(p: Property):
-    redfin = get_redfin_estimate(p.redfin_url)
-    write_prices_table(p.name, redfin, "Redfin")
 
 
 app = App()

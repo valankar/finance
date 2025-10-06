@@ -9,6 +9,7 @@ from enum import Enum
 
 import pandas as pd
 from loguru import logger
+from playwright.sync_api import Error as PlaywrightError
 
 import common
 import ledger_ops
@@ -38,27 +39,36 @@ class Brokerage(Enum):
 @dataclass
 class FutureSpec:
     multiplier: float
-    margin_requirement: dict[Brokerage, int]
+    margin_requirement_percent: dict[Brokerage, float]
 
 
 # Get margin requirements from Schwab or IBKR
 FUTURE_SPEC: dict[str, FutureSpec] = {
     "10Y": FutureSpec(
-        multiplier=1000, margin_requirement={Brokerage.SCHWAB: 363, Brokerage.IBKR: 731}
+        multiplier=1000,
+        margin_requirement_percent={Brokerage.SCHWAB: 9, Brokerage.IBKR: 15},
     ),
     "M2K": FutureSpec(
-        multiplier=5, margin_requirement={Brokerage.SCHWAB: 1200, Brokerage.IBKR: 1087}
+        multiplier=5,
+        margin_requirement_percent={Brokerage.SCHWAB: 9, Brokerage.IBKR: 9},
     ),
     "MBT": FutureSpec(
         multiplier=0.1,
-        margin_requirement={Brokerage.SCHWAB: 4653, Brokerage.IBKR: 4277},
+        margin_requirement_percent={Brokerage.SCHWAB: 40, Brokerage.IBKR: 40},
     ),
     "MES": FutureSpec(
-        multiplier=5, margin_requirement={Brokerage.SCHWAB: 2440, Brokerage.IBKR: 2383}
+        multiplier=5,
+        margin_requirement_percent={Brokerage.SCHWAB: 7, Brokerage.IBKR: 7},
     ),
-    "MFS": FutureSpec(multiplier=50, margin_requirement={Brokerage.IBKR: 8637}),
+    "MFS": FutureSpec(multiplier=50, margin_requirement_percent={Brokerage.IBKR: 6}),
     "MGC": FutureSpec(
-        multiplier=10, margin_requirement={Brokerage.SCHWAB: 2112, Brokerage.IBKR: 2650}
+        multiplier=10,
+        margin_requirement_percent={Brokerage.SCHWAB: 6, Brokerage.IBKR: 7},
+    ),
+    "MTN": FutureSpec(multiplier=100, margin_requirement_percent={Brokerage.IBKR: 4}),
+    "ZN": FutureSpec(
+        multiplier=1000,
+        margin_requirement_percent={Brokerage.SCHWAB: 2, Brokerage.IBKR: 2},
     ),
 }
 
@@ -73,6 +83,30 @@ class IceUnknownFuture(Exception):
 class FuturesData(typing.NamedTuple):
     main_output: str
     updated: datetime
+
+
+@common.walrus_db.cache.cached()
+def get_future_quote_mtn(ticker: str) -> common.FutureQuote:
+    try:
+        with common.run_with_browser_page(
+            "https://www.cmegroup.com/markets/interest-rates/us-treasury/micro-ultra-10-year-us-treasury-note.quotes.html"
+        ) as page:
+            if selector := page.wait_for_selector("div.last-value"):
+                value = selector.inner_text().replace("'", ".")
+                q = common.FutureQuote(
+                    mark=float(value), multiplier=FUTURE_SPEC["MTN"].multiplier
+                )
+                logger.info(f"ticker=/MTN {q=}")
+                return q
+    except PlaywrightError as e:
+        logger.info(f"PlaywrightError: {e}, using /TNZ")
+        m = FUTURE_SPEC[ticker[1:4]].multiplier
+        ticker = ticker.replace("/MTN", "/TN")
+        fq = common.get_future_quote(ticker)
+        if fq.multiplier != m:
+            fq = common.FutureQuote(mark=fq.mark, multiplier=m)
+        return fq
+    raise IceUnknownFuture("cannot find price")
 
 
 @common.walrus_db.cache.cached()
@@ -125,6 +159,8 @@ class Futures:
     def future_quote(self, ticker: str) -> pd.Series:
         if ticker.startswith("/MFS"):
             fq = get_future_quote_mfs(ticker)
+        elif ticker.startswith("/MTN"):
+            fq = get_future_quote_mtn(ticker)
         else:
             fq = common.get_future_quote(ticker)
             m = FUTURE_SPEC[ticker[1:4]].multiplier
@@ -151,21 +187,27 @@ class Futures:
             trade_price = get_ledger_total(account, future_name) / count / multiplier
             if account:
                 current_price, multiplier = self.future_quote(commodity)
+                notional_value = current_price * multiplier * count
                 entries.append(
                     {
                         "account": account,
                         "commodity": commodity,
                         "count": count,
                         "value": (current_price - trade_price) * multiplier * count,
-                        "notional_value": current_price * multiplier * count,
+                        "notional_value": notional_value,
                         "current_price": current_price,
                         "trade_price": round(trade_price, 2),
                         "multiplier": multiplier,
-                        "margin_requirement": abs(
-                            FUTURE_SPEC[commodity[1:4]].margin_requirement[
-                                Brokerage(account)
-                            ]
-                            * count
+                        "margin_requirement": round(
+                            abs(
+                                (
+                                    FUTURE_SPEC[
+                                        commodity[1:4]
+                                    ].margin_requirement_percent[Brokerage(account)]
+                                    / 100
+                                )
+                                * notional_value
+                            )
                         ),
                     }
                 )
@@ -218,7 +260,8 @@ class Futures:
                 req = margin_by_account[broker] * 2
                 percent = cash / req
                 margin_reqs.append(
-                    f"{broker}: {cash:.0f} ({(percent * 100):.0f}% of 2x margin requirement ({req:.0f}))"
+                    f"{broker}: {cash:.0f} ({(percent * 100):.0f}% of 2x margin requirement "
+                    f"({req:.0f}), Difference: {(cash - req):.0f})"
                 )
             return (
                 f"{df}\n\n"

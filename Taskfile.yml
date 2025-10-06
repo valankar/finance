@@ -54,4 +54,5 @@ tasks:
       - task: prod-push
     sources:
       - uv.lock
+      - Dockerfile
 

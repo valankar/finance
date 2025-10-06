@@ -64,7 +64,7 @@ class LedgerUI:
                     "amount": entry.first_amount(),
                 }
             )
-        self.aggrid.update()
+        self.aggrid.run_grid_method("setGridOption", "rowData", self.aggrid_data)
         ui.timer(
             1,
             lambda: self.aggrid
@@ -103,10 +103,13 @@ class LedgerUI:
         if success:
             await self.input_changed()
 
-    def row_selected(self, data: dict):
-        if not data["selected"]:
-            return
-        self.selected_index = int(data["rowIndex"])
+    async def row_selected(self, data: dict):
+        possible_index = data["rowIndex"]
+        if self.aggrid:
+            selected = await self.aggrid.run_row_method(possible_index, "isSelected")
+            if not selected:
+                return
+        self.selected_index = int(possible_index)
         self.editor_data = self.results[self.selected_index].full_str()
         self.modify_ledger()
 
@@ -139,32 +142,33 @@ class LedgerUI:
                 ui.button(text="Reset", on_click=ui.navigate.reload)
                 ui.codemirror(theme="basicDark").bind_value(self, "editor_data")
             with ui.card():
-                self.aggrid = (
-                    ui.aggrid(
-                        {
-                            "columnDefs": [
-                                {
-                                    "headerName": "Date",
-                                    "field": "date",
-                                    "sortable": False,
-                                },
-                                {
-                                    "headerName": "Payee",
-                                    "field": "payee",
-                                    "sortable": False,
-                                },
-                                {
-                                    "headerName": "Amount",
-                                    "field": "amount",
-                                    "sortable": False,
-                                },
-                            ],
-                            "rowData": self.aggrid_data,
-                            "rowSelection": "single",
-                        }
-                    )
-                    .classes("ag-theme-balham-dark")
-                    .on("rowSelected", lambda msg: self.row_selected(msg.args))
-                )
+                self.aggrid = ui.aggrid(
+                    {
+                        "columnDefs": [
+                            {
+                                "headerName": "Date",
+                                "field": "date",
+                                "sortable": False,
+                            },
+                            {
+                                "headerName": "Payee",
+                                "field": "payee",
+                                "sortable": False,
+                            },
+                            {
+                                "headerName": "Amount",
+                                "field": "amount",
+                                "sortable": False,
+                            },
+                        ],
+                        "rowData": [],
+                        "rowSelection": {
+                            "mode": "singleRow",
+                            "checkboxes": False,
+                            "enableClickSelection": True,
+                        },
+                    },
+                    theme="balham",
+                ).on("rowSelected", lambda msg: self.row_selected(msg.args))
             with ui.card(align_items="stretch"):
                 self.log = ui.log()

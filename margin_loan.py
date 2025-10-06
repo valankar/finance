@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Calculate the maximum balance on pledged asset line given a monthly payment."""
 
 import functools
 import io
@@ -78,7 +77,7 @@ def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
         cash_balance += futures_value
     except KeyError:
         pass
-    logger.info(f"Cash balance for for {broker.name}: {cash_balance:.0f}")
+    logger.info(f"Cash balance for {broker.name}: {cash_balance:.0f}")
     logger.info(f"Portfolio notional value for {broker.name}: {notional_value:.0f}")
     logger.info(f"Portfolio equity for {broker.name}: {portfolio_equity:.0f}")
     equity_df["Cash Balance"] = cash_balance

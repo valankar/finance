@@ -12,6 +12,7 @@ from prefixed import Float
 
 import balance_etfs
 import common
+import futures
 import homes
 import margin_loan
 
@@ -469,6 +470,55 @@ def make_loan_section(margin: dict[str, int]) -> Figure:
     section.update_traces(showlegend=False)
     section.update_xaxes(title_text="")
     centered_title(section, "Brokerage Leverage")
+    section.update_layout(margin=margin)
+    return section
+
+
+def make_futures_margin_section(margin: dict[str, int]) -> Figure:
+    section = make_subplots(
+        rows=1,
+        cols=len(margin_loan.LOAN_BROKERAGES),
+        subplot_titles=[x.name for x in margin_loan.LOAN_BROKERAGES],
+        vertical_spacing=0.07,
+        horizontal_spacing=0.05,
+    )
+
+    def add_loan_graph(
+        df: pd.DataFrame,
+        margin_requirement: int,
+        col: int,
+    ):
+        cash_balance = df.iloc[-1]["Cash Balance"]
+        fig = go.Waterfall(
+            measure=["relative", "relative", "total"],
+            x=["Cash", "2x Futures Margin", "Excess"],
+            y=[
+                cash_balance,
+                -margin_requirement,
+                0,
+            ],
+            text=[
+                f"{cash_balance:,.0f}",
+                f"{-margin_requirement:,.0f}",
+                f"{cash_balance - margin_requirement:,.0f}",
+            ],
+        )
+        section.add_trace(fig, row=1, col=col)
+
+    futures_df = futures.Futures().futures_df
+    margin_by_account = futures_df.groupby(level="account")["margin_requirement"].sum()
+    for i, broker in enumerate(margin_loan.LOAN_BROKERAGES, start=1):
+        if broker.name not in margin_by_account:
+            continue
+        req = margin_by_account[broker.name] * 2
+        df = margin_loan.get_balances_broker(broker)
+        add_loan_graph(df, req, i)
+
+    section.update_yaxes(matches=None)
+    section.update_yaxes(title_text="USD", col=1)
+    section.update_traces(showlegend=False)
+    section.update_xaxes(title_text="")
+    centered_title(section, "Brokerage Futures Margin")
     section.update_layout(margin=margin)
     return section
 

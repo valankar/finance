@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Plot weight graph."""
 
+import asyncio
 import contextlib
 import io
 import os
@@ -14,7 +15,7 @@ import pandas as pd
 import plotly.io as pio
 from fastapi import Request
 from loguru import logger
-from nicegui import app, html, run, ui
+from nicegui import app, background_tasks, html, run, ui
 from plotly.graph_objects import Figure
 from starlette.responses import RedirectResponse
 
@@ -25,7 +26,6 @@ import i_and_e
 import latest_values
 import ledger_ui
 import main_graphs
-import stock_options
 import stock_options_ui
 from main_matplot import Matplots
 
@@ -161,23 +161,63 @@ def floatify(string: str) -> float:
     return float(re.sub(r"[^\d\.-]", "", string))
 
 
+@ui.page("/regenerate")
+def regenerate_page():
+    with ui.row():
+        button = ui.button("Run")
+        flush_cache = ui.checkbox("Flush ticker cache", value=True)
+    log = ui.log().classes("w-full h-[90vh]")
+
+    async def run_command():
+        button.disable()
+        cmd = [
+            "./code/accounts/finance_hourly.py",
+            "--no-daily",
+        ]
+        if not flush_cache.value:
+            cmd.append("--no-flush-cache")
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+
+        while process.stdout is not None:
+            line = await process.stdout.readline()
+            if not line:
+                break
+            log.push(line.decode().strip())
+
+        await process.wait()
+        if process.returncode == 0:
+            with log:
+                ui.navigate.to("/")
+        else:
+            log.push(f"Process finished with return code {process.returncode}")
+            button.enable()
+
+    button.on_click(lambda: background_tasks.create(run_command()))
+
+
 @ui.page("/transactions", title="Transactions")
 async def transactions_page():
     log_request()
-    if (data := stock_options.get_options_data()) is None:
-        raise ValueError("No options data available")
-    bev = data.bev
     futures_by_account = (
         futures.Futures().futures_df.groupby(level="account")["value"].sum()
     )
     with ui.grid().classes("md:grid-cols-3"):
         for account, currency in (
             ("Charles Schwab Brokerage", r"\\$"),
-            ("Charles Schwab Checking", r"\\$"),
             ("Interactive Brokers", r"\\$"),
             ("Interactive Brokers", "CHF"),
             ("UBS Personal Account", "CHF"),
             ("Assets:Cash", "CHF"),
+            ("Apple Card", r"\\$"),
+            ("Bank of America Travel Rewards Credit Card", r"\\$"),
+            ("UBS Visa", "CHF"),
+            ("Wise", "CHF"),
+            ("Revolut", "CHF"),
         ):
             with ui.column(align_items="center"):
                 ui.label(account if currency != "CHF" else f"{account} (CHF)")
@@ -202,17 +242,6 @@ async def transactions_page():
                             futures_by_account[account],
                         )
                     )
-                for ev in bev:
-                    if ev.broker != account or currency == "CHF":
-                        continue
-                    for val in ev.values:
-                        vals.append(
-                            (
-                                pd.Timestamp(val.expiration),
-                                "Options Expiration",
-                                val.value,
-                            )
-                        )
                 if vals:
                     exp_df = pd.DataFrame(
                         data=vals, columns=["Date", "Payee", "Amount"]
@@ -251,6 +280,11 @@ async def schwab_callback(request: Request) -> RedirectResponse:
     token = await common.schwab_conn.oauth.authorize_access_token(request)
     common.schwab_conn.write_token(token)
     return RedirectResponse("/")
+
+
+@ui.page("/screenshot", title="Screenshot")
+def screenshot_page():
+    ui.image(f"{common.PUBLIC_HTML}/screenshot.png")
 
 
 if __name__ in {"__main__", "__mp_main__"}:

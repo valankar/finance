@@ -17,7 +17,6 @@ import plotly.io as pio
 from dateutil.relativedelta import relativedelta
 from loguru import logger
 from nicegui import run, ui
-from nicegui.tailwind_types.text_color import TextColor
 from plotly.graph_objects import Figure
 
 import brokerages
@@ -124,9 +123,9 @@ class GraphCommon:
             xrange = ((latest_time + relative), latest_time)
         return xrange
 
-    def section_title(self, title: str, color: TextColor = "white"):
+    def section_title(self, title: str, color: str = "white"):
         with ui.column(align_items="center").classes("w-full"):
-            ui.label(title).tailwind.text_color(color)
+            ui.label(title).classes(f"text-{color}")
 
     def daily_change(self):
         diff = latest_values.difference_df(common.read_sql_table("history"))[1].iloc[-1]
@@ -140,11 +139,11 @@ class GraphCommon:
         total_no_homes = diff["total_no_homes"]
         total_no_homes_color = "green-500" if total_no_homes >= 0 else "red-500"
         with ui.grid(rows=2, columns=2).classes("w-full place-items-center"):
-            ui.label("Total").tailwind.font_size("lg")
-            ui.label("Total w/o Real Estate").tailwind.font_size("lg")
-            ui.label(f"{total:+,.0f}").tailwind.font_size("lg").text_color(total_color)
-            ui.label(f"{total_no_homes:+,.0f}").tailwind.font_size("lg").text_color(
-                total_no_homes_color
+            ui.label("Total").classes("text-lg")
+            ui.label("Total w/o Real Estate").classes("text-lg")
+            ui.label(f"{total:+,.0f}").classes(f"text-lg text-{total_color}")
+            ui.label(f"{total_no_homes:+,.0f}").classes(
+                f"text-lg text-{total_no_homes_color}"
             )
 
     def common_links(self):
@@ -175,6 +174,7 @@ class MainGraphs(GraphCommon):
         ("interest_rate", "45vh"),
         ("loan", "45vh"),
         ("brokerage_total", "45vh"),
+        ("futures_margin", "45vh"),
     )
 
     def __init__(self):
@@ -284,6 +284,15 @@ class MainGraphs(GraphCommon):
                 name="loan",
                 fig=executor.submit(
                     plot.make_loan_section,
+                    subplot_margin,
+                ),
+            )
+        )
+        fs.append(
+            FigureData(
+                name="futures_margin",
+                fig=executor.submit(
+                    plot.make_futures_margin_section,
                     subplot_margin,
                 ),
             )

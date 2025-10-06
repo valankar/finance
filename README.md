@@ -28,11 +28,3 @@ TICKER="^SSMI"
 ```
 
 Update `balance_etfs.py` to include new ticker.
-
-## Debugging playright
-
-```shell
-docker compose up -d selenium-dev
-SELENIUM_REMOTE_URL="http://localhost:4444" ./homes.py
-```
-

@@ -5,6 +5,7 @@ import json
 import multiprocessing
 import os
 import shutil
+import socket
 import tempfile
 import typing
 from contextlib import contextmanager
@@ -34,7 +35,6 @@ LOCK_TTL_SECONDS = 10 * 60
 DUCKDB = f"{PREFIX}/db.duckdb"
 DUCKDB_LOCK_NAME = "duckdb"
 SCRIPT_LOCK_NAME = "script"
-SELENIUM_REMOTE_URL = "http://selenium:4444"
 LEDGER_BIN = "ledger"
 LEDGER_DIR = f"{Path.home()}/code/ledger"
 LEDGER_DAT = f"{LEDGER_DIR}/ledger.ledger"
@@ -411,10 +411,10 @@ def schwab_browser_page(page, accept_cookies=False):
 @contextmanager
 def run_with_browser_page(url):
     """Run code with a Chromium browser page."""
-    if not os.environ.get("SELENIUM_REMOTE_URL"):
-        os.environ["SELENIUM_REMOTE_URL"] = SELENIUM_REMOTE_URL
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.connect_over_cdp(
+            f"http://{socket.gethostbyname('chrome-cdp')}:9222"
+        )
         page = browser.new_page()
         try:
             page.goto(url)

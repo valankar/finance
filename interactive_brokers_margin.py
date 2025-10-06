@@ -44,7 +44,7 @@ def get_interest_rate(currency, loan):
         page.locator("#int_calc_db_balance").click()
         page.locator("#int_calc_db_balance").fill(f"{loan}")
         page.locator("#int_calc_db_currency").select_option(currency)
-        page.get_by_role("link", name="Calculate Blended Rate", exact=True).click()
+        page.get_by_text("Calculate Blended Rate", exact=True).click()
         page.get_by_role("heading", name="%").click()
         return float(page.locator("#int_calc_db_blendrate").inner_text().strip("%"))
 

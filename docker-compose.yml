@@ -20,7 +20,7 @@ services:
       - cloudflare
     depends_on:
       - valkey
-      - selenium
+      - chrome-cdp
 
   accounts-dev:
     <<: *accounts
@@ -31,7 +31,7 @@ services:
     profiles: [ "development" ]
     depends_on:
       - valkey-dev
-      - selenium
+      - chrome-cdp
 
   accounts_hourly:
     <<: *accounts
@@ -57,12 +57,9 @@ services:
     user: "1001:1001"
     profiles: [ "development" ]
 
-  selenium:
-    image: selenium/standalone-chromium
-    container_name: selenium
-    shm_size: 2g
-    environment:
-      - SE_ENABLE_TRACING=false
+  chrome-cdp:
+    image: chromedp/headless-shell
+    container_name: chrome-cdp
     restart: unless-stopped
     networks: *networks
 

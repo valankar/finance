@@ -5,7 +5,6 @@ import common
 
 
 def get_yield():
-    """Get 7 day yield with Selenium."""
     with common.run_with_browser_page(
         "https://www.schwabassetmanagement.com/products/swvxx"
     ) as page:

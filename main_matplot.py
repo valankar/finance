@@ -17,6 +17,7 @@ from nicegui import run, ui
 import balance_etfs
 import brokerages
 import common
+import futures
 import homes
 import margin_loan
 import plot
@@ -68,6 +69,7 @@ class Matplots(GraphCommon):
         "Total Net Worth Change w/o Real Estate Month Over Month"
     )
     MARGIN_LOAN: ClassVar[str] = "Margin Loan"
+    FUTURES_MARGIN: ClassVar[str] = "Futures Margin"
 
     def __init__(self):
         self.ui_image_ranged: dict[str, ui.image] = {}
@@ -159,8 +161,13 @@ class Matplots(GraphCommon):
             for broker in margin_loan.LOAN_BROKERAGES:
                 name = self.make_redis_key(self.MARGIN_LOAN, broker.name)
                 self.ui_image(name, make_redis_key=False)
-
         self.section_breakdown(self.brokerage_values_section, grid_cols=num_brokerages)
+        self.section_title("Brokerage Futures Margin")
+        with ui.grid().classes(f"w-full gap-0 md:grid-cols-{num_brokerages}"):
+            for broker in margin_loan.LOAN_BROKERAGES:
+                name = self.make_redis_key(self.FUTURES_MARGIN, broker.name)
+                self.ui_image(name, make_redis_key=False)
+
         self.daily_change()
         self.common_links()
 
@@ -300,6 +307,12 @@ class Matplots(GraphCommon):
                 GraphResult(
                     executor.submit(make_loan_graph, broker),
                     self.make_redis_key(self.MARGIN_LOAN, broker.name),
+                )
+            )
+            results.append(
+                GraphResult(
+                    executor.submit(make_futures_margin_graph, broker),
+                    self.make_redis_key(self.FUTURES_MARGIN, broker.name),
                 )
             )
         total_changes = {
@@ -603,6 +616,29 @@ def make_loan_graph(broker: margin_loan.LoanBrokerage) -> bytes:
         ha="center",
         va="center",
     )
+    ax.set_title(broker.name)
+    return make_image_graph(fig)
+
+
+def make_futures_margin_graph(broker: margin_loan.LoanBrokerage) -> bytes:
+    futures_df = futures.Futures().futures_df
+    margin_by_account = futures_df.groupby(level="account")["margin_requirement"].sum()
+    df = margin_loan.get_balances_broker(broker)
+    categories = ["Cash", "2x Futures Margin", "Excess"]
+    cash_balance = df.iloc[-1]["Cash Balance"]
+    margin_requirement = margin_by_account.get(broker.name, 0) * 2
+    amounts = [
+        cash_balance,
+        -margin_requirement,
+        cash_balance - margin_requirement,
+    ]
+    bottom = [0, amounts[0], 0]
+    labels = [f"{x:,.0f}" for x in amounts]
+    fig = Figure(layout=LAYOUT)
+    ax = fig.subplots()
+    colors = ["tab:green" if v > 0 else "tab:red" for v in amounts]
+    p = ax.bar(categories, amounts, bottom=bottom, color=colors)
+    ax.bar_label(p, labels=labels, label_type="center")
     ax.set_title(broker.name)
     return make_image_graph(fig)
 
