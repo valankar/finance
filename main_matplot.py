@@ -337,7 +337,10 @@ class Matplots(GraphCommon):
             )
 
         for r in results:
-            self.image_graphs[r.redis_key] = r.f.result()
+            if image := r.f.result():
+                self.image_graphs[r.redis_key] = image
+            elif r.redis_key in self.image_graphs:
+                del self.image_graphs[r.redis_key]
         logger.info(
             f"Graph generation time for Matplot: {humanize.precisedelta(datetime.now() - start_time)}"
         )
@@ -623,6 +626,8 @@ def make_loan_graph(broker: margin_loan.LoanBrokerage) -> bytes:
 def make_futures_margin_graph(broker: margin_loan.LoanBrokerage) -> bytes:
     futures_df = futures.Futures().futures_df
     margin_by_account = futures_df.groupby(level="account")["margin_requirement"].sum()
+    if broker.name not in margin_by_account:
+        return b""
     df = margin_loan.get_balances_broker(broker)
     categories = ["Cash", "2x Futures Margin", "Excess"]
     cash_balance = df.iloc[-1]["Cash Balance"]

@@ -475,20 +475,13 @@ def make_loan_section(margin: dict[str, int]) -> Figure:
 
 
 def make_futures_margin_section(margin: dict[str, int]) -> Figure:
-    section = make_subplots(
-        rows=1,
-        cols=len(margin_loan.LOAN_BROKERAGES),
-        subplot_titles=[x.name for x in margin_loan.LOAN_BROKERAGES],
-        vertical_spacing=0.07,
-        horizontal_spacing=0.05,
-    )
-
     def add_loan_graph(
         df: pd.DataFrame,
         margin_requirement: int,
         col: int,
     ):
         cash_balance = df.iloc[-1]["Cash Balance"]
+        total = cash_balance - margin_requirement
         fig = go.Waterfall(
             measure=["relative", "relative", "total"],
             x=["Cash", "2x Futures Margin", "Excess"],
@@ -500,13 +493,24 @@ def make_futures_margin_section(margin: dict[str, int]) -> Figure:
             text=[
                 f"{cash_balance:,.0f}",
                 f"{-margin_requirement:,.0f}",
-                f"{cash_balance - margin_requirement:,.0f}",
+                f"{total:,.0f}",
             ],
+            totals={"marker": {"color": COLOR_GREEN if total > 0 else COLOR_RED}},
         )
         section.add_trace(fig, row=1, col=col)
 
     futures_df = futures.Futures().futures_df
     margin_by_account = futures_df.groupby(level="account")["margin_requirement"].sum()
+    section = make_subplots(
+        rows=1,
+        cols=len(margin_loan.LOAN_BROKERAGES),
+        subplot_titles=[
+            x.name for x in margin_loan.LOAN_BROKERAGES if x.name in margin_by_account
+        ],
+        vertical_spacing=0.07,
+        horizontal_spacing=0.05,
+    )
+
     for i, broker in enumerate(margin_loan.LOAN_BROKERAGES, start=1):
         if broker.name not in margin_by_account:
             continue

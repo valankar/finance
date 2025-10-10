@@ -196,7 +196,7 @@ class Futures:
                         "value": (current_price - trade_price) * multiplier * count,
                         "notional_value": notional_value,
                         "current_price": current_price,
-                        "trade_price": round(trade_price, 2),
+                        "trade_price": trade_price,
                         "multiplier": multiplier,
                         "margin_requirement": round(
                             abs(

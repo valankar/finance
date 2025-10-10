@@ -139,13 +139,40 @@ def latest_values_page():
 
 
 @ui.page("/balance_etfs", title="Balance ETFs")
-@ui.page("/balance_etfs/{amount}", title="Balance ETFs")
-def balance_etfs_page(amount: int = 0):
+def balance_etfs_page():
     """Balance ETFs."""
     log_request()
-    with common.pandas_options():
-        df = balance_etfs.get_rebalancing_df(amount=amount)
-        html.pre(str(df))
+    adjustments = {}
+    df = balance_etfs.get_rebalancing_df(amount=0).reset_index(names="category")
+    table = ui.table.from_pandas(df)
+
+    def validate(x):
+        if not x:
+            return None
+        try:
+            int(x)
+        except ValueError:
+            return "Only int allowed"
+        return None
+
+    def update():
+        adjustment = {k: int(v.value) for k, v in adjustments.items() if v.value}
+        amt = 0
+        if amount.value:
+            amt = int(amount.value)
+        df = balance_etfs.get_rebalancing_df(
+            amount=amt, adjustment=adjustment
+        ).reset_index(names="category")
+        table.update_from_pandas(df)
+
+    amount = ui.input(label="Amount", validation=validate).on("keydown.enter", update)
+
+    ui.label("Adjustments")
+    with ui.grid(columns=2).classes("w-1/3"):
+        for category in df["category"]:
+            adjustments[category] = ui.input(label=category, validation=validate).on(
+                "keydown.enter", update
+            )
 
 
 @ui.page("/futures", title="Futures")

@@ -18,7 +18,7 @@ TICKER_PRICES_TABLE = "ticker_prices"
 def get_etfs_df() -> pd.DataFrame:
     data = []
     for ticker, amount in ledger_amounts.get_etfs_amounts().items():
-        price = get_price_from_db(ticker)
+        price = common.get_ticker(ticker)
         data.append(
             {
                 "ticker": ticker,
@@ -29,13 +29,6 @@ def get_etfs_df() -> pd.DataFrame:
         )
     df = pd.DataFrame(data).set_index("ticker").sort_index()
     return df
-
-
-def get_price_from_db(ticker: str) -> float:
-    df = common.read_sql_query(
-        f"select date, price from {TICKER_PRICES_TABLE} where ticker = '{ticker}' order by date desc limit 1"
-    )
-    return df.iloc[-1]["price"]
 
 
 def get_tickers() -> set:
