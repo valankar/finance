@@ -139,14 +139,21 @@ def latest_values_page():
 
 
 @ui.page("/balance_etfs", title="Balance ETFs")
-def balance_etfs_page():
+async def balance_etfs_page():
     """Balance ETFs."""
     log_request()
     adjustments = {}
-    df = balance_etfs.get_rebalancing_df(amount=0).reset_index(names="category")
+
+    def get_rebalancing_df(amt: int, adj: dict[str, int]):
+        return balance_etfs.get_rebalancing_df(amount=amt, adjustment=adj).reset_index(
+            names="category"
+        )
+
+    await ui.context.client.connected()
+    df = await run.io_bound(get_rebalancing_df, 0, {})
     table = ui.table.from_pandas(df)
 
-    def validate(x):
+    def validate(x: str):
         if not x:
             return None
         try:
@@ -155,14 +162,12 @@ def balance_etfs_page():
             return "Only int allowed"
         return None
 
-    def update():
+    async def update():
         adjustment = {k: int(v.value) for k, v in adjustments.items() if v.value}
         amt = 0
         if amount.value:
             amt = int(amount.value)
-        df = balance_etfs.get_rebalancing_df(
-            amount=amt, adjustment=adjustment
-        ).reset_index(names="category")
+        df = await run.io_bound(get_rebalancing_df, amt, adjustment)
         table.update_from_pandas(df)
 
     amount = ui.input(label="Amount", validation=validate).on("keydown.enter", update)
@@ -230,6 +235,7 @@ def regenerate_page():
 @ui.page("/transactions", title="Transactions")
 async def transactions_page():
     log_request()
+    await ui.context.client.connected()
     futures_by_account = (
         futures.Futures().futures_df.groupby(level="account")["value"].sum()
     )

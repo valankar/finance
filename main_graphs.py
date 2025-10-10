@@ -154,6 +154,7 @@ class GraphCommon:
             ui.link("Stock Options", "/stock_options")
             ui.link("Futures", "/futures")
             ui.link("Transactions", "/transactions")
+            ui.link("Rebalancing", "/balance_etfs")
             ui.link("Latest Values", "/latest_values")
 
 
