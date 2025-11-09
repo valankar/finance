@@ -1,40 +1,36 @@
 #!/usr/bin/env python3
 
-import functools
 import io
 import subprocess
+from datetime import date
 from typing import NamedTuple
 
 import pandas as pd
 from loguru import logger
 
 import common
+import etfs
 import futures
-import ledger_amounts
 import stock_options
 
 
 class LoanBrokerage(NamedTuple):
     name: str
     loan_balance_cmd: str
-    balance_cmd: str
 
 
 LOAN_BROKERAGES = (
     LoanBrokerage(
         name=(broker_name := "Interactive Brokers"),
         loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'{broker_name}'$",
-        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'$",
     ),
     LoanBrokerage(
         name=(broker_name := "Charles Schwab Brokerage"),
         loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'{broker_name}'$",
-        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'$",
     ),
     LoanBrokerage(
         name=(broker_name := "Charles Schwab PAL Brokerage"),
         loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Liabilities:'Charles Schwab PAL'$",
-        balance_cmd=f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -E bal ^Assets:Investments:'{broker_name}'$",
     ),
 )
 
@@ -46,7 +42,25 @@ def find_loan_brokerage(broker: str) -> LoanBrokerage:
     raise ValueError(f"Brokerage {broker} not found")
 
 
-@functools.cache
+def get_balances_all() -> pd.DataFrame:
+    dfs = []
+    for broker in LOAN_BROKERAGES:
+        df = get_balances_broker(broker)
+        dfs.append(df)
+    df = (
+        pd.concat(dfs, axis=0, ignore_index=True)
+        .select_dtypes("number")
+        .cumsum()
+        .tail(1)
+    )
+    retirement = common.read_sql_last("history")["total_retirement"].iloc[-1]
+    df["Equity Balance"] += retirement
+    df["Total"] += retirement
+    df["Leverage Ratio"] = df["Equity Balance"] / df["Total"]
+    return df
+
+
+@common.walrus_db.cache.cached(key_fn=lambda a, _: a[0].name)
 def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
     loan_df = load_loan_balance_df(broker)
     equity_df = load_ledger_equity_balance_df(broker)
@@ -92,16 +106,8 @@ def get_balances_broker(broker: LoanBrokerage) -> pd.DataFrame:
 
 def load_ledger_equity_balance_df(brokerage: LoanBrokerage) -> pd.DataFrame:
     """Get dataframe of equity balance."""
-    equity_balance_df = pd.read_csv(
-        io.StringIO(
-            subprocess.check_output(brokerage.balance_cmd, shell=True, text=True)
-        ),
-        sep=" ",
-        index_col=0,
-        parse_dates=True,
-        names=["date", "Equity Balance"],
-    )
-    return equity_balance_df.tail(1)
+    balance = etfs.get_etfs_df(brokerage.name)["value"].sum()
+    return pd.DataFrame({"Equity Balance": balance}, index=[pd.Timestamp(date.today())])
 
 
 def load_loan_balance_df(brokerage: LoanBrokerage) -> pd.DataFrame:
@@ -123,6 +129,8 @@ def main():
     for brokerage in LOAN_BROKERAGES:
         df = get_balances_broker(brokerage)
         print(brokerage.name, "\n", df.round(2), "\n")
+    df = get_balances_all()
+    print("Overall", "\n", df.round(2), "\n")
 
 
 if __name__ == "__main__":

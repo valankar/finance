@@ -4,4 +4,6 @@ toshl_exports/
 web/
 *.old
 .venv
-app_echarts.py
+.schwab_token.json
+.task
+cron_hourly.sh

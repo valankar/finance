@@ -2,7 +2,6 @@
 """Common functions."""
 
 import json
-import multiprocessing
 import os
 import shutil
 import socket
@@ -147,20 +146,21 @@ class Schwab:
                 invert = True
             case "SMI":
                 return 0
+        j = self.client.get_quotes([ticker]).json()
         try:
-            p = self.client.get_quotes([ticker]).json()[ticker]
+            p = j[ticker]
         except KeyError:
-            logger.error(f"Cannot find {ticker} in quote")
-            raise GetTickerError("ticker not found")
+            logger.error(f"Cannot find {ticker} in quote: {j}")
+            raise GetTickerError(f"{ticker=} ticker not found")
         if "regular" in p:
             value = p["regular"]["regularMarketLastPrice"]
         elif "quote" in p:
             value = p["quote"]["lastPrice"]
         else:
             logger.error(p)
-            raise GetTickerError("cannot find schwab price field")
+            raise GetTickerError(f"{ticker=} cannot find schwab price field")
         if value == 0:
-            raise GetTickerError("received 0 as quote")
+            raise GetTickerError(f"{ticker=} received 0 as quote")
         logger.info(f"{ticker=} {value=}")
         return value if not invert else 1 / value
 
@@ -220,44 +220,23 @@ def pandas_options():
 GET_TICKER_FAILURES: set[str] = set()
 
 
-@walrus_db.cache.cached()
-def get_ticker_all(ticker: str) -> float:
-    """Get ticker prices by trying various methods."""
-    get_ticker_methods = (
-        get_ticker_yahooquery,
-        get_ticker_yahoofinancials,
-        get_ticker_yfinance,
-        get_ticker_alphavantage,
-    )
-    for method in get_ticker_methods:
-        if method.__name__ in GET_TICKER_FAILURES:
-            continue
-        logger.info(f"Running {method.__name__}({ticker=})")
-        with multiprocessing.Pool(processes=1) as pool:
-            async_result = pool.apply_async(method, (ticker,))
-            try:
-                return async_result.get(timeout=30)
-            except Exception as e:
-                if err := str(e):
-                    logger.error(err)
-                GET_TICKER_FAILURES.add(method.__name__)
-    raise GetTickerError("No more methods to get ticker price")
-
-
 @schwab_lock
-@walrus_db.cache.cached()
+@walrus_db.cache.cached(key_fn=lambda a, _: a[0])
 def get_ticker(ticker: str) -> float:
     return schwab_conn.get_quote(ticker)
 
 
 @schwab_lock
-@walrus_db.cache.cached()
+@walrus_db.cache.cached(
+    key_fn=lambda a,
+    _: f"{a[0].ticker} {a[0].expiration} {a[0].strike} {a[0].contract_type}"
+)
 def get_option_quote(t: TickerOption) -> OptionQuote | None:
     return schwab_conn.get_option_quote(t)
 
 
 @schwab_lock
-@walrus_db.cache.cached()
+@walrus_db.cache.cached(key_fn=lambda a, _: a[0])
 def get_future_quote(ticker: str) -> FutureQuote:
     return schwab_conn.get_future_quote(ticker)
 
@@ -291,10 +270,6 @@ def get_ticker_yahooquery(ticker: str) -> float:
 def get_ticker_yfinance(ticker: str) -> float:
     """Get ticker price via yfinance library."""
     return yfinance.Ticker(ticker).history(period="5d")["Close"].iloc[-1]
-
-
-def get_latest_forex() -> pd.Series:
-    return read_sql_last("forex").iloc[-1]
 
 
 @contextmanager

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Calculate ETF values."""
 
-import functools
 from datetime import datetime
 from typing import Optional
 
@@ -15,9 +14,9 @@ import stock_options
 TICKER_PRICES_TABLE = "ticker_prices"
 
 
-def get_etfs_df() -> pd.DataFrame:
+def get_etfs_df(account: Optional[str] = None) -> pd.DataFrame:
     data = []
-    for ticker, amount in ledger_amounts.get_etfs_amounts().items():
+    for ticker, amount in ledger_amounts.get_etfs_amounts(account).items():
         price = common.get_ticker(ticker)
         data.append(
             {
@@ -38,7 +37,7 @@ def get_tickers() -> set:
     return cols
 
 
-@functools.cache
+@common.walrus_db.cache.cached()
 def get_prices_wide_df() -> pd.DataFrame:
     prices_df = (
         common.read_sql_table(TICKER_PRICES_TABLE)

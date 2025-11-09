@@ -22,9 +22,8 @@ def main():
             output_file.write(f"P {NOW} {row.Index} ${row.current_price}\n")
 
         # Forex values
-        series = common.get_latest_forex()
-        for ticker, price in series.items():
-            ticker = str(ticker).replace("USD", "")
+        for ticker in ("CHF", "SGD"):
+            price = common.get_ticker(f"{ticker}USD=X")
             output_file.write(f"P {NOW} {ticker} ${price}\n")
 
         # Properties

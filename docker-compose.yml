@@ -14,8 +14,6 @@ services:
       SCHWAB_CALLBACK_URI: ${SCHWAB_CALLBACK_URI}
       FRED_API_KEY: ${FRED_API_KEY}
     restart: unless-stopped
-    labels:
-      com.centurylinklabs.watchtower.no-pull: true
     networks: &networks
       - cloudflare
     depends_on:

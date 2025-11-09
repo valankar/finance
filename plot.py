@@ -2,6 +2,7 @@
 """Plot finance graphs."""
 
 from functools import reduce
+from typing import Optional
 
 import pandas as pd
 import plotly.express as px
@@ -224,7 +225,9 @@ def make_real_estate_profit_bar_yearly(real_estate_df: pd.DataFrame) -> go.Bar:
     return profit_bar
 
 
-def make_investing_allocation_section() -> Figure:
+def make_investing_allocation_section(
+    dataframe: Optional[pd.DataFrame] = None,
+) -> Figure:
     """Make investing current and desired allocation pie graphs."""
     changes_section = make_subplots(
         rows=1,
@@ -232,7 +235,8 @@ def make_investing_allocation_section() -> Figure:
         subplot_titles=("Current", "Rebalancing Required"),
         specs=[[{"type": "pie"}, {"type": "xy"}]],
     )
-    dataframe = balance_etfs.get_rebalancing_df(0)
+    if dataframe is None:
+        dataframe = balance_etfs.get_rebalancing_df(0)
     label_col = (
         ("US Large Cap", "US_LARGE_CAP"),
         ("US Small Cap", "US_SMALL_CAP"),
@@ -409,8 +413,8 @@ def make_loan_section(margin: dict[str, int]) -> Figure:
 
     section = make_subplots(
         rows=1,
-        cols=len(margin_loan.LOAN_BROKERAGES),
-        subplot_titles=[x.name for x in margin_loan.LOAN_BROKERAGES],
+        cols=len(margin_loan.LOAN_BROKERAGES) + 1,
+        subplot_titles=[x.name for x in margin_loan.LOAN_BROKERAGES] + ["Overall"],
         vertical_spacing=0.07,
         horizontal_spacing=0.05,
     )
@@ -461,9 +465,12 @@ def make_loan_section(margin: dict[str, int]) -> Figure:
             col=col,
         )
 
-    for i, broker in enumerate(margin_loan.LOAN_BROKERAGES, start=1):
+    i = 1
+    for broker in margin_loan.LOAN_BROKERAGES:
         df = margin_loan.get_balances_broker(broker)
         add_loan_graph(df, i)
+        i += 1
+    add_loan_graph(margin_loan.get_balances_all(), i)
 
     section.update_yaxes(matches=None)
     section.update_yaxes(title_text="USD", col=1)

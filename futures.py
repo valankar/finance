@@ -85,7 +85,7 @@ class FuturesData(typing.NamedTuple):
     updated: datetime
 
 
-@common.walrus_db.cache.cached()
+@common.walrus_db.cache.cached(key_fn=lambda a, _: a[0])
 def get_future_quote_mtn(ticker: str) -> common.FutureQuote:
     try:
         with common.run_with_browser_page(
@@ -109,7 +109,7 @@ def get_future_quote_mtn(ticker: str) -> common.FutureQuote:
     raise IceUnknownFuture("cannot find price")
 
 
-@common.walrus_db.cache.cached()
+@common.walrus_db.cache.cached(key_fn=lambda a, _: a[0])
 def get_future_quote_mfs(ticker: str) -> common.FutureQuote:
     month_prefix = MONTH_CODES[ticker[4]]
     year = ticker[5:]

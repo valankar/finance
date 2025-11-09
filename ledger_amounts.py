@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import subprocess
+from typing import Optional
 
 import common
 
@@ -35,7 +36,12 @@ def get_commodity_amounts(ledger_args: str) -> dict[str, float]:
     return df_data
 
 
-def get_etfs_amounts() -> dict[str, float]:
+def get_etfs_amounts(account: Optional[str] = None) -> dict[str, float]:
+    if account:
+        return get_commodity_amounts(
+            LEDGER_LIMIT_ETFS + f' --limit "account=~/^Assets:Investments:{account}/"'
+        )
+
     brokers = get_commodity_amounts(
         LEDGER_LIMIT_ETFS
         + ' --limit "account=~/^Assets:Investments:(Charles Schwab .*Brokerage|Interactive Brokers)/"'

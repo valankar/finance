@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Methods for stock options."""
 
-import contextlib
 import io
 import itertools
 import pickle
@@ -117,7 +116,6 @@ class OptionsAndSpreads(typing.NamedTuple):
 class OptionsData(typing.NamedTuple):
     opts: OptionsAndSpreads
     bev: list[BrokerExpirationValues]
-    main_output: str
     updated: datetime
 
 
@@ -127,7 +125,6 @@ def options_df_raw() -> pd.DataFrame:
         f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/{search}/' "
         + 'bal --no-total --flat --balance-format "%(partial_account)\n%(strip(T))\n"'
     )
-    chfusd = common.get_latest_forex()["CHFUSD"]
     entries = []
     account = ""
     for line in io.StringIO(subprocess.check_output(cmd, shell=True, text=True)):
@@ -142,7 +139,7 @@ def options_df_raw() -> pd.DataFrame:
         expiration = call_name.split()[-3]
         multiplier = 100
         if ticker == "SMI":
-            multiplier = 10 * chfusd
+            multiplier = 10 * common.get_ticker("CHFUSD=X")
         if account:
             entries.append(
                 {
@@ -218,7 +215,7 @@ def convert_to_usd(amount: str) -> float:
     if amount.startswith("$"):
         return float(amount[1:])
     elif amount.endswith(" CHF"):
-        return float(amount.split()[0]) * common.get_latest_forex()["CHFUSD"]
+        return float(amount.split()[0]) * common.get_ticker("CHFUSD=X")
     return 0
 
 
@@ -582,7 +579,10 @@ def remove_spreads(
 ) -> pd.DataFrame:
     if len(spreads) == 0:
         return options_df
-    return options_df[~options_df.isin(pd.concat(spreads))].dropna()
+    try:
+        return options_df[~options_df.isin(pd.concat(spreads))].dropna()
+    except ValueError:
+        return options_df
 
 
 def get_short_call_details(options_df: pd.DataFrame) -> list[ShortCallDetails]:
@@ -852,14 +852,9 @@ def generate_options_data():
     opts = get_options_and_spreads()
     itm_df = get_itm_df(opts)
     expiration_values = get_expiration_values(itm_df)
-    with contextlib.redirect_stdout(io.StringIO()) as output:
-        with common.pandas_options():
-            text_output(opts=opts, show_spreads=False)
-            main_output = output.getvalue()
     data = OptionsData(
         opts=opts,
         bev=expiration_values,
-        main_output=main_output,
         updated=datetime.now(),
     )
     common.walrus_db.db[REDIS_KEY] = pickle.dumps(data)

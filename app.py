@@ -26,6 +26,7 @@ import i_and_e
 import latest_values
 import ledger_ui
 import main_graphs
+import plot
 import stock_options_ui
 from main_matplot import Matplots
 
@@ -142,16 +143,13 @@ def latest_values_page():
 async def balance_etfs_page():
     """Balance ETFs."""
     log_request()
-    adjustments = {}
-
-    def get_rebalancing_df(amt: int, adj: dict[str, int]):
-        return balance_etfs.get_rebalancing_df(amount=amt, adjustment=adj).reset_index(
-            names="category"
-        )
-
     await ui.context.client.connected()
-    df = await run.io_bound(get_rebalancing_df, 0, {})
-    table = ui.table.from_pandas(df)
+    adjustments = {}
+    ticker_vals = []
+    df = balance_etfs.get_rebalancing_df(0)
+    with ui.grid(columns=2).classes("w-full"):
+        table = ui.table.from_pandas(df.reset_index(names="category"))
+        graph = ui.plotly(plot.make_investing_allocation_section(df))
 
     def validate(x: str):
         if not x:
@@ -167,17 +165,34 @@ async def balance_etfs_page():
         amt = 0
         if amount.value:
             amt = int(amount.value)
-        df = await run.io_bound(get_rebalancing_df, amt, adjustment)
-        table.update_from_pandas(df)
+        for t, v in ticker_vals:
+            if t.value and v.value:
+                adjustment[t.value] = int(v.value)
+        if adjustment:
+            ui.notify(f"Adjustments: {adjustment}")
+        df = balance_etfs.get_rebalancing_df(amt, adjustment)
+        table.update_from_pandas(df.reset_index(names="category"))
+        graph.update_figure(plot.make_investing_allocation_section(df))
 
     amount = ui.input(label="Amount", validation=validate).on("keydown.enter", update)
 
-    ui.label("Adjustments")
-    with ui.grid(columns=2).classes("w-1/3"):
-        for category in df["category"]:
-            adjustments[category] = ui.input(label=category, validation=validate).on(
-                "keydown.enter", update
-            )
+    with ui.grid(rows=1, columns=2).classes("w-full"):
+        with ui.card(align_items="center").classes("w-full"):
+            ui.label("Category Adjustments")
+            with ui.grid(columns=2).classes("w-full"):
+                for category in df.index:
+                    adjustments[category] = ui.input(
+                        label=category, validation=validate
+                    ).on("keydown.enter", update)
+        with ui.card(align_items="center").classes("w-full"):
+            ui.label("Ticker Adjustments")
+            with ui.grid(columns=2).classes("w-full"):
+                for _ in range(4):
+                    ticker = ui.input(label="TICKER").on("keydown.enter", update)
+                    val = ui.input(label="VALUE", validation=validate).on(
+                        "keydown.enter", update
+                    )
+                    ticker_vals.append((ticker, val))
 
 
 @ui.page("/futures", title="Futures")
@@ -248,6 +263,7 @@ async def transactions_page():
             ("Assets:Cash", "CHF"),
             ("Apple Card", r"\\$"),
             ("Bank of America Travel Rewards Credit Card", r"\\$"),
+            ("American Express Investor Card", r"\\$"),
             ("UBS Visa", "CHF"),
             ("Wise", "CHF"),
             ("Revolut", "CHF"),
@@ -323,7 +339,7 @@ def screenshot_page():
 if __name__ in {"__main__", "__mp_main__"}:
     pio.templates.default = common.PLOTLY_THEME
     ui.run(
-        title="Accounts",
+        title="Finance",
         dark=True,
         uvicorn_reload_excludes=f".*, .py[cod], .sw.*, ~*, {common.PREFIX}",
         storage_secret="finance",

@@ -157,16 +157,23 @@ class Matplots(GraphCommon):
 
         num_brokerages = len(margin_loan.LOAN_BROKERAGES)
         self.section_title("Brokerage Leverage")
-        with ui.grid().classes(f"w-full gap-0 md:grid-cols-{num_brokerages}"):
+        with ui.grid().classes(f"w-full gap-0 md:grid-cols-{num_brokerages + 1}"):
             for broker in margin_loan.LOAN_BROKERAGES:
-                name = self.make_redis_key(self.MARGIN_LOAN, broker.name)
-                self.ui_image(name, make_redis_key=False)
+                self.ui_image(
+                    self.make_redis_key(self.MARGIN_LOAN, broker.name),
+                    make_redis_key=False,
+                )
+            self.ui_image(
+                self.make_redis_key(self.MARGIN_LOAN, "Overall"), make_redis_key=False
+            )
         self.section_breakdown(self.brokerage_values_section, grid_cols=num_brokerages)
         self.section_title("Brokerage Futures Margin")
         with ui.grid().classes(f"w-full gap-0 md:grid-cols-{num_brokerages}"):
             for broker in margin_loan.LOAN_BROKERAGES:
-                name = self.make_redis_key(self.FUTURES_MARGIN, broker.name)
-                self.ui_image(name, make_redis_key=False)
+                self.ui_image(
+                    self.make_redis_key(self.FUTURES_MARGIN, broker.name),
+                    make_redis_key=False,
+                )
 
         self.daily_change()
         self.common_links()
@@ -307,6 +314,12 @@ class Matplots(GraphCommon):
                 GraphResult(
                     executor.submit(make_loan_graph, broker),
                     self.make_redis_key(self.MARGIN_LOAN, broker.name),
+                )
+            )
+            results.append(
+                GraphResult(
+                    executor.submit(make_loan_graph),
+                    self.make_redis_key(self.MARGIN_LOAN, "Overall"),
                 )
             )
             results.append(
@@ -581,8 +594,13 @@ def make_total_bar_mom(column: str) -> bytes:
     )
 
 
-def make_loan_graph(broker: margin_loan.LoanBrokerage) -> bytes:
-    df = margin_loan.get_balances_broker(broker)
+def make_loan_graph(broker: Optional[margin_loan.LoanBrokerage] = None) -> bytes:
+    if broker is None:
+        df = margin_loan.get_balances_all()
+        name = "Overall"
+    else:
+        df = margin_loan.get_balances_broker(broker)
+        name = broker.name
     categories = ["Equity", "Loan", "Equity - Loan"]
     total = df.iloc[-1]["Total"]
     equity_balance = df.iloc[-1]["Equity Balance"]
@@ -619,7 +637,7 @@ def make_loan_graph(broker: margin_loan.LoanBrokerage) -> bytes:
         ha="center",
         va="center",
     )
-    ax.set_title(broker.name)
+    ax.set_title(name)
     return make_image_graph(fig)
 
 

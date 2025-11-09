@@ -28,7 +28,7 @@ ETF_TYPE_MAP = {
     "COMMODITIES_SILVER": ["SIVR"],
     "COMMODITIES_CRYPTO": ["BITX", "IBIT", "MSTR", "/MBT"],
     "US_SMALL_CAP": ["SCHA", "VB", "IWM", "/M2K", "/RTY"],
-    "US_LARGE_CAP": ["SCHX", "SPLG", "SPY", "VOO", "VV", "/MES"],
+    "US_LARGE_CAP": ["SCHX", "SPLG", "SPY", "VOO", "VV", "/MES", "/ES"],
     "US_BONDS": [
         "BND",
         "SCHO",
