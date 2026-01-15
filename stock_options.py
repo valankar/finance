@@ -7,6 +7,7 @@ import pickle
 import re
 import subprocess
 import typing
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from functools import partial
@@ -156,6 +157,20 @@ def options_df_raw() -> pd.DataFrame:
     return pd.DataFrame(entries)
 
 
+def get_ticker_options() -> Iterable[common.TickerOption]:
+    results: set[common.TickerOption] = set()
+    for _, row in options_df_raw().iterrows():
+        results.add(
+            common.TickerOption(
+                ticker=row["ticker"],
+                expiration=row["expiration"].date(),
+                contract_type=row["type"],
+                strike=row["strike"],
+            )
+        )
+    return results
+
+
 def add_options_quotes(options_df: pd.DataFrame):
     tickers = options_df["ticker"].unique()
     if not len(tickers):
@@ -195,10 +210,6 @@ def add_options_quotes(options_df: pd.DataFrame):
 
 def add_value(options_df: pd.DataFrame) -> pd.DataFrame:
     df = add_options_quotes(options_df)
-    # Take the maximum of intrinsic_value and value, keeping sign.
-    df["value"] = df[["intrinsic_value", "value"]].abs().max(axis=1) * (
-        df["count"] / df["count"].abs()
-    )
     df["profit_option_value"] = df["value"] - (
         df["contract_price"] * df["count"] * df["multiplier"]
     )
@@ -221,7 +232,7 @@ def convert_to_usd(amount: str) -> float:
 
 def get_ledger_entries_command(broker: str, option_name: str) -> str:
     return (
-        f"""{common.LEDGER_PREFIX} print expr 'any(commodity == "\\"{option_name}\\"" and account =~ /{broker}/)'"""
+        f"""{common.LEDGER_PREFIX} print expr 'any(commodity == "{option_name}" and account =~ /{broker}/)'"""
         """ --limit 'payee != "Options assignment"'"""
     )
 
@@ -286,7 +297,7 @@ def add_contract_price(options_df: pd.DataFrame) -> pd.DataFrame:
 def add_current_price(calls_puts_df: pd.DataFrame) -> pd.DataFrame:
     for ticker in calls_puts_df["ticker"].unique():
         query_ticker = ticker
-        if ticker == "SPX":
+        if ticker in ("SPX", "SPXW"):
             query_ticker = "^SPX"
         calls_puts_df.loc[lambda df: df["ticker"] == ticker, "current_price"] = (  # type: ignore
             common.get_ticker(query_ticker)
@@ -305,16 +316,7 @@ def options_df() -> pd.DataFrame:
     df.loc[df["type"] == "CALL", "in_the_money"] = df["strike"] < df["current_price"]
     df.loc[df["type"] == "PUT", "in_the_money"] = df["strike"] > df["current_price"]
     df["exercise_value"] = df["strike"] * df["count"] * df["multiplier"]
-    df.loc[df["ticker"].isin(["SPX", "SMI"]), "exercise_value"] = (
-        (df["strike"] - df["current_price"]) * df["count"] * df["multiplier"]
-    )
     df.loc[df["type"] == "CALL", "exercise_value"] = -df["exercise_value"]
-    df.loc[
-        (df["type"] == "PUT")
-        & (df["count"] < 0)
-        & (~df["ticker"].isin(["SPX", "SMI"])),
-        "exercise_value",
-    ] = abs(df["strike"] * df["count"] * df["multiplier"]) * -1
     df["intrinsic_value"] = 0.0
     df.loc[
         (df["type"] == "CALL") & df["in_the_money"],
@@ -425,7 +427,7 @@ def find_synthetics(options_df: pd.DataFrame) -> list[Spread]:
     spreads: list[Spread] = []
     for index, row in options_df.iterrows():
         ticker = row["ticker"]  # noqa: F841
-        if ticker == "SPX":
+        if ticker in ("SPX", "SPXW"):
             continue
         # Find a long CALL
         if row["type"] == "CALL" and row["count"] > 0:
@@ -545,7 +547,7 @@ def find_box_spreads(options_df: pd.DataFrame) -> list[BoxSpread]:
     box_spreads: list[BoxSpread] = []
     for index, row in options_df.iterrows():
         ticker = row["ticker"]
-        if ticker in (["SPX", "SMI"]):
+        if ticker in ("SPX", "SPXW", "SMI"):
             # Find a short CALL
             if row["type"] == "CALL" and row["count"] < 0:
                 # The short call

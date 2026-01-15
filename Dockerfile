@@ -1,5 +1,5 @@
 FROM archlinux
-RUN pacman -Syu --noconfirm chromium git ledger python uv valkey
+RUN pacman -Syu --noconfirm chromium git gcc ledger python uv valkey
 RUN curl https://install.duckdb.org | sh
 
 # Install the project into `/app`

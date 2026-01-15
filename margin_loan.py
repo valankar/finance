@@ -11,6 +11,8 @@ from loguru import logger
 import common
 import etfs
 import futures
+import history
+import ledger_ops
 import stock_options
 
 
@@ -22,15 +24,15 @@ class LoanBrokerage(NamedTuple):
 LOAN_BROKERAGES = (
     LoanBrokerage(
         name=(broker_name := "Interactive Brokers"),
-        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'{broker_name}'$",
+        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_CMD} -J -E bal ^Assets:Investments:'{broker_name}'$",
     ),
     LoanBrokerage(
         name=(broker_name := "Charles Schwab Brokerage"),
-        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Assets:Investments:'{broker_name}'$",
+        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_CMD} -J -E bal ^Assets:Investments:'{broker_name}'$",
     ),
     LoanBrokerage(
         name=(broker_name := "Charles Schwab PAL Brokerage"),
-        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} -J -E bal ^Liabilities:'Charles Schwab PAL'$",
+        loan_balance_cmd=f"{common.LEDGER_CURRENCIES_CMD} -J -E bal ^Liabilities:'Charles Schwab PAL'$",
     ),
 )
 
@@ -53,7 +55,7 @@ def get_balances_all() -> pd.DataFrame:
         .cumsum()
         .tail(1)
     )
-    retirement = common.read_sql_last("history")["total_retirement"].iloc[-1]
+    retirement = ledger_ops.get_ledger_balance(history.LEDGER_RETIREMENT_CMD)
     df["Equity Balance"] += retirement
     df["Total"] += retirement
     df["Leverage Ratio"] = df["Equity Balance"] / df["Total"]

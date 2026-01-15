@@ -66,6 +66,10 @@ FUTURE_SPEC: dict[str, FutureSpec] = {
         margin_requirement_percent={Brokerage.SCHWAB: 6, Brokerage.IBKR: 7},
     ),
     "MTN": FutureSpec(multiplier=100, margin_requirement_percent={Brokerage.IBKR: 4}),
+    "SIL": FutureSpec(
+        multiplier=1000,
+        margin_requirement_percent={Brokerage.SCHWAB: 12.5},
+    ),
     "ZN": FutureSpec(
         multiplier=1000,
         margin_requirement_percent={Brokerage.SCHWAB: 2, Brokerage.IBKR: 2},
@@ -129,30 +133,28 @@ def get_future_quote_mfs(ticker: str) -> common.FutureQuote:
     raise IceUnknownFuture("cannot find price")
 
 
-def get_ledger_entries_command(broker: str, name: str) -> str:
-    return f"""{common.LEDGER_PREFIX} print expr 'any(commodity == "\\"{name}\\"" and account =~ /{broker}/)'"""
+def get_trade_price(broker: str, future_name: str) -> float:
+    cmd = f"""{common.LEDGER_PREFIX} print expr 'any(commodity == "{future_name}" and account =~ /{broker}:Futures/)'"""
+    total_count = total_cost = 0
+    for entry in ledger_ops.get_ledger_entries_from_command(cmd):
+        for line in entry.body:
+            s = line.split()
+            if len(s) < 4:
+                continue
+            if future_name not in s[-3]:
+                continue
+            count = int(s[-4])
+            if count < 0:
+                continue
+            cost = float(re.sub(r"[^\d.]", "", s[-1])) * count
+            total_count += count
+            total_cost += cost
+    return total_cost / total_count / FUTURE_SPEC[future_name[1:4]].multiplier
 
 
-def get_ledger_total(broker: str, future_name: str) -> float:
-    total = 0.0
-    ledger_cmd = get_ledger_entries_command(broker, future_name)
-    for entry in ledger_ops.get_ledger_entries_from_command(ledger_cmd):
-        found_name = False
-        for line in entry.full_list():
-            if "Expenses:Broker:Fees" in line and found_name:
-                amount = line.split(maxsplit=1)[-1]
-                if amount.startswith("$"):
-                    total += float(amount[1:])
-            elif future_name in line:
-                s = re.split(r"\s{2,}", line.lstrip())
-                count = int(s[1].split()[0])
-                amount = s[1].split("@")[-1].lstrip()
-                if amount.startswith("$"):
-                    total += float(amount[1:]) * count
-                found_name = True
-            elif "@" in line:
-                found_name = False
-    return total
+def get_trade_price_old(broker: str, future_name: str) -> float:
+    cmd = f"""{common.LEDGER_PREFIX} -B -J -n reg '{broker}:Futures$' --limit 'commodity=="{future_name}"'"""
+    return ledger_ops.get_ledger_balance(cmd)
 
 
 class Futures:
@@ -178,13 +180,13 @@ class Futures:
         account = ""
         for line in io.StringIO(subprocess.check_output(cmd, shell=True, text=True)):
             if line[0].isalpha():
-                account = line.strip().split(":")[-1]
+                account = line.strip().split(":")[-2]
                 continue
             count = int(line.split(maxsplit=1)[0])
             future_name = line.split(maxsplit=1)[1].strip().strip('"')
             commodity = future_name.split()[0]
             current_price, multiplier = self.future_quote(commodity)
-            trade_price = get_ledger_total(account, future_name) / count / multiplier
+            trade_price = get_trade_price(account, future_name)
             if account:
                 current_price, multiplier = self.future_quote(commodity)
                 notional_value = current_price * multiplier * count
@@ -199,15 +201,13 @@ class Futures:
                         "trade_price": trade_price,
                         "multiplier": multiplier,
                         "margin_requirement": round(
-                            abs(
-                                (
-                                    FUTURE_SPEC[
-                                        commodity[1:4]
-                                    ].margin_requirement_percent[Brokerage(account)]
-                                    / 100
-                                )
-                                * notional_value
+                            (
+                                FUTURE_SPEC[commodity[1:4]].margin_requirement_percent[
+                                    Brokerage(account)
+                                ]
+                                / 100
                             )
+                            * notional_value
                         ),
                     }
                 )

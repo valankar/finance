@@ -16,8 +16,8 @@ import stock_options
 # SCHH and money markets are ignored. Instead, the leftover is replaced with commodities.
 # The commodities are broken down by percent defined here.
 COMMODITIES_PERCENTAGE = {
-    "GOLD": 62,
-    "SILVER": 5,
+    "GOLD": 34,
+    "SILVER": 33,
     "CRYPTO": 33,
 }
 # Minimum required percentage of commodities. This eats into the US_BONDS percentage.
@@ -25,10 +25,10 @@ COMMODITIES_PERCENTAGE_FLOOR = 8
 # See https://testfol.io/?s=fkCyZLoXExo
 ETF_TYPE_MAP = {
     "COMMODITIES_GOLD": ["GLD", "GLDM", "SGOL", "/MGC"],
-    "COMMODITIES_SILVER": ["SIVR"],
+    "COMMODITIES_SILVER": ["SIVR", "/SIL"],
     "COMMODITIES_CRYPTO": ["BITX", "IBIT", "MSTR", "/MBT"],
     "US_SMALL_CAP": ["SCHA", "VB", "IWM", "/M2K", "/RTY"],
-    "US_LARGE_CAP": ["SCHX", "SPLG", "SPY", "VOO", "VV", "/MES", "/ES"],
+    "US_LARGE_CAP": ["SCHX", "SPLG", "SPY", "SPYM", "VOO", "VV", "/MES", "/ES"],
     "US_BONDS": [
         "BND",
         "SCHO",
@@ -229,6 +229,73 @@ def get_rebalancing_df(
     return allocation_df
 
 
+def futures_rebalancing(rebalancing_df: pd.DataFrame, limit_broker: Optional[str]):
+    print("\nFutures to close for rebalancing:")
+    df = rebalancing_df[rebalancing_df["usd_to_reconcile"].abs() > 1000]
+    futures_df = futures.Futures().futures_df
+    for row in df.itertuples():
+        header = f"Category: {row.Index} Need to reconcile: {row.usd_to_reconcile:.0f}"
+        header_printed = False
+        for f in futures_df.itertuples():
+            if limit_broker and limit_broker not in f.Index[0]:  # type: ignore
+                continue
+            if (ticker := f.Index[1][:-3]) in ETF_TYPE_MAP[f"{row.Index}"]:  # type: ignore
+                nv = f.notional_value
+                if ticker in FUTURES_INVERSE_CORRELATION:
+                    nv *= -1  # type: ignore
+                value_per_contract = nv / abs(f.count)  # type: ignore
+                # Need to close positions of opposite sign
+                if value_per_contract * row.usd_to_reconcile > 0:
+                    continue
+                count = min(
+                    abs(row.usd_to_reconcile // value_per_contract),
+                    abs(f.count),  # type: ignore
+                )
+                value = -(value_per_contract * count)
+                xact = "Selling"
+                if f.count < 0:  # type: ignore
+                    xact = "Buying"
+                if not header_printed:
+                    print(header)
+                    header_printed = True
+                print(
+                    f"  {xact} {count:.0f} {f.Index[0]} {f.Index[1]} contracts worth {value / count:.0f} results in value change of: {value:.0f}"  # type: ignore
+                )
+
+
+def options_rebalancing(rebalancing_df: pd.DataFrame, limit_broker: Optional[str]):
+    print("\nOptions to close for rebalancing:")
+    df = rebalancing_df[rebalancing_df["usd_to_reconcile"].abs() > 1000]
+    if (options_data := stock_options.get_options_data()) is None:
+        raise ValueError("No options data available")
+    options_df = options_data.opts.all_options
+    for row in df.itertuples():
+        header = f"Category: {row.Index} Need to reconcile: {row.usd_to_reconcile:.0f}"
+        header_printed = False
+        for o in options_df.itertuples():
+            if limit_broker and limit_broker not in o.Index[0]:  # type: ignore
+                continue
+            if o.ticker in ETF_TYPE_MAP[f"{row.Index}"]:
+                value_per_contract = o.notional_value / abs(o.count)  # type: ignore
+                # Need to close positions of opposite sign
+                if value_per_contract * row.usd_to_reconcile > 0:
+                    continue
+                count = min(
+                    abs(row.usd_to_reconcile // value_per_contract),
+                    abs(o.count),  # type: ignore
+                )
+                value = -(value_per_contract * count)
+                xact = "Selling"
+                if o.count < 0:  # type: ignore
+                    xact = "Buying"
+                if not header_printed:
+                    print(header)
+                    header_printed = True
+                print(
+                    f"  {xact} {count:.0f} {o.Index[0]} {o.Index[1]} contracts worth {value / count:.0f} results in value change of: {value:.0f}"  # type: ignore
+                )
+
+
 app = App()
 
 
@@ -237,6 +304,7 @@ def main(
     value: int = 0,
     commodities_percentage_floor: int = COMMODITIES_PERCENTAGE_FLOOR,
     adjustment: dict[str, int] = {},
+    limit_broker: Optional[str] = None,
 ):
     """Balance ETFs.
 
@@ -249,6 +317,8 @@ def main(
     adjustment: dict[str, int]
         Adjustments to a category's (or ETF's) current balance.
         Example: --adjustment.INTERNATIONAL_DEVELOPED -10000
+    limit_broker: str
+        Limit options and futures rebalancing to broker with this string.
     """
     global COMMODITIES_PERCENTAGE_FLOOR
     COMMODITIES_PERCENTAGE_FLOOR = commodities_percentage_floor
@@ -257,6 +327,8 @@ def main(
         adjustment=adjustment,
     )
     print(df)
+    options_rebalancing(df, limit_broker)
+    futures_rebalancing(df, limit_broker)
 
 
 if __name__ == "__main__":

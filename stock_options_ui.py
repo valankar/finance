@@ -4,6 +4,7 @@ import typing
 from datetime import date, datetime
 
 import humanize
+import pandas as pd
 from loguru import logger
 from matplotlib.figure import Figure
 from nicegui import ui
@@ -290,9 +291,24 @@ class StockOptionsPage(GraphCommon):
         options_df = data.opts.all_options
         for broker in options_df.index.get_level_values("account").unique():
             ui.label(broker)
-            ui.table.from_pandas(
-                options_df.xs(broker, level="account").reset_index().round(2)
+            df = (
+                options_df.xs(broker, level="account")
+                .reset_index()
+                .sort_values(by="name")
+            ).drop(
+                columns=[
+                    "exercise_value",
+                    "min_contract_price",
+                    "profit_stock_price",
+                    "type",
+                    "ticker",
+                ]
             )
+            i = int(df.columns.get_loc("expiration")) + 1  # type: ignore
+            df.insert(i, "days", (df["expiration"] - pd.Timestamp.now()).dt.days)
+            i = int(df.columns.get_loc("notional_value")) + 1  # type: ignore
+            df.insert(i, "nv_per_contract", df["notional_value"] / abs(df["count"]))
+            ui.table.from_pandas(df.round(2))
         self.make_spread_section(
             "Short Calls", self.ui_data.short_calls, profit_color_col="profit option"
         )

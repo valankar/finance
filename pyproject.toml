@@ -25,9 +25,6 @@ dependencies = [
     "statsmodels>=0.14.4",
     "valkey[libvalkey]>=6.1.0",
     "walrus>=0.9.5",
-    "yahoofinancials>=1.20",
-    "yahooquery>=2.3.7",
-    "yfinance>=0.2.54",
 ]
 
 [dependency-groups]

@@ -2,30 +2,28 @@
 """Write finance history."""
 
 import common
-import ledger_amounts
-import margin_loan
 from ledger_ops import get_ledger_balance
 
-LEDGER_LIQUID_CMD = f"{common.LEDGER_CURRENCIES_OPTIONS_CMD} --limit 'not(account=~/(Investments|Precious Metals)/)' -J -n bal ^assets ^liabilities"
-LEDGER_IRA_CMD = (
-    f"{common.LEDGER_PREFIX} {ledger_amounts.LEDGER_LIMIT_ETFS} -J -n bal "
-    '^"Assets:Investments:Retirement:Charles Schwab IRA"'
+LEDGER_TOTAL_CMD = f"""{common.LEDGER_PREFIX} -J -n bal \\(^assets ^liabilities\\)"""
+LEDGER_TOTAL_NO_RE_CMD = f"""{common.LEDGER_PREFIX} -J -n bal \\(^assets ^liabilities\\) and not\\("Real Estate" "Rental Property"\\)"""
+LEDGER_LIQUID_CMD = f"""{common.LEDGER_CURRENCIES_CMD} -J -n bal \\(^assets ^liabilities\\) and not\\(Futures Retirement "Real Estate" "Rental Property"\\)"""
+LEDGER_INVESTMENTS_CMD = f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Investments"'
+LEDGER_RETIREMENT_CMD = (
+    f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Investments:Retirement"'
 )
-LEDGER_REAL_ESTATE_CMD = f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Real Estate"'
-LEDGER_UBS_PILLAR_CMD = (
-    f"{common.LEDGER_PREFIX} -J -n bal "
-    '^"Assets:Investments:Retirement:UBS Vested Benefits"'
+LEDGER_IRA_CMD = f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Investments:Retirement:Charles Schwab IRA"'
+LEDGER_UBS_PILLAR_CMD = f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Investments:Retirement:UBS Vested Benefits"'
+LEDGER_REAL_ESTATE_CMD = (
+    f'{common.LEDGER_PREFIX} -J -n bal ^"Assets:Real Estate" ^"Assets:Rental Property"'
 )
 
 
 def main():
     """Main."""
+    total = get_ledger_balance(LEDGER_TOTAL_CMD)
     total_liquid = get_ledger_balance(LEDGER_LIQUID_CMD)
-    total_investing = 0
-    for broker in margin_loan.LOAN_BROKERAGES:
-        df = margin_loan.get_balances_broker(broker)
-        total_investing += df["Equity Balance"].sum()
-        total_liquid += df["Loan Balance"].sum()
+    total_no_real_estate = get_ledger_balance(LEDGER_TOTAL_NO_RE_CMD)
+    total_investing = get_ledger_balance(LEDGER_INVESTMENTS_CMD)
     total_real_estate = get_ledger_balance(LEDGER_REAL_ESTATE_CMD)
 
     # Retirement
@@ -34,6 +32,8 @@ def main():
     total_retirement = pillar2 + schwab_ira
 
     history_df_data = {
+        "total": total,
+        "total_no_real_estate": total_no_real_estate,
         "total_real_estate": total_real_estate,
         "total_liquid": total_liquid,
         "total_investing": total_investing,

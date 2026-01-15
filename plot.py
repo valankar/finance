@@ -85,7 +85,7 @@ def make_assets_breakdown_section(
     columns = [
         ("total", "Total"),
         ("total_real_estate", "Real Estate"),
-        ("total_no_homes", "Total w/o Real Estate"),
+        ("total_no_real_estate", "Total w/o Real Estate"),
         ("total_retirement", "Retirement"),
         ("total_investing", "Investing"),
         ("total_liquid", "Liquid"),
@@ -108,13 +108,13 @@ def make_assets_breakdown_section(
     section.update_traces(showlegend=False)
     # (0, 1) = total
     # (0, 2) = total_real_estate
-    # (2, 1) = total_no_homes
+    # (2, 1) = total_no_real_estate
     # (2, 2) = total_retirement
     # (1, 2) = total_liquid
     # (1, 1) = total_investing
     add_hline_current(section, daily_df, "total", 0, 1)
     add_hline_current(section, daily_df, "total_real_estate", 0, 2)
-    add_hline_current(section, daily_df, "total_no_homes", 2, 1)
+    add_hline_current(section, daily_df, "total_no_real_estate", 2, 1)
     add_hline_current(section, daily_df, "total_retirement", 2, 2)
     add_hline_current(section, daily_df, "total_investing", 1, 1)
     add_hline_current(section, daily_df, "total_liquid", 1, 2)
@@ -287,7 +287,7 @@ def make_allocation_profit_section(
     )
 
     # Pie chart breakdown of total
-    labels = ["Investing", "Liquid", "Real Estate", "Retirement"]
+    labels = ["Investing", "Liquid", "Real Estate"]
     liquid = daily_df.iloc[-1]["total_liquid"]
     if liquid < 0:
         liquid = 0
@@ -295,7 +295,6 @@ def make_allocation_profit_section(
         daily_df.iloc[-1]["total_investing"],
         liquid,
         daily_df.iloc[-1]["total_real_estate"],
-        daily_df.iloc[-1]["total_retirement"],
     ]
     pie_total = go.Figure(data=[go.Pie(labels=labels, values=values)])
     pie_total.update_layout(title="Asset Allocation", title_x=0.5)
@@ -368,10 +367,9 @@ def make_interest_rate_section(
     interest_df: pd.DataFrame, margin: dict[str, int]
 ) -> Figure:
     """Make interest rate section."""
-    # astype needed due to https://github.com/plotly/Kaleido/issues/236
     fig = px.line(
-        interest_df,
-        x=interest_df.index.astype(str),
+        interest_df.reset_index(),
+        x="date",
         y=interest_df.columns,
         title="Interest Rates",
     )

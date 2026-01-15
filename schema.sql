@@ -1,7 +1,7 @@
 CREATE TABLE brokerage_totals(date TIMESTAMP, "Equity Balance" DOUBLE, "Loan Balance" DOUBLE, Total DOUBLE, Brokerage VARCHAR, "Leverage Ratio" DOUBLE);
 CREATE TABLE fedfunds(date TIMESTAMP_NS, "percent" DOUBLE);
 CREATE TABLE forex(date TIMESTAMP, CHFUSD DOUBLE, SGDUSD DOUBLE);
-CREATE TABLE history(date TIMESTAMP, total_liquid DOUBLE, total_real_estate DOUBLE, total_retirement DOUBLE, total_investing DOUBLE, ira DOUBLE, pillar2 DOUBLE);
+CREATE TABLE history(date TIMESTAMP, total_liquid DOUBLE, total_real_estate DOUBLE, total_retirement DOUBLE, total_investing DOUBLE, ira DOUBLE, pillar2 DOUBLE, total_no_real_estate DOUBLE, total DOUBLE);
 CREATE TABLE index_prices(date TIMESTAMP, "^SPX" DOUBLE);
 CREATE TABLE interactive_brokers_margin_rates(date TIMESTAMP, USD DOUBLE, CHF DOUBLE);
 CREATE TABLE real_estate_prices(date TIMESTAMP, "name" VARCHAR, "value" BIGINT, site VARCHAR);

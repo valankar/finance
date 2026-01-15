@@ -41,6 +41,8 @@ def run_all(
     ):
         if flush_cache:
             common.walrus_db.cache.flush()
+            common.cache_tickers(etfs.get_tickers() | {"^SPX", "CHFUSD=X", "SGDUSD=X"})
+            common.cache_option_quotes(stock_options.get_ticker_options())
         if calculate:
             stock_options.generate_options_data()
             futures.Futures().save_to_redis()

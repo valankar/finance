@@ -7,20 +7,17 @@ import shutil
 import socket
 import tempfile
 import typing
+from collections.abc import Iterable
 from contextlib import contextmanager
 from datetime import date, datetime
 from functools import reduce
 from pathlib import Path
-from typing import Any, ClassVar, Final, Generator, Mapping, Optional
+from typing import Any, ClassVar, Final, Generator, Mapping, Optional, TypedDict
 
 import duckdb
 import pandas as pd
-import requests
 import schwab
 import walrus
-import yahoofinancials
-import yahooquery
-import yfinance
 from authlib.integrations.starlette_client import OAuth, StarletteOAuth2App
 from loguru import logger
 from playwright.sync_api import sync_playwright
@@ -41,10 +38,9 @@ LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
 GET_TICKER_TIMEOUT = 30
 PLOTLY_THEME = "plotly_dark"
-# Include currency equivalents like money markets. See https://yieldfinder.app/money_markets
-CURRENCIES_REGEX = r"^(\\$|CHF|EUR|GBP|SGD|SWVXX|SGOV|TFLO)$"
-OPTIONS_LOAN_REGEX = '^("SPX|"SMI) '
-LEDGER_CURRENCIES_OPTIONS_CMD = f"{LEDGER_PREFIX} --limit 'commodity=~/{CURRENCIES_REGEX}/ or commodity=~/{OPTIONS_LOAN_REGEX}/'"
+# Include currency equivalents like money marketsa with $1 price.
+CURRENCIES_REGEX = r"^(\\$|CHF|EUR|GBP|SGD|SWVXX)$"
+LEDGER_CURRENCIES_CMD = f"{LEDGER_PREFIX} --limit 'commodity=~/{CURRENCIES_REGEX}/'"
 BROKERAGES = ("Interactive Brokers", "Charles Schwab Brokerage")
 SUBPLOT_MARGIN = {"l": 0, "r": 50, "b": 0, "t": 50}
 
@@ -85,7 +81,15 @@ schwab_lock: Final[walrus.Lock] = walrus_db.db.lock(
 
 
 class Schwab:
+    class TickerMod(TypedDict):
+        alias: str
+        invert: bool
+
     SCHWAB_TOKEN_FILE: ClassVar[str] = f"{CODE_DIR}/.schwab_token.json"
+    TICKER_MODS: dict[str, TickerMod] = {
+        "CHFUSD=X": {"alias": "USD/CHF", "invert": True},
+        "SGDUSD=X": {"alias": "USD/SGD", "invert": True},
+    }
 
     def __init__(self):
         self.api_key: str = os.environ.get("SCHWAB_API_KEY", "")
@@ -133,76 +137,94 @@ class Schwab:
         with open(self.SCHWAB_TOKEN_FILE, "w") as f:
             f.write(json.dumps(data))
 
+    def get_quotes(self, ts: Iterable[str]) -> dict[str, float]:
+        results: dict[str, float] = {}
+        fetch_tickers: set[str] = set()
+        rename_results: dict[str, str] = {}
+        for ticker in ts:
+            if ticker.startswith("^"):
+                alias = "$" + ticker[1:]
+                rename_results[alias] = ticker
+                ticker = alias
+            elif alias := self.TICKER_MODS.get(ticker, {}).get("alias"):
+                rename_results[alias] = ticker
+                ticker = alias
+            fetch_tickers.add(ticker)
+        if not fetch_tickers:
+            return results
+        j = self.client.get_quotes(fetch_tickers).json()
+        for ticker in fetch_tickers:
+            try:
+                p = j[ticker]
+            except KeyError:
+                logger.error(f"Cannot find {ticker} in quote: {j}")
+                raise GetTickerError(f"{ticker=} ticker not found")
+            if "regular" in p:
+                value = p["regular"]["regularMarketLastPrice"]
+            elif "quote" in p:
+                value = p["quote"]["lastPrice"]
+            else:
+                logger.error(p)
+                raise GetTickerError(f"{ticker=} cannot find schwab price field")
+            if value == 0:
+                raise GetTickerError(f"{ticker=} received 0 as quote")
+            logger.info(f"{ticker=} {value=}")
+            if original := rename_results.get(ticker):
+                ticker = original
+                if self.TICKER_MODS.get(ticker, {}).get("invert"):
+                    value = 1 / value
+            results[ticker] = value
+        return results
+
     def get_quote(self, ticker: str) -> float:
-        if ticker.startswith("^"):
-            ticker = "$" + ticker[1:]
-        invert = False
-        match ticker:
-            case "CHFUSD=X":
-                ticker = "USD/CHF"
-                invert = True
-            case "SGDUSD=X":
-                ticker = "USD/SGD"
-                invert = True
-            case "SMI":
-                return 0
-        j = self.client.get_quotes([ticker]).json()
-        try:
-            p = j[ticker]
-        except KeyError:
-            logger.error(f"Cannot find {ticker} in quote: {j}")
-            raise GetTickerError(f"{ticker=} ticker not found")
-        if "regular" in p:
-            value = p["regular"]["regularMarketLastPrice"]
-        elif "quote" in p:
-            value = p["quote"]["lastPrice"]
-        else:
-            logger.error(p)
-            raise GetTickerError(f"{ticker=} cannot find schwab price field")
-        if value == 0:
-            raise GetTickerError(f"{ticker=} received 0 as quote")
-        logger.info(f"{ticker=} {value=}")
-        return value if not invert else 1 / value
+        return self.get_quotes([ticker])[ticker]
+
+    def get_option_quotes(
+        self, ts: Iterable[TickerOption]
+    ) -> dict[TickerOption, Optional[OptionQuote]]:
+        results: dict[TickerOption, Optional[OptionQuote]] = {}
+        fetch_tickers: dict[str, TickerOption] = {}
+        for t in ts:
+            ticker = t.ticker
+            option_tickers = [ticker]
+            for option_ticker in option_tickers:
+                if t.expiration < date.today():
+                    results[t] = None
+                symbol = OptionSymbol(
+                    option_ticker, t.expiration, t.contract_type[0], str(t.strike)
+                ).build()
+                fetch_tickers[symbol] = t
+        if not fetch_tickers:
+            return results
+        js = self.client.get_quotes(fetch_tickers.keys()).json()
+        for symbol, j in js.items():
+            mark = j["quote"]["mark"]
+            delta = j["quote"]["delta"]
+            logger.info(f"{symbol=} {mark=} {delta=}")
+            if abs(delta) > 1:
+                raise GetTickerError(f"Invalid delta value: {delta=}")
+            results[fetch_tickers[symbol]] = OptionQuote(mark=mark, delta=delta)
+        return results
 
     def get_option_quote(self, t: TickerOption) -> Optional[OptionQuote]:
-        ticker = t.ticker
-        option_tickers = [ticker]
-        if ticker == "SPX":
-            option_tickers.append(f"{ticker}W")
-        for option_ticker in option_tickers:
-            if t.expiration < date.today():
-                return None
-            symbol = OptionSymbol(
-                option_ticker, t.expiration, t.contract_type[0], str(t.strike)
-            ).build()
-            try:
-                j = self.client.get_quotes([symbol]).json()[symbol]
-                mark = j["quote"]["mark"]
-                delta = j["quote"]["delta"]
-                # Delta is sometimes completely wrong
-                if abs(delta) > 1:
-                    underlying = j["quote"]["underlyingPrice"]
-                    if t.contract_type == "CALL":
-                        delta = 1 if underlying > t.strike else 0
-                    elif t.contract_type == "PUT":
-                        delta = -1 if underlying < t.strike else 0
-                logger.info(f"{symbol=} {mark=} {delta=}")
-                return OptionQuote(mark=mark, delta=delta)
-            except KeyError:
-                logger.error(f"Cannot find quote for {symbol=}")
-        return None
+        return self.get_option_quotes([t]).get(t, None)
+
+    def get_future_quotes(self, ts: Iterable[str]) -> dict[str, FutureQuote]:
+        results: dict[str, FutureQuote] = {}
+        fetch_tickers: set[str] = set(ts)
+        if not fetch_tickers:
+            return results
+        j = self.client.get_quotes(fetch_tickers).json()
+        for t, p in j.items():
+            mark = p["quote"]["mark"]
+            multiplier = p["reference"]["futureMultiplier"]
+            q = FutureQuote(mark=mark, multiplier=multiplier)
+            logger.info(f"{t=} {q=}")
+            results[t] = q
+        return results
 
     def get_future_quote(self, ticker: str) -> FutureQuote:
-        j = {}
-        try:
-            j = self.client.get_quotes([ticker]).json()[ticker]
-            mark = j["quote"]["mark"]
-            multiplier = j["reference"]["futureMultiplier"]
-            q = FutureQuote(mark=mark, multiplier=multiplier)
-            logger.info(f"{ticker=} {q=}")
-            return q
-        except KeyError:
-            raise GetTickerError(f"Cannot find future quote for {ticker=} {j=}")
+        return self.get_future_quotes([ticker])[ticker]
 
 
 schwab_conn: Final[Schwab] = Schwab()
@@ -217,9 +239,6 @@ def pandas_options():
         yield
 
 
-GET_TICKER_FAILURES: set[str] = set()
-
-
 @schwab_lock
 @walrus_db.cache.cached(key_fn=lambda a, _: a[0])
 def get_ticker(ticker: str) -> float:
@@ -227,11 +246,24 @@ def get_ticker(ticker: str) -> float:
 
 
 @schwab_lock
-@walrus_db.cache.cached(
-    key_fn=lambda a,
-    _: f"{a[0].ticker} {a[0].expiration} {a[0].strike} {a[0].contract_type}"
-)
-def get_option_quote(t: TickerOption) -> OptionQuote | None:
+def cache_tickers(ts: Iterable[str]):
+    for t, p in schwab_conn.get_quotes(ts).items():
+        walrus_db.cache.set(f"get_ticker:{t}", p)
+
+
+def make_option_key(t: TickerOption) -> str:
+    return f"{t.ticker} {t.expiration} {t.strike} {t.contract_type}"
+
+
+@schwab_lock
+def cache_option_quotes(ts: Iterable[TickerOption]):
+    for t, p in schwab_conn.get_option_quotes(ts).items():
+        walrus_db.cache.set(f"get_option_quote:{make_option_key(t)}", p)
+
+
+@schwab_lock
+@walrus_db.cache.cached(key_fn=lambda a, _: make_option_key(a[0]))
+def get_option_quote(t: TickerOption) -> Optional[OptionQuote]:
     return schwab_conn.get_option_quote(t)
 
 
@@ -239,37 +271,6 @@ def get_option_quote(t: TickerOption) -> OptionQuote | None:
 @walrus_db.cache.cached(key_fn=lambda a, _: a[0])
 def get_future_quote(ticker: str) -> FutureQuote:
     return schwab_conn.get_future_quote(ticker)
-
-
-def get_ticker_alphavantage(ticker: str) -> float:
-    if key := os.environ.get("ALPHA_VANTAGE_KEY"):
-        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={key}"
-        data = requests.get(url).json()
-        try:
-            return float(data["Global Quote"]["05. price"])
-        except KeyError:
-            logger.error(data)
-            raise
-    raise GetTickerError("No alpha vantage key")
-
-
-def get_ticker_yahoofinancials(ticker: str) -> float:
-    """Get ticker price via yahoofinancials library."""
-    return typing.cast(
-        float, yahoofinancials.YahooFinancials(ticker).get_current_price()
-    )
-
-
-def get_ticker_yahooquery(ticker: str) -> float:
-    """Get ticker price via yahooquery library."""
-    return typing.cast(dict, yahooquery.Ticker(ticker).price)[ticker][
-        "regularMarketPrice"
-    ]
-
-
-def get_ticker_yfinance(ticker: str) -> float:
-    """Get ticker price via yfinance library."""
-    return yfinance.Ticker(ticker).history(period="5d")["Close"].iloc[-1]
 
 
 @contextmanager
@@ -312,13 +313,6 @@ def insert_sql(table: str, data: dict[str, Any], timestamp: Optional[datetime] =
 def read_sql_table(table, index_col="date") -> pd.DataFrame:
     with duckdb_lock(read_only=True) as con:
         rel = con.table(table)
-        if table == "history":
-            # Add some convenience columns.
-            rel = rel.project(
-                "*, "
-                "total_liquid + total_retirement + total_investing as total_no_homes, "
-                "total_no_homes + total_real_estate as total"
-            )
         return rel.df().set_index(index_col)
 
 

@@ -76,11 +76,10 @@ def log_request():
     if request := ui.context.client.request:
         headers = request.headers
         logger.info(
-            "URL: {url} User: {user}, IP: {ip}, Country: {country}, User-Agent: {agent}",
+            "URL: {url} User: {user}, IP: {ip}, User-Agent: {agent}",
             url=request.url,
-            user=headers.get("cf-access-authenticated-user-email", "unknown"),
-            ip=headers.get("cf-connecting-ip", "unknown"),
-            country=headers.get("cf-ipcountry", "unknown"),
+            user=headers.get("remote-email", "unknown"),
+            ip=headers.get("x-forwarded-for", "unknown"),
             agent=headers.get("user-agent", "unknown"),
         )
 
@@ -160,6 +159,15 @@ async def balance_etfs_page():
             return "Only int allowed"
         return None
 
+    def get_main_out(
+        value: int,
+        adjustment: dict[str, int],
+    ):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            with common.pandas_options():
+                balance_etfs.main(value=value, adjustment=adjustment)
+            return output.getvalue()
+
     async def update():
         adjustment = {k: int(v.value) for k, v in adjustments.items() if v.value}
         amt = 0
@@ -173,6 +181,7 @@ async def balance_etfs_page():
         df = balance_etfs.get_rebalancing_df(amt, adjustment)
         table.update_from_pandas(df.reset_index(names="category"))
         graph.update_figure(plot.make_investing_allocation_section(df))
+        main_out.text = get_main_out(amt, adjustment)
 
     amount = ui.input(label="Amount", validation=validate).on("keydown.enter", update)
 
@@ -193,6 +202,9 @@ async def balance_etfs_page():
                         "keydown.enter", update
                     )
                     ticker_vals.append((ticker, val))
+    main_out = ui.label(get_main_out(0, {})).style(
+        "white-space: pre; font-family: monospace"
+    )
 
 
 @ui.page("/futures", title="Futures")
@@ -257,11 +269,13 @@ async def transactions_page():
     with ui.grid().classes("md:grid-cols-3"):
         for account, currency in (
             ("Charles Schwab Brokerage", r"\\$"),
+            ("Charles Schwab Checking", r"\\$"),
             ("Interactive Brokers", r"\\$"),
             ("Interactive Brokers", "CHF"),
             ("UBS Personal Account", "CHF"),
             ("Assets:Cash", "CHF"),
             ("Apple Card", r"\\$"),
+            ("Bank of America Cash Rewards Credit Card", r"\\$"),
             ("Bank of America Travel Rewards Credit Card", r"\\$"),
             ("American Express Investor Card", r"\\$"),
             ("UBS Visa", "CHF"),

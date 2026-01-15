@@ -31,7 +31,7 @@ def main():
         for p in homes.PROPERTIES:
             col = f"{p.name} Price"
             output_file.write(
-                f'P {NOW} "{p.address}" ${real_estate_df[col].iloc[-1]}\n'
+                f'P {NOW} "{p.address}" ${real_estate_df[col].iloc[-1]:.0f}\n'
             )
 
         # Stock options
@@ -44,10 +44,7 @@ def main():
             name = idx[1]
             if name in commodities_written:
                 continue
-            if row["ticker"] not in ("SPX", "SMI"):
-                value = row["value"] / row["count"]
-            else:
-                value = row["intrinsic_value"] / row["count"]
+            value = row["value"] / row["count"]
             output_file.write(f'P {NOW} "{name}" ${value:.2f}\n')
             commodities_written.add(name)
 
@@ -57,6 +54,7 @@ def main():
                 continue
             value = row.current_price * row.multiplier  # type: ignore
             output_file.write(f'P {NOW} "{row.commodity}" ${value:.2f}\n')
+            commodities_written.add(row.commodity)
 
 
 if __name__ == "__main__":

@@ -81,7 +81,7 @@ class Matplots(GraphCommon):
             column_titles=[
                 ("total", "Total"),
                 ("total_real_estate", "Real Estate"),
-                ("total_no_homes", "Total w/o Real Estate"),
+                ("total_no_real_estate", "Total w/o Real Estate"),
                 ("total_retirement", "Retirement"),
                 ("total_investing", "Investing"),
                 ("total_liquid", "Liquid"),
@@ -330,7 +330,7 @@ class Matplots(GraphCommon):
             )
         total_changes = {
             "total": (self.TOTAL_CHANGE_YOY, self.TOTAL_CHANGE_MOM),
-            "total_no_homes": (
+            "total_no_real_estate": (
                 self.TOTAL_NO_RE_CHANGE_YOY,
                 self.TOTAL_NO_RE_CHANGE_MOM,
             ),
@@ -500,11 +500,10 @@ def make_investing_allocation_bar() -> bytes:
 
 def make_asset_allocation_pie() -> bytes:
     latest_df = common.read_sql_last("history")
-    labels = ["Investing", "Real Estate", "Retirement"]
+    labels = ["Investing", "Real Estate"]
     values = [
         latest_df["total_investing"].iloc[-1],
         latest_df["total_real_estate"].iloc[-1],
-        latest_df["total_retirement"].iloc[-1],
     ]
     if (liquid := latest_df["total_liquid"].iloc[-1]) > 0:
         labels.append("Liquid")

@@ -30,10 +30,10 @@ def get_etfs_df(account: Optional[str] = None) -> pd.DataFrame:
     return df
 
 
-def get_tickers() -> set:
+def get_tickers() -> set[str]:
     cols = set(ledger_amounts.get_etfs_amounts().keys())
-    if od := stock_options.get_options_data():
-        cols |= set(od.opts.all_options["ticker"].unique())
+    cols |= set(stock_options.options_df_raw()["ticker"].unique())
+    cols -= {"SPX", "SPXW"}
     return cols
 
 

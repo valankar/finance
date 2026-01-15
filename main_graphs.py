@@ -136,14 +136,16 @@ class GraphCommon:
         )
         total = diff["total"]
         total_color = "green-500" if total >= 0 else "red-500"
-        total_no_homes = diff["total_no_homes"]
-        total_no_homes_color = "green-500" if total_no_homes >= 0 else "red-500"
+        total_no_real_estate = diff["total_no_real_estate"]
+        total_no_real_estate_color = (
+            "green-500" if total_no_real_estate >= 0 else "red-500"
+        )
         with ui.grid(rows=2, columns=2).classes("w-full place-items-center"):
             ui.label("Total").classes("text-lg")
             ui.label("Total w/o Real Estate").classes("text-lg")
             ui.label(f"{total:+,.0f}").classes(f"text-lg text-{total_color}")
-            ui.label(f"{total_no_homes:+,.0f}").classes(
-                f"text-lg text-{total_no_homes_color}"
+            ui.label(f"{total_no_real_estate:+,.0f}").classes(
+                f"text-lg text-{total_no_real_estate_color}"
             )
 
     def common_links(self):
@@ -168,7 +170,7 @@ class MainGraphs(GraphCommon):
         ("real_estate", "96vh"),
         ("allocation_profit", "75vh"),
         ("change", "50vh"),
-        ("change_no_homes", "50vh"),
+        ("change_no_real_estate", "50vh"),
         ("investing_allocation", "50vh"),
         ("prices", "45vh"),
         ("forex", "45vh"),
@@ -265,11 +267,11 @@ class MainGraphs(GraphCommon):
         )
         fs.append(
             FigureData(
-                name="change_no_homes",
+                name="change_no_real_estate",
                 fig=executor.submit(
                     plot.make_change_section,
                     dataframes["all"],
-                    "total_no_homes",
+                    "total_no_real_estate",
                     "Total Net Worth Change w/o Real Estate",
                 ),
             )
