@@ -1,15 +1,12 @@
+import csv
 import io
-import pickle
 import re
 import subprocess
-import typing
-from dataclasses import dataclass
-from datetime import datetime
-from enum import Enum
+from pathlib import Path
+from typing import Iterable
 
 import pandas as pd
 from loguru import logger
-from playwright.sync_api import Error as PlaywrightError
 
 import common
 import ledger_ops
@@ -31,86 +28,8 @@ MONTH_CODES: dict[str, str] = {
 }
 
 
-class Brokerage(Enum):
-    SCHWAB = "Charles Schwab Brokerage"
-    IBKR = "Interactive Brokers"
-
-
-@dataclass
-class FutureSpec:
-    multiplier: float
-    margin_requirement_percent: dict[Brokerage, float]
-
-
-# Get margin requirements from Schwab or IBKR
-FUTURE_SPEC: dict[str, FutureSpec] = {
-    "10Y": FutureSpec(
-        multiplier=1000,
-        margin_requirement_percent={Brokerage.SCHWAB: 9, Brokerage.IBKR: 15},
-    ),
-    "M2K": FutureSpec(
-        multiplier=5,
-        margin_requirement_percent={Brokerage.SCHWAB: 9, Brokerage.IBKR: 9},
-    ),
-    "MBT": FutureSpec(
-        multiplier=0.1,
-        margin_requirement_percent={Brokerage.SCHWAB: 40, Brokerage.IBKR: 40},
-    ),
-    "MES": FutureSpec(
-        multiplier=5,
-        margin_requirement_percent={Brokerage.SCHWAB: 7, Brokerage.IBKR: 7},
-    ),
-    "MFS": FutureSpec(multiplier=50, margin_requirement_percent={Brokerage.IBKR: 6}),
-    "MGC": FutureSpec(
-        multiplier=10,
-        margin_requirement_percent={Brokerage.SCHWAB: 6, Brokerage.IBKR: 7},
-    ),
-    "MTN": FutureSpec(multiplier=100, margin_requirement_percent={Brokerage.IBKR: 4}),
-    "SIL": FutureSpec(
-        multiplier=1000,
-        margin_requirement_percent={Brokerage.SCHWAB: 12.5},
-    ),
-    "ZN": FutureSpec(
-        multiplier=1000,
-        margin_requirement_percent={Brokerage.SCHWAB: 2, Brokerage.IBKR: 2},
-    ),
-}
-
-
-REDIS_KEY = "FuturesData"
-
-
 class IceUnknownFuture(Exception):
     pass
-
-
-class FuturesData(typing.NamedTuple):
-    main_output: str
-    updated: datetime
-
-
-@common.walrus_db.cache.cached(key_fn=lambda a, _: a[0])
-def get_future_quote_mtn(ticker: str) -> common.FutureQuote:
-    try:
-        with common.run_with_browser_page(
-            "https://www.cmegroup.com/markets/interest-rates/us-treasury/micro-ultra-10-year-us-treasury-note.quotes.html"
-        ) as page:
-            if selector := page.wait_for_selector("div.last-value"):
-                value = selector.inner_text().replace("'", ".")
-                q = common.FutureQuote(
-                    mark=float(value), multiplier=FUTURE_SPEC["MTN"].multiplier
-                )
-                logger.info(f"ticker=/MTN {q=}")
-                return q
-    except PlaywrightError as e:
-        logger.info(f"PlaywrightError: {e}, using /TNZ")
-        m = FUTURE_SPEC[ticker[1:4]].multiplier
-        ticker = ticker.replace("/MTN", "/TN")
-        fq = common.get_future_quote(ticker)
-        if fq.multiplier != m:
-            fq = common.FutureQuote(mark=fq.mark, multiplier=m)
-        return fq
-    raise IceUnknownFuture("cannot find price")
 
 
 @common.walrus_db.cache.cached(key_fn=lambda a, _: a[0])
@@ -126,17 +45,29 @@ def get_future_quote_mfs(ticker: str) -> common.FutureQuote:
         row = cell.locator("xpath=ancestor::tr")
         if price := row.locator("td").nth(1).text_content():
             q = common.FutureQuote(
-                mark=float(price), multiplier=FUTURE_SPEC[ticker[1:4]].multiplier
+                mark=float(price), multiplier=common.get_future_spec(ticker).multiplier
             )
             logger.info(f"{ticker=} {q=}")
             return q
     raise IceUnknownFuture("cannot find price")
 
 
-def get_trade_price(broker: str, future_name: str) -> float:
+def get_trade_price_override(broker: str, future_name: str) -> float:
+    if (p := Path(f"{common.PUBLIC_HTML}futures_trade_price_overrides")).exists():
+        with p.open("r") as f:
+            reader = csv.reader(f, delimiter=":")
+            for row in reader:
+                if row[0] == broker and row[1] == future_name:
+                    return float(row[2])
+    return 0
+
+
+def get_trade_price(broker: str, future_name: str, want_count: int) -> float:
+    if p := get_trade_price_override(broker, future_name):
+        return p
     cmd = f"""{common.LEDGER_PREFIX} print expr 'any(commodity == "{future_name}" and account =~ /{broker}:Futures/)'"""
     total_count = total_cost = 0
-    for entry in ledger_ops.get_ledger_entries_from_command(cmd):
+    for entry in reversed(ledger_ops.get_ledger_entries_from_command(cmd)):
         for line in entry.body:
             s = line.split()
             if len(s) < 4:
@@ -144,31 +75,31 @@ def get_trade_price(broker: str, future_name: str) -> float:
             if future_name not in s[-3]:
                 continue
             count = int(s[-4])
-            if count < 0:
+            if count * want_count < 0:
                 continue
             cost = float(re.sub(r"[^\d.]", "", s[-1])) * count
             total_count += count
             total_cost += cost
-    return total_cost / total_count / FUTURE_SPEC[future_name[1:4]].multiplier
-
-
-def get_trade_price_old(broker: str, future_name: str) -> float:
-    cmd = f"""{common.LEDGER_PREFIX} -B -J -n reg '{broker}:Futures$' --limit 'commodity=="{future_name}"'"""
-    return ledger_ops.get_ledger_balance(cmd)
+            if total_count == want_count:
+                return (
+                    total_cost
+                    / total_count
+                    / common.get_future_spec(future_name).multiplier
+                )
+    return total_cost / total_count / common.get_future_spec(future_name).multiplier
 
 
 class Futures:
-    def future_quote(self, ticker: str) -> pd.Series:
-        if ticker.startswith("/MFS"):
-            fq = get_future_quote_mfs(ticker)
-        elif ticker.startswith("/MTN"):
-            fq = get_future_quote_mtn(ticker)
-        else:
-            fq = common.get_future_quote(ticker)
-            m = FUTURE_SPEC[ticker[1:4]].multiplier
-            if fq.multiplier != m:
-                fq = common.FutureQuote(mark=fq.mark, multiplier=m)
-        return pd.Series([fq.mark, fq.multiplier])
+    def future_quotes(self, ts: Iterable[str]) -> dict[str, common.FutureQuote]:
+        r: dict[str, common.FutureQuote] = {}
+        fetch_tickers = set()
+        for t in ts:
+            if t.startswith("/MFS"):
+                r[t] = get_future_quote_mfs(t)
+            else:
+                fetch_tickers.add(t)
+        r.update(common.get_future_quotes(fetch_tickers))
+        return r
 
     @property
     def ledger_df(self) -> pd.DataFrame:
@@ -178,6 +109,7 @@ class Futures:
         )
         entries = []
         account = ""
+        ts = set()
         for line in io.StringIO(subprocess.check_output(cmd, shell=True, text=True)):
             if line[0].isalpha():
                 account = line.strip().split(":")[-2]
@@ -185,32 +117,45 @@ class Futures:
             count = int(line.split(maxsplit=1)[0])
             future_name = line.split(maxsplit=1)[1].strip().strip('"')
             commodity = future_name.split()[0]
-            current_price, multiplier = self.future_quote(commodity)
-            trade_price = get_trade_price(account, future_name)
+            trade_price = get_trade_price(account, future_name, count)
             if account:
-                current_price, multiplier = self.future_quote(commodity)
-                notional_value = current_price * multiplier * count
                 entries.append(
                     {
                         "account": account,
                         "commodity": commodity,
                         "count": count,
-                        "value": (current_price - trade_price) * multiplier * count,
-                        "notional_value": notional_value,
-                        "current_price": current_price,
                         "trade_price": trade_price,
-                        "multiplier": multiplier,
-                        "margin_requirement": round(
-                            (
-                                FUTURE_SPEC[commodity[1:4]].margin_requirement_percent[
-                                    Brokerage(account)
-                                ]
-                                / 100
-                            )
-                            * notional_value
-                        ),
                     }
                 )
+                ts.add(commodity)
+        qs = self.future_quotes(ts)
+        for e in entries:
+            commodity = e["commodity"]
+            trade_price = e["trade_price"]
+            count = e["count"]
+            current_price = qs[commodity].mark
+            multiplier = qs[commodity].multiplier
+            notional_value = current_price * multiplier * count
+            margin_req = abs(
+                round(
+                    (
+                        common.get_future_spec(commodity).margin_requirement_percent[
+                            common.Brokerage(account)
+                        ]
+                        / 100
+                    )
+                    * notional_value
+                )
+            )
+            e.update(
+                {
+                    "value": (current_price - trade_price) * multiplier * count,
+                    "notional_value": notional_value,
+                    "current_price": current_price,
+                    "multiplier": multiplier,
+                    "margin_requirement": margin_req,
+                }
+            )
         return pd.DataFrame(entries)
 
     @property
@@ -240,10 +185,6 @@ class Futures:
         )
         return df
 
-    @property
-    def redis_data(self) -> FuturesData:
-        return pickle.loads(common.walrus_db.db[REDIS_KEY])
-
     def get_summary(self) -> str:
         with common.pandas_options():
             df = self.futures_df
@@ -253,18 +194,31 @@ class Futures:
             notional_by_account = df.groupby(level="account")["notional_value"].sum()
             margin_by_account = df.groupby(level="account")["margin_requirement"].sum()
             margin_reqs = []
-            for broker in (Brokerage.IBKR.value, Brokerage.SCHWAB.value):
-                cash = margin_loan.get_balances_broker(
+            overrides = []
+            for broker in (common.Brokerage.IBKR.value, common.Brokerage.SCHWAB.value):
+                margin_df = margin_loan.get_balances_broker(
                     margin_loan.find_loan_brokerage(broker)
-                )["Cash Balance"].iloc[-1]
-                req = margin_by_account[broker] * 2
+                )
+                cash = (
+                    margin_df["Cash Balance"].iloc[-1]
+                    - margin_df["Money Market"].iloc[-1]
+                )
+                if broker not in margin_by_account:
+                    continue
+                for f in df.xs(broker, level="account").itertuples():
+                    if get_trade_price_override(broker, f.Index):  # type: ignore
+                        overrides.append(
+                            f"{broker} trade price for {f.Index} is overridden"
+                        )
+                req = margin_by_account[broker]
                 percent = cash / req
                 margin_reqs.append(
-                    f"{broker}: {cash:.0f} ({(percent * 100):.0f}% of 2x margin requirement "
+                    f"{broker}: {cash:.0f} ({(percent * 100):.0f}% of margin requirement "
                     f"({req:.0f}), Difference: {(cash - req):.0f})"
                 )
             return (
-                f"{df}\n\n"
+                f"{df}\n"
+                f"{'\n'.join(overrides)}\n\n"
                 f"Total value: {total:.0f}\n"
                 f"Total value by account:\n{total_by_account}\n\n"
                 f"Notional value: {notional:.0f}\n"
@@ -272,10 +226,3 @@ class Futures:
                 f"Margin requirement by account:\n{margin_by_account}\n\n"
                 f"Cash available:\n" + "\n".join(margin_reqs)
             )
-
-    def save_to_redis(self):
-        data = FuturesData(
-            main_output=self.get_summary(),
-            updated=datetime.now(),
-        )
-        common.walrus_db.db[REDIS_KEY] = pickle.dumps(data)

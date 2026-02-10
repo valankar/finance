@@ -168,7 +168,7 @@ def get_ledger_entries_from_command(command: str) -> list[LedgerEntry]:
     return parse_ledger_output(subprocess.check_output(command, shell=True, text=True))
 
 
-def get_ledger_balance(command):
+def get_ledger_balance(command) -> float:
     """Get account balance from ledger."""
     try:
         return float(

@@ -15,14 +15,11 @@ import common
 import etfs
 import finance_daily
 import forex
-import futures
 import history
 import index_prices
 import ledger_prices_db
 import main_graphs
 import main_matplot
-import stock_options
-import stock_options_ui
 
 app = App()
 
@@ -41,11 +38,8 @@ def run_all(
     ):
         if flush_cache:
             common.walrus_db.cache.flush()
-            common.cache_tickers(etfs.get_tickers() | {"^SPX", "CHFUSD=X", "SGDUSD=X"})
-            common.cache_option_quotes(stock_options.get_ticker_options())
+            common.get_tickers(etfs.get_tickers() | {"^SPX", "CHFUSD=X", "SGDUSD=X"})
         if calculate:
-            stock_options.generate_options_data()
-            futures.Futures().save_to_redis()
             etfs.main()
             index_prices.main()
             forex.main()
@@ -58,7 +52,6 @@ def run_all(
                 results.append(e.submit(main_graphs.main))
             if matplot:
                 results.append(e.submit(main_matplot.main))
-                results.append(e.submit(stock_options_ui.main))
             for r in results:
                 if o := r.result():
                     logger.info(o)

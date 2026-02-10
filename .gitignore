@@ -7,3 +7,6 @@ web/
 .schwab_token.json
 .task
 cron_hourly.sh
+node_modules
+package-lock.json
+package.json

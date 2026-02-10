@@ -25,12 +25,13 @@ COMMODITIES_PERCENTAGE_FLOOR = 8
 # See https://testfol.io/?s=fkCyZLoXExo
 ETF_TYPE_MAP = {
     "COMMODITIES_GOLD": ["GLD", "GLDM", "SGOL", "/MGC"],
-    "COMMODITIES_SILVER": ["SIVR", "/SIL"],
+    "COMMODITIES_SILVER": ["SIVR", "SLV", "/SIL"],
     "COMMODITIES_CRYPTO": ["BITX", "IBIT", "MSTR", "/MBT"],
     "US_SMALL_CAP": ["SCHA", "VB", "IWM", "/M2K", "/RTY"],
-    "US_LARGE_CAP": ["SCHX", "SPLG", "SPY", "SPYM", "VOO", "VV", "/MES", "/ES"],
+    "US_LARGE_CAP": ["SCHX", "SPY", "SPYM", "VOO", "VV", "/MES", "/ES"],
     "US_BONDS": [
         "BND",
+        "IEF",
         "SCHO",
         "SCHR",
         "SCHZ",
@@ -150,8 +151,7 @@ def get_desired_df(
         else:
             etfs_df.loc[ticker, "value"] = adjust
     # Add in options value
-    if (options_data := stock_options.get_options_data()) is None:
-        raise ValueError("No options data available")
+    options_data = stock_options.get_options_data()
     futures_tickers = futures.Futures().notional_values_df
     futures_tickers.loc[
         futures_tickers.index.isin(FUTURES_INVERSE_CORRELATION), "value"
@@ -230,12 +230,15 @@ def get_rebalancing_df(
 
 
 def futures_rebalancing(rebalancing_df: pd.DataFrame, limit_broker: Optional[str]):
-    print("\nFutures to close for rebalancing:")
+    header = "\nFutures to close for rebalancing:"
+    header_printed = False
     df = rebalancing_df[rebalancing_df["usd_to_reconcile"].abs() > 1000]
     futures_df = futures.Futures().futures_df
     for row in df.itertuples():
-        header = f"Category: {row.Index} Need to reconcile: {row.usd_to_reconcile:.0f}"
-        header_printed = False
+        subheader = (
+            f"Category: {row.Index} Need to reconcile: {row.usd_to_reconcile:.0f}"
+        )
+        subheader_printed = False
         for f in futures_df.itertuples():
             if limit_broker and limit_broker not in f.Index[0]:  # type: ignore
                 continue
@@ -247,52 +250,78 @@ def futures_rebalancing(rebalancing_df: pd.DataFrame, limit_broker: Optional[str
                 # Need to close positions of opposite sign
                 if value_per_contract * row.usd_to_reconcile > 0:
                     continue
-                count = min(
-                    abs(row.usd_to_reconcile // value_per_contract),
-                    abs(f.count),  # type: ignore
+                count = round(
+                    min(
+                        abs(row.usd_to_reconcile / value_per_contract),
+                        abs(f.count),  # type: ignore
+                    )
                 )
+                if count < 1:
+                    continue
                 value = -(value_per_contract * count)
                 xact = "Selling"
                 if f.count < 0:  # type: ignore
                     xact = "Buying"
+                profit = (f.value / f.count) * count  # type: ignore
+                if profit < 0:
+                    continue
                 if not header_printed:
                     print(header)
                     header_printed = True
+                if not subheader_printed:
+                    print(subheader)
+                    subheader_printed = True
                 print(
-                    f"  {xact} {count:.0f} {f.Index[0]} {f.Index[1]} contracts worth {value / count:.0f} results in value change of: {value:.0f}"  # type: ignore
+                    f"  {xact} {count} {f.Index[0]} {f.Index[1]} contracts worth {value / count:.0f} results in value change of: {value:.0f}\n"  # type: ignore
+                    f"    Futures cash value/profit: {profit:.0f}"
                 )
 
 
 def options_rebalancing(rebalancing_df: pd.DataFrame, limit_broker: Optional[str]):
-    print("\nOptions to close for rebalancing:")
+    header = "\nOptions to close for rebalancing:"
+    header_printed = False
     df = rebalancing_df[rebalancing_df["usd_to_reconcile"].abs() > 1000]
-    if (options_data := stock_options.get_options_data()) is None:
-        raise ValueError("No options data available")
+    options_data = stock_options.get_options_data()
     options_df = options_data.opts.all_options
     for row in df.itertuples():
-        header = f"Category: {row.Index} Need to reconcile: {row.usd_to_reconcile:.0f}"
-        header_printed = False
+        subheader = (
+            f"Category: {row.Index} Need to reconcile: {row.usd_to_reconcile:.0f}"
+        )
+        subheader_printed = False
         for o in options_df.itertuples():
             if limit_broker and limit_broker not in o.Index[0]:  # type: ignore
                 continue
             if o.ticker in ETF_TYPE_MAP[f"{row.Index}"]:
-                value_per_contract = o.notional_value / abs(o.count)  # type: ignore
+                if (value_per_contract := o.notional_value / abs(o.count)) == 0:  # type: ignore
+                    continue
                 # Need to close positions of opposite sign
                 if value_per_contract * row.usd_to_reconcile > 0:
                     continue
-                count = min(
-                    abs(row.usd_to_reconcile // value_per_contract),
-                    abs(o.count),  # type: ignore
+                count = round(
+                    min(
+                        abs(row.usd_to_reconcile / value_per_contract),
+                        abs(o.count),  # type: ignore
+                    )
                 )
+                if count < 1:
+                    continue
                 value = -(value_per_contract * count)
                 xact = "Selling"
                 if o.count < 0:  # type: ignore
                     xact = "Buying"
+                profit = (o.profit_option_value / abs(o.count)) * count  # type: ignore
+                if profit < 0:
+                    continue
                 if not header_printed:
                     print(header)
                     header_printed = True
+                if not subheader_printed:
+                    print(subheader)
+                    subheader_printed = True
                 print(
-                    f"  {xact} {count:.0f} {o.Index[0]} {o.Index[1]} contracts worth {value / count:.0f} results in value change of: {value:.0f}"  # type: ignore
+                    f"  {xact} {count} {o.Index[0]} {o.Index[1]} contracts worth {value / count:.0f} results in value change of: {value:.0f}\n"  # type: ignore
+                    f"    Options cash value: {(o.value / o.count) * count:.0f}\n"  # type: ignore
+                    f"    Profit: {profit:.0f}"
                 )
 
 

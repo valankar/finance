@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sell owned stock or options."""
+"""Sell owned stock."""
 
 import argparse
 import typing
@@ -10,7 +10,6 @@ import pandas as pd
 import balance_etfs
 import etfs
 import ledger_amounts
-import stock_options
 
 
 def sell_stock(stock: str, value: float) -> pd.DataFrame:
@@ -54,7 +53,6 @@ def sell_from_rebalancing(
                 new_df = pd.concat([new_df, sell_df])
     if len(new_df):
         new_df["value_to_sell"] = new_df["shares_to_sell"] * new_df["current_price"]
-        new_df["options_to_sell"] = new_df["shares_to_sell"] // 100
         return new_df
     return None
 
@@ -75,20 +73,7 @@ def sell_stock_brokerage(
     brokerage_amounts = ledger_amounts.get_commodity_amounts(
         ledger_amounts.LEDGER_LIMIT_ETFS + f' --limit "account=~/{account}/"'
     )
-    # Take into account options assignment
-    if (options_data := stock_options.get_options_data()) is None:
-        raise ValueError("No options data available")
-    options_df = options_data.opts.all_options
-    if account in options_df.index.get_level_values(0):
-        options_df = stock_options.after_assignment_df(
-            typing.cast(pd.DataFrame, options_df.xs(account))
-        )
-        for etf in brokerage_amounts:
-            try:
-                brokerage_amounts[etf] += options_df.loc[etf, "shares_change"].sum()  # type: ignore
-            except KeyError:
-                pass
-    print("\nShares at brokerage including option assignment")
+    print("\nShares at brokerage")
     print(brokerage_amounts, "\n")
     remaining = value
     if (sell_df := sell_from_rebalancing(rebalancing_df, brokerage_amounts)) is None:

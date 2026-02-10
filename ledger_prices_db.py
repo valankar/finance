@@ -35,8 +35,7 @@ def main():
             )
 
         # Stock options
-        if (options_data := stock_options.get_options_data()) is None:
-            raise ValueError("No options data available")
+        options_data = stock_options.get_options_data()
         options_df = options_data.opts.all_options
         commodities_written = set()
         for idx, row in options_df.iterrows():

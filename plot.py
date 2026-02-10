@@ -16,6 +16,7 @@ import common
 import futures
 import homes
 import margin_loan
+import stock_options
 
 COLOR_GREEN = "DarkGreen"
 COLOR_RED = "DarkRed"
@@ -52,9 +53,13 @@ def add_hline_current(
             percent_annotation = "+" + percent_annotation
         case percent_change if percent_change == 0:
             percent_annotation = ""
+    diff_format = ",.0f"
+    diff = current - earliest
+    if abs(diff) < 1:
+        diff_format = ".2f"
     fig.add_hline(
         y=current,
-        annotation_text=f"{current:,.{precision}f} {percent_annotation} ({current - earliest:,.0f})",
+        annotation_text=f"{current:,.{precision}f} {percent_annotation} ({diff:{diff_format}})",
         line_dash="dot",
         line_color="gray",
         annotation_position=annotation_position,
@@ -483,28 +488,76 @@ def make_futures_margin_section(margin: dict[str, int]) -> Figure:
     def add_loan_graph(
         df: pd.DataFrame,
         margin_requirement: int,
+        csp_requirement: int,
         col: int,
     ):
+        money_market = df.iloc[-1]["Money Market"]
         cash_balance = df.iloc[-1]["Cash Balance"]
-        total = cash_balance - margin_requirement
-        fig = go.Waterfall(
-            measure=["relative", "relative", "total"],
-            x=["Cash", "2x Futures Margin", "Excess"],
-            y=[
+        total = cash_balance - margin_requirement - money_market
+        if abs(money_market) > 100:
+            if csp_requirement < 0:
+                measure = ["relative", "relative", "relative", "relative", "total"]
+                x = [
+                    "Cash",
+                    "Money Market",
+                    "CSP Req",
+                    "Futures Margin",
+                    "Excess",
+                ]
+                y = [
+                    cash_balance,
+                    -(money_market + csp_requirement),
+                    csp_requirement,
+                    -margin_requirement,
+                    0,
+                ]
+                text = [
+                    f"{cash_balance:,.0f}",
+                    f"{-(money_market + csp_requirement):,.0f}",
+                    f"{csp_requirement:,.0f}",
+                    f"{-margin_requirement:,.0f}",
+                    f"{total:,.0f}",
+                ]
+            else:
+                measure = ["relative", "relative", "relative", "total"]
+                x = ["Cash", "Money Market", "Futures Margin", "Excess"]
+                y = [
+                    cash_balance,
+                    -money_market,
+                    -margin_requirement,
+                    0,
+                ]
+                text = [
+                    f"{cash_balance:,.0f}",
+                    f"{-money_market:,.0f}",
+                    f"{-margin_requirement:,.0f}",
+                    f"{total:,.0f}",
+                ]
+        else:
+            measure = ["relative", "relative", "total"]
+            x = ["Cash", "Futures Margin", "Excess"]
+            y = [
                 cash_balance,
                 -margin_requirement,
                 0,
-            ],
-            text=[
+            ]
+            text = [
                 f"{cash_balance:,.0f}",
                 f"{-margin_requirement:,.0f}",
                 f"{total:,.0f}",
-            ],
+            ]
+
+        fig = go.Waterfall(
+            measure=measure,
+            x=x,
+            y=y,
+            text=text,
             totals={"marker": {"color": COLOR_GREEN if total > 0 else COLOR_RED}},
         )
         section.add_trace(fig, row=1, col=col)
 
     futures_df = futures.Futures().futures_df
+    opts = stock_options.get_options_data().opts
     margin_by_account = futures_df.groupby(level="account")["margin_requirement"].sum()
     section = make_subplots(
         rows=1,
@@ -519,9 +572,12 @@ def make_futures_margin_section(margin: dict[str, int]) -> Figure:
     for i, broker in enumerate(margin_loan.LOAN_BROKERAGES, start=1):
         if broker.name not in margin_by_account:
             continue
-        req = margin_by_account[broker.name] * 2
+        req = margin_by_account[broker.name]
         df = margin_loan.get_balances_broker(broker)
-        add_loan_graph(df, req, i)
+        csp = 0
+        if broker.name == "Charles Schwab Brokerage":
+            csp = stock_options.short_put_exposure(opts.pruned_options, broker.name)
+        add_loan_graph(df, req, csp, i)
 
     section.update_yaxes(matches=None)
     section.update_yaxes(title_text="USD", col=1)
@@ -562,15 +618,6 @@ def make_total_bar_mom(daily_df: pd.DataFrame, column: str) -> Figure:
     """Make month over month total profit bar graphs."""
     diff_df = daily_df.resample("ME").last().interpolate().diff().dropna().iloc[-36:]
     monthly_bar = px.bar(diff_df, x=diff_df.index, y=column)
-    line_chart = px.scatter(
-        diff_df,
-        x=diff_df.index,
-        y=column,
-        trendline="lowess",
-    )
-    line_chart.for_each_trace(
-        lambda t: monthly_bar.add_trace(t), selector={"mode": "lines"}
-    )
     return monthly_bar
 
 
@@ -579,8 +626,7 @@ def make_total_bar_yoy(daily_df: pd.DataFrame, column: str) -> Figure:
     diff_df = daily_df.resample("YE").last().interpolate().diff().dropna().iloc[-6:]
     # Re-align at beginning of year.
     diff_df.index = pd.DatetimeIndex(diff_df.index.strftime("%Y-01-01"))  # type: ignore
-    # astype needed due to https://github.com/plotly/Kaleido/issues/236
-    yearly_bar = px.bar(diff_df, x=diff_df.index.astype(str), y=column, text_auto=".3s")  # type: ignore
+    yearly_bar = px.bar(diff_df, x=diff_df.index, y=column, text_auto=".3s")  # type: ignore
     return yearly_bar
 
 

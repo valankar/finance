@@ -9,10 +9,6 @@ LEDGER_COMMODITY_CMD = (
     f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} "
     '--balance-format "%(S(display_total))" -n -c bal'
 )
-LEDGER_BALANCE_CMD = (
-    f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} "
-    '--balance-format "%(quantity(scrub(display_total)))" -c bal'
-)
 LEDGER_LIMIT_ETFS = (
     f"""--limit 'commodity!~/{common.CURRENCIES_REGEX}/ and commodity=~/^[A-Z]+/'"""
 )

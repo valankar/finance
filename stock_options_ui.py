@@ -1,80 +1,25 @@
-import io
-import pickle
 import typing
-from datetime import date, datetime
+from datetime import date
 
-import humanize
 import pandas as pd
-from loguru import logger
-from matplotlib.figure import Figure
 from nicegui import ui
 from nicegui.elements.table import Table
 
-import common
 import stock_options
 from main_graphs import GraphCommon
 
 RowType = dict[str, typing.Any]
 
 
-class UIData(typing.NamedTuple):
-    short_calls: list[RowType]
-    vertical_spreads: list[RowType]
-    iron_condors: list[RowType]
-    synthetics: list[RowType]
-    index_images: list[bytes]
-
-
 class StockOptionsPage(GraphCommon):
     PL_GRID_COLUMNS: typing.ClassVar[int] = 3
-    REDIS_SUBKEY: typing.ClassVar[str] = "StockOptionsPage UIData"
 
     def __init__(self):
-        self.image_graphs = common.walrus_db.db.Hash(self.REDIS_KEY)
-
-    @property
-    def ui_data(self) -> UIData:
-        return pickle.loads(self.image_graphs[self.REDIS_SUBKEY])
-
-    @ui_data.setter
-    def ui_data(self, value: UIData):
-        self.image_graphs[self.REDIS_SUBKEY] = pickle.dumps(value)
-
-    @property
-    def options_data(self) -> stock_options.OptionsData:
-        if (data := stock_options.get_options_data()) is None:
-            raise ValueError("Options data is not available.")
-        return data
-
-    def make_image_graph(self, fig: Figure) -> bytes:
-        data = io.BytesIO()
-        fig.savefig(data, format="png")
-        return data.getvalue()
-
-    def make_ui_data(self, options_data: stock_options.OptionsData) -> UIData:
-        return UIData(
-            short_calls=self.make_short_calls_data(options_data),
-            vertical_spreads=self.make_vertical_spreads_data(options_data),
-            iron_condors=self.make_iron_condors_data(options_data),
-            synthetics=self.make_synthetics_data(options_data),
-            index_images=self.make_index_images(),
-        )
-
-    def make_index_images(self) -> list[bytes]:
-        images: list[bytes] = []
-        spx_df = (
-            common.read_sql_table("index_prices")[["^SPX"]]
-            .resample("D")
-            .last()
-            .dropna()
-        )
-        fig = Figure(figsize=(15, 5), layout="tight")
-        ax = fig.subplots()
-        ax.plot(spx_df.index, spx_df, color="tab:blue")
-        ax.set_ylabel("Price")
-        ax.set_title("SPX")
-        images.append(self.make_image_graph(fig))
-        return images
+        options_data = stock_options.get_options_data()
+        self.short_calls = self.make_short_calls_data(options_data)
+        self.vertical_spreads = self.make_vertical_spreads_data(options_data)
+        self.iron_condors = self.make_iron_condors_data(options_data)
+        self.synthetics = self.make_synthetics_data(options_data)
 
     def make_short_calls_data(
         self, options_data: stock_options.OptionsData
@@ -115,6 +60,10 @@ class StockOptionsPage(GraphCommon):
         for d in options_data.opts.synthetics:
             sd: stock_options.SpreadDetails = d.details
             cd: stock_options.CommonDetails = sd.details
+            if len(d.df.query("type == 'CALL' & count > 0")):
+                t = "Long Synthetic"
+            else:
+                t = "Short Synthetic"
             name = f"{cd.ticker} {sd.low_strike:.0f}/{sd.high_strike:.0f}"
             risk = f"{sd.risk:.0f}"
             half_mark = f"{cd.half_mark:.2f}"
@@ -126,7 +75,7 @@ class StockOptionsPage(GraphCommon):
                         "account": cd.account,
                         "name": name,
                         "expiration": f"{cd.expiration} ({(cd.expiration - date.today()).days}d)",
-                        "type": "Synthetic",
+                        "type": t,
                         "count": cd.amount,
                         "intrinsic value": f"{cd.intrinsic_value:.0f}",
                         "maximum loss": risk,
@@ -276,48 +225,47 @@ class StockOptionsPage(GraphCommon):
                 "green",
             )
 
-    def generate(self):
-        logger.info(f"Generating {self.REDIS_SUBKEY}")
-        self.ui_data = self.make_ui_data(self.options_data)
-        logger.info(f"Finished generating {self.REDIS_SUBKEY}")
+    def make_all_options_section(self, broker: str, options_df: pd.DataFrame):
+        ui.label(broker)
+        df = (
+            options_df.xs(broker, level="account").reset_index().sort_values(by="name")
+        ).drop(
+            columns=[
+                "exercise_value",
+                "min_contract_price",
+                "profit_stock_price",
+                "type",
+                "ticker",
+            ]
+        )
+        i = int(df.columns.get_loc("expiration")) + 1  # type: ignore
+        df.insert(i, "days", (df["expiration"] - pd.Timestamp.now()).dt.days)
+        i = int(df.columns.get_loc("notional_value")) + 1  # type: ignore
+        df.insert(i, "nv_per_contract", df["notional_value"] / abs(df["count"]))
+        table = ui.table.from_pandas(df.assign(**df.select_dtypes("number").round(2)))
+        body_cell_slot(
+            table,
+            "profit_option_value",
+            "red",
+            "Number(props.value) < 0",
+            "green",
+        )
 
     def main_page(self):
         """Stock options."""
-        data = self.options_data
-        with ui.row().classes("items-center"):
-            ui.label(
-                f"Staleness: {humanize.naturaldelta(datetime.now() - data.updated)}"
+        opts = stock_options.get_options_data().opts
+        for broker in opts.all_options.index.get_level_values("account").unique():
+            df = stock_options.remove_spreads(
+                opts.all_options, [s.df for s in opts.box_spreads]
             )
-        options_df = data.opts.all_options
-        for broker in options_df.index.get_level_values("account").unique():
-            ui.label(broker)
-            df = (
-                options_df.xs(broker, level="account")
-                .reset_index()
-                .sort_values(by="name")
-            ).drop(
-                columns=[
-                    "exercise_value",
-                    "min_contract_price",
-                    "profit_stock_price",
-                    "type",
-                    "ticker",
-                ]
-            )
-            i = int(df.columns.get_loc("expiration")) + 1  # type: ignore
-            df.insert(i, "days", (df["expiration"] - pd.Timestamp.now()).dt.days)
-            i = int(df.columns.get_loc("notional_value")) + 1  # type: ignore
-            df.insert(i, "nv_per_contract", df["notional_value"] / abs(df["count"]))
-            ui.table.from_pandas(df.round(2))
+            self.make_all_options_section(broker, df)
         self.make_spread_section(
-            "Short Calls", self.ui_data.short_calls, profit_color_col="profit option"
+            "Short Calls", self.short_calls, profit_color_col="profit option"
         )
-        self.make_spread_section("Synthetics", self.ui_data.synthetics)
-        self.make_spread_section("Vertical Spreads", self.ui_data.vertical_spreads)
-        self.make_spread_section("Iron Condors", self.ui_data.iron_condors)
-        self.make_box_spread_sections("Box Spreads", data.opts.box_spreads)
-        for image in self.ui_data.index_images:
-            ui.image(self.encode_png(image)).classes("w-full")
+        self.make_spread_section("Synthetics", self.synthetics)
+        self.make_spread_section("Vertical Spreads", self.vertical_spreads)
+        self.make_spread_section("Iron Condors", self.iron_condors)
+        self.make_box_spread_sections("Box Spreads", opts.box_spreads)
 
 
 def body_cell_slot(
@@ -335,11 +283,3 @@ def body_cell_slot(
             "</q-td>"
         ),
     )
-
-
-def main():
-    StockOptionsPage().generate()
-
-
-if __name__ == "__main__":
-    main()

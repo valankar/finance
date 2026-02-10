@@ -57,6 +57,7 @@ services:
 
   chrome-cdp:
     image: chromedp/headless-shell
+    command: ["--disable-gpu"]
     container_name: chrome-cdp
     restart: unless-stopped
     networks: *networks

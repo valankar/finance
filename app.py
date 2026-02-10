@@ -7,10 +7,9 @@ import io
 import os
 import re
 import subprocess
-from datetime import date, datetime
+from datetime import date
 from typing import Awaitable, Iterable
 
-import humanize
 import pandas as pd
 import plotly.io as pio
 from fastapi import Request
@@ -125,6 +124,7 @@ async def ledger_page():
 async def stock_options_page():
     """Stock options."""
     log_request()
+    await ui.context.client.connected()
     stock_options_ui.StockOptionsPage().main_page()
 
 
@@ -145,7 +145,7 @@ async def balance_etfs_page():
     await ui.context.client.connected()
     adjustments = {}
     ticker_vals = []
-    df = balance_etfs.get_rebalancing_df(0)
+    df = await run.io_bound(balance_etfs.get_rebalancing_df, 0)
     with ui.grid(columns=2).classes("w-full"):
         table = ui.table.from_pandas(df.reset_index(names="category"))
         graph = ui.plotly(plot.make_investing_allocation_section(df))
@@ -160,13 +160,17 @@ async def balance_etfs_page():
         return None
 
     def get_main_out(
-        value: int,
-        adjustment: dict[str, int],
+        rebalancing_df: pd.DataFrame,
     ):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             with common.pandas_options():
-                balance_etfs.main(value=value, adjustment=adjustment)
+                balance_etfs.options_rebalancing(rebalancing_df, None)
+                balance_etfs.futures_rebalancing(rebalancing_df, None)
             return output.getvalue()
+
+    main_out = ui.label(await run.io_bound(get_main_out, df)).style(
+        "white-space: pre; font-family: monospace"
+    )
 
     async def update():
         adjustment = {k: int(v.value) for k, v in adjustments.items() if v.value}
@@ -178,10 +182,12 @@ async def balance_etfs_page():
                 adjustment[t.value] = int(v.value)
         if adjustment:
             ui.notify(f"Adjustments: {adjustment}")
-        df = balance_etfs.get_rebalancing_df(amt, adjustment)
+        df = await run.io_bound(balance_etfs.get_rebalancing_df, amt, adjustment)
         table.update_from_pandas(df.reset_index(names="category"))
-        graph.update_figure(plot.make_investing_allocation_section(df))
-        main_out.text = get_main_out(amt, adjustment)
+        graph.update_figure(
+            await run.io_bound(plot.make_investing_allocation_section, df)
+        )
+        main_out.text = await run.io_bound(get_main_out, df)
 
     amount = ui.input(label="Amount", validation=validate).on("keydown.enter", update)
 
@@ -202,18 +208,13 @@ async def balance_etfs_page():
                         "keydown.enter", update
                     )
                     ticker_vals.append((ticker, val))
-    main_out = ui.label(get_main_out(0, {})).style(
-        "white-space: pre; font-family: monospace"
-    )
 
 
 @ui.page("/futures", title="Futures")
 async def futures_page():
     log_request()
-    data = futures.Futures().redis_data
-    with ui.row().classes("items-center"):
-        ui.label(f"Staleness: {humanize.naturaldelta(datetime.now() - data.updated)}")
-    html.pre(data.main_output)
+    await ui.context.client.connected()
+    html.pre(await run.io_bound(futures.Futures().get_summary))
 
 
 def floatify(string: str) -> float:
@@ -260,11 +261,16 @@ def regenerate_page():
 
 
 @ui.page("/transactions", title="Transactions")
-async def transactions_page():
+async def transactions_page(request: Request):
     log_request()
     await ui.context.client.connected()
+    if request.headers.get("remote-email", None) != "valankar@gmail.com":
+        ui.label("Unauthorized")
+        return
     futures_by_account = (
-        futures.Futures().futures_df.groupby(level="account")["value"].sum()
+        futures.Futures()
+        .futures_df.groupby(level="account")[["value", "margin_requirement"]]
+        .sum()
     )
     with ui.grid().classes("md:grid-cols-3"):
         for account, currency in (
@@ -297,12 +303,13 @@ async def transactions_page():
                     converters={"Amount": floatify, "Balance": floatify},
                 )
                 vals = []
-                if currency.endswith("$") and account in futures_by_account:
+                if currency.endswith("$") and account in futures_by_account.index:
                     vals.append(
                         (
                             pd.Timestamp(date.today()),
-                            "Futures value",
-                            futures_by_account[account],
+                            "Futures value - margin",
+                            futures_by_account.loc[account]["value"]
+                            - futures_by_account.loc[account]["margin_requirement"],
                         )
                     )
                 if vals:
@@ -319,7 +326,7 @@ async def transactions_page():
                             df.loc[i - 1, "Balance"] + df.loc[i, "Amount"]
                         )  # type: ignore
                 df["Days"] = -(pd.Timestamp.now() - df["Date"]).dt.days  # type: ignore
-                table = ui.table.from_pandas(df.round(2))
+                table = ui.table.from_pandas(df.round({"Amount": 2, "Balance": 2}))
                 stock_options_ui.body_cell_slot(
                     table, "Days", "green", "Number(props.value) > 0"
                 )

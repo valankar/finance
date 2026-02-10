@@ -3,23 +3,18 @@
 
 import io
 import itertools
-import pickle
 import re
 import subprocess
 import typing
-from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from functools import partial
 
 import pandas as pd
-from loguru import logger
 
 import common
 import etfs
 import ledger_ops
-
-REDIS_KEY = "OptionsData"
 
 
 class CommonDetails(typing.NamedTuple):
@@ -117,11 +112,10 @@ class OptionsAndSpreads(typing.NamedTuple):
 class OptionsData(typing.NamedTuple):
     opts: OptionsAndSpreads
     bev: list[BrokerExpirationValues]
-    updated: datetime
 
 
 def options_df_raw() -> pd.DataFrame:
-    search = " (CALL|PUT)"
+    search = ' (CALL|PUT)"'
     cmd = (
         f"{common.LEDGER_BIN} -f {common.LEDGER_DAT} --limit 'commodity=~/{search}/' "
         + 'bal --no-total --flat --balance-format "%(partial_account)\n%(strip(T))\n"'
@@ -157,18 +151,15 @@ def options_df_raw() -> pd.DataFrame:
     return pd.DataFrame(entries)
 
 
-def get_ticker_options() -> Iterable[common.TickerOption]:
-    results: set[common.TickerOption] = set()
-    for _, row in options_df_raw().iterrows():
-        results.add(
-            common.TickerOption(
-                ticker=row["ticker"],
-                expiration=row["expiration"].date(),
-                contract_type=row["type"],
-                strike=row["strike"],
-            )
-        )
-    return results
+def get_ticker_option(idx, row) -> common.TickerOption:
+    expiration = typing.cast(tuple, idx)[2].date()
+    ticker = row["ticker"]
+    return common.TickerOption(
+        ticker=ticker,
+        expiration=expiration,
+        contract_type=row["type"],
+        strike=row["strike"],
+    )
 
 
 def add_options_quotes(options_df: pd.DataFrame):
@@ -177,19 +168,13 @@ def add_options_quotes(options_df: pd.DataFrame):
         return options_df
     prices = []
     deltas = []
+    tos: set[common.TickerOption] = set()
     for idx, row in options_df.iterrows():
-        expiration = typing.cast(tuple, idx)[2].date()
-        ticker = row["ticker"]
-        quote = common.get_option_quote(
-            common.TickerOption(
-                ticker=ticker,
-                expiration=expiration,
-                contract_type=row["type"],
-                strike=row["strike"],
-            ),
-        )
+        tos.add(get_ticker_option(idx, row))
+    qs = common.get_option_quotes(tos)
+    for idx, row in options_df.iterrows():
         price = delta = 0
-        if quote:
+        if quote := qs.get(get_ticker_option(idx, row)):
             price = quote.mark
             delta = quote.delta
         prices.append(price)
@@ -275,7 +260,6 @@ def get_ledger_total(broker: str, option_name: str) -> float:
 
 
 def add_contract_price(options_df: pd.DataFrame) -> pd.DataFrame:
-    logger.info("Adding contract prices")
     ops = []
 
     def divide_total(broker: str, name: str, divisor: float) -> float:
@@ -290,18 +274,13 @@ def add_contract_price(options_df: pd.DataFrame) -> pd.DataFrame:
     with ThreadPoolExecutor() as e:
         prices = list(e.map(lambda op: op(), ops))
     options_df["contract_price"] = prices
-    logger.info("Finished adding contract prices")
     return options_df
 
 
 def add_current_price(calls_puts_df: pd.DataFrame) -> pd.DataFrame:
-    for ticker in calls_puts_df["ticker"].unique():
-        query_ticker = ticker
-        if ticker in ("SPX", "SPXW"):
-            query_ticker = "^SPX"
-        calls_puts_df.loc[lambda df: df["ticker"] == ticker, "current_price"] = (  # type: ignore
-            common.get_ticker(query_ticker)
-        )
+    qs = common.get_tickers(calls_puts_df["ticker"].unique())
+    for t, q in qs.items():
+        calls_puts_df.loc[lambda df: df["ticker"] == t, "current_price"] = q
     return calls_puts_df
 
 
@@ -440,6 +419,21 @@ def find_synthetics(options_df: pd.DataFrame) -> list[Spread]:
                 'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count < 0 & count >= -@row["count"]'
             )
             found = pd.concat([long_call, short_put])
+            if len(found) == 2:
+                found.loc[found.index[0], "count"] = found["count"].abs().min()
+                found.loc[found.index[1], "count"] = -found["count"].abs().min()
+                spreads.append(Spread(df=found, details=get_spread_details(found)))
+        # Find a long PUT
+        if row["type"] == "PUT" and row["count"] > 0:
+            # The long PUT
+            long_put = options_df.query(
+                'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == @row["count"]'
+            )
+            # Find a short CALL at same strike, count, expiration and broker
+            short_call = options_df.query(
+                'ticker == @ticker & type == "CALL" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count < 0 & count >= -@row["count"]'
+            )
+            found = pd.concat([long_put, short_call])
             if len(found) == 2:
                 found.loc[found.index[0], "count"] = found["count"].abs().min()
                 found.loc[found.index[1], "count"] = -found["count"].abs().min()
@@ -786,9 +780,9 @@ def get_options_value_by_brokerage(
     values: dict[str, OptionsValue] = {}
     for broker in common.BROKERAGES:
         options_value = all_options.query(f"account == '{broker}'")["value"].sum()
-        options_notional_value = all_options.query(f"account == '{broker}'")[
-            "notional_value"
-        ].sum()
+        options_notional_value = all_options.query(
+            f"account == '{broker}' and ticker not in ('SPX', 'SPXW')"
+        )["notional_value"].sum()
         values[broker] = OptionsValue(
             value=options_value, notional_value=options_notional_value
         )
@@ -849,25 +843,17 @@ def remove_zero_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[:, df.any()]
 
 
-def generate_options_data():
-    logger.info("Generating options data")
+@common.walrus_db.db.lock("get_options_data", ttl=common.LOCK_TTL_SECONDS * 1000)
+@common.walrus_db.cache.cached(timeout=60)
+def get_options_data() -> OptionsData:
     opts = get_options_and_spreads()
     itm_df = get_itm_df(opts)
     expiration_values = get_expiration_values(itm_df)
     data = OptionsData(
         opts=opts,
         bev=expiration_values,
-        updated=datetime.now(),
     )
-    common.walrus_db.db[REDIS_KEY] = pickle.dumps(data)
-
-
-def get_options_data() -> typing.Optional[OptionsData]:
-    db = common.walrus_db.db
-    if REDIS_KEY not in db:
-        logger.error("No options data found")
-        return None
-    return pickle.loads(db[REDIS_KEY])
+    return data
 
 
 def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
@@ -929,6 +915,5 @@ def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
 
 
 if __name__ == "__main__":
-    if (options_data := get_options_data()) is None:
-        raise ValueError("No options data found")
+    options_data = get_options_data()
     text_output(options_data.opts, show_spreads=True)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Common functions."""
 
+import csv
 import json
 import os
 import shutil
@@ -9,7 +10,9 @@ import tempfile
 import typing
 from collections.abc import Iterable
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date, datetime
+from enum import Enum
 from functools import reduce
 from pathlib import Path
 from typing import Any, ClassVar, Final, Generator, Mapping, Optional, TypedDict
@@ -38,11 +41,64 @@ LEDGER_PRICES_DB = f"{LEDGER_DIR}/prices.db"
 LEDGER_PREFIX = f"{LEDGER_BIN} -f {LEDGER_DAT} --price-db {LEDGER_PRICES_DB} -X '$' -c --no-revalued"
 GET_TICKER_TIMEOUT = 30
 PLOTLY_THEME = "plotly_dark"
-# Include currency equivalents like money marketsa with $1 price.
+# Include currency equivalents like money markets with $1 price.
 CURRENCIES_REGEX = r"^(\\$|CHF|EUR|GBP|SGD|SWVXX)$"
 LEDGER_CURRENCIES_CMD = f"{LEDGER_PREFIX} --limit 'commodity=~/{CURRENCIES_REGEX}/'"
 BROKERAGES = ("Interactive Brokers", "Charles Schwab Brokerage")
 SUBPLOT_MARGIN = {"l": 0, "r": 50, "b": 0, "t": 50}
+
+
+class Brokerage(Enum):
+    SCHWAB = "Charles Schwab Brokerage"
+    IBKR = "Interactive Brokers"
+
+
+@dataclass
+class FutureSpec:
+    multiplier: float
+    margin_requirement_percent: dict[Brokerage, float]
+
+
+# Get margin requirements from Schwab or IBKR
+FUTURE_SPEC: dict[str, FutureSpec] = {
+    "10Y": FutureSpec(
+        multiplier=1000,
+        margin_requirement_percent={Brokerage.SCHWAB: 9, Brokerage.IBKR: 15},
+    ),
+    "M2K": FutureSpec(
+        multiplier=5,
+        margin_requirement_percent={Brokerage.SCHWAB: 9, Brokerage.IBKR: 9},
+    ),
+    "MBT": FutureSpec(
+        multiplier=0.1,
+        margin_requirement_percent={Brokerage.SCHWAB: 40, Brokerage.IBKR: 40},
+    ),
+    "MES": FutureSpec(
+        multiplier=5,
+        margin_requirement_percent={Brokerage.SCHWAB: 7, Brokerage.IBKR: 7},
+    ),
+    "MFS": FutureSpec(multiplier=50, margin_requirement_percent={Brokerage.IBKR: 6}),
+    "MGC": FutureSpec(
+        multiplier=10,
+        margin_requirement_percent={Brokerage.SCHWAB: 6, Brokerage.IBKR: 7},
+    ),
+    "MTN": FutureSpec(multiplier=100, margin_requirement_percent={Brokerage.IBKR: 4}),
+    "SIL": FutureSpec(
+        multiplier=1000,
+        margin_requirement_percent={Brokerage.SCHWAB: 12.5},
+    ),
+    "TN": FutureSpec(multiplier=1000, margin_requirement_percent={Brokerage.IBKR: 4}),
+    "ZN": FutureSpec(
+        multiplier=1000,
+        margin_requirement_percent={Brokerage.SCHWAB: 2, Brokerage.IBKR: 2},
+    ),
+}
+
+
+def get_future_spec(ticker: str) -> FutureSpec:
+    # Ticker ends with M26: /TNM26
+    ticker = ticker[1:-3]
+    return FUTURE_SPEC[ticker]
 
 
 class GetTickerError(Exception):
@@ -89,6 +145,9 @@ class Schwab:
     TICKER_MODS: dict[str, TickerMod] = {
         "CHFUSD=X": {"alias": "USD/CHF", "invert": True},
         "SGDUSD=X": {"alias": "USD/SGD", "invert": True},
+        "^SPX": {"alias": "$SPX", "invert": False},
+        "SPX": {"alias": "$SPX", "invert": False},
+        "SPXW": {"alias": "$SPX", "invert": False},
     }
 
     def __init__(self):
@@ -142,11 +201,7 @@ class Schwab:
         fetch_tickers: set[str] = set()
         rename_results: dict[str, str] = {}
         for ticker in ts:
-            if ticker.startswith("^"):
-                alias = "$" + ticker[1:]
-                rename_results[alias] = ticker
-                ticker = alias
-            elif alias := self.TICKER_MODS.get(ticker, {}).get("alias"):
+            if alias := self.TICKER_MODS.get(ticker, {}).get("alias"):
                 rename_results[alias] = ticker
                 ticker = alias
             fetch_tickers.add(ticker)
@@ -179,27 +234,37 @@ class Schwab:
     def get_quote(self, ticker: str) -> float:
         return self.get_quotes([ticker])[ticker]
 
+    def get_delta_override(self, symbol: str) -> float:
+        if (p := Path(f"{PUBLIC_HTML}delta_overrides")).exists():
+            with p.open("r") as f:
+                reader = csv.reader(f, delimiter=":")
+                for row in reader:
+                    if row[0] == symbol:
+                        return float(row[1])
+        return 0
+
     def get_option_quotes(
         self, ts: Iterable[TickerOption]
     ) -> dict[TickerOption, Optional[OptionQuote]]:
         results: dict[TickerOption, Optional[OptionQuote]] = {}
         fetch_tickers: dict[str, TickerOption] = {}
         for t in ts:
-            ticker = t.ticker
-            option_tickers = [ticker]
-            for option_ticker in option_tickers:
-                if t.expiration < date.today():
-                    results[t] = None
-                symbol = OptionSymbol(
-                    option_ticker, t.expiration, t.contract_type[0], str(t.strike)
-                ).build()
-                fetch_tickers[symbol] = t
+            if t.expiration < date.today():
+                results[t] = None
+            symbol = OptionSymbol(
+                t.ticker, t.expiration, t.contract_type[0], str(t.strike)
+            ).build()
+            fetch_tickers[symbol] = t
         if not fetch_tickers:
             return results
         js = self.client.get_quotes(fetch_tickers.keys()).json()
         for symbol, j in js.items():
             mark = j["quote"]["mark"]
             delta = j["quote"]["delta"]
+            if delta == 0:
+                if new_delta := self.get_delta_override(symbol):
+                    delta = new_delta
+                    logger.info(f"{symbol=} overriding {delta=}")
             logger.info(f"{symbol=} {mark=} {delta=}")
             if abs(delta) > 1:
                 raise GetTickerError(f"Invalid delta value: {delta=}")
@@ -211,7 +276,12 @@ class Schwab:
 
     def get_future_quotes(self, ts: Iterable[str]) -> dict[str, FutureQuote]:
         results: dict[str, FutureQuote] = {}
-        fetch_tickers: set[str] = set(ts)
+        fetch_tickers: set[str] = set()
+        for t in ts:
+            if t.startswith("/MTN"):
+                fetch_tickers.add(t.replace("/MTN", "/TN"))
+            else:
+                fetch_tickers.add(t)
         if not fetch_tickers:
             return results
         j = self.client.get_quotes(fetch_tickers).json()
@@ -246,9 +316,25 @@ def get_ticker(ticker: str) -> float:
 
 
 @schwab_lock
-def cache_tickers(ts: Iterable[str]):
-    for t, p in schwab_conn.get_quotes(ts).items():
-        walrus_db.cache.set(f"get_ticker:{t}", p)
+def get_tickers(ts: Iterable[str]) -> dict[str, float]:
+    prefix = "get_ticker:"
+    r: dict[str, float] = {}
+    for t, p in walrus_db.cache.get_many([f"{prefix}{t}" for t in ts]).items():
+        r[t.lstrip(prefix)] = p
+    ts = set(ts) - set(r)
+    if ts:
+        qs = schwab_conn.get_quotes(ts)
+        for t, mod in schwab_conn.TICKER_MODS.items():
+            if p := qs.get(t):
+                if mod["alias"] not in qs:
+                    qs[mod["alias"]] = p
+            elif p := qs.get(mod["alias"]):
+                if t not in qs:
+                    qs[t] = p
+        cache_qs = {f"{prefix}{t}": qs[t] for t in qs}
+        walrus_db.cache.set_many(cache_qs)
+        r.update(qs)
+    return r
 
 
 def make_option_key(t: TickerOption) -> str:
@@ -256,21 +342,46 @@ def make_option_key(t: TickerOption) -> str:
 
 
 @schwab_lock
-def cache_option_quotes(ts: Iterable[TickerOption]):
-    for t, p in schwab_conn.get_option_quotes(ts).items():
-        walrus_db.cache.set(f"get_option_quote:{make_option_key(t)}", p)
+def get_option_quotes(
+    ts: Iterable[TickerOption],
+) -> dict[TickerOption, Optional[OptionQuote]]:
+    r: dict[TickerOption, Optional[OptionQuote]] = {}
+    prefix = "get_option_quote:"
+    cache_keys: list[str] = [f"{prefix}{make_option_key(t)}" for t in ts]
+    cached: dict[str, OptionQuote] = walrus_db.cache.get_many(cache_keys)
+    needed: set[TickerOption] = set()
+    for t in ts:
+        if o := cached.get(f"{prefix}{make_option_key(t)}"):
+            r[t] = o
+        else:
+            needed.add(t)
+    if needed:
+        qs = schwab_conn.get_option_quotes(needed)
+        cache_qs = {f"{prefix}{make_option_key(t)}": qs[t] for t in qs}
+        walrus_db.cache.set_many(cache_qs)
+        r.update(qs)
+    return r
 
 
 @schwab_lock
-@walrus_db.cache.cached(key_fn=lambda a, _: make_option_key(a[0]))
-def get_option_quote(t: TickerOption) -> Optional[OptionQuote]:
-    return schwab_conn.get_option_quote(t)
-
-
-@schwab_lock
-@walrus_db.cache.cached(key_fn=lambda a, _: a[0])
-def get_future_quote(ticker: str) -> FutureQuote:
-    return schwab_conn.get_future_quote(ticker)
+def get_future_quotes(ts: Iterable[str]) -> dict[str, FutureQuote]:
+    prefix = "get_future_quote:"
+    r: dict[str, FutureQuote] = {}
+    for t, p in walrus_db.cache.get_many([f"{prefix}{t}" for t in ts]).items():
+        r[t.lstrip(prefix)] = p
+    ts = set(ts) - set(r)
+    if ts:
+        qs = schwab_conn.get_future_quotes(ts)
+        for t, q in qs.items():
+            r[t] = FutureQuote(mark=q.mark, multiplier=get_future_spec(t).multiplier)
+            if t.startswith("/TN"):
+                t = t.replace("/TN", "/MTN")
+                r[t] = FutureQuote(
+                    mark=q.mark, multiplier=get_future_spec(t).multiplier
+                )
+        cache_qs = {f"{prefix}{t}": r[t] for t in r}
+        walrus_db.cache.set_many(cache_qs)
+    return r
 
 
 @contextmanager
@@ -389,7 +500,6 @@ def run_with_browser_page(url):
             page.goto(url)
             yield page
         finally:
-            page.screenshot(path=f"{PREFIX}/screenshot.png", full_page=True)
             browser.close()
 
 
@@ -407,7 +517,3 @@ def load_sql_and_rename_col(table, rename_cols=None):
     if rename_cols:
         dataframe = dataframe.rename(columns=rename_cols)
     return dataframe
-
-
-if __name__ == "__main__":
-    print(f"{get_ticker('SWYGX')}")

@@ -16,8 +16,12 @@ TICKER_PRICES_TABLE = "ticker_prices"
 
 def get_etfs_df(account: Optional[str] = None) -> pd.DataFrame:
     data = []
+    tas = {}
     for ticker, amount in ledger_amounts.get_etfs_amounts(account).items():
-        price = common.get_ticker(ticker)
+        tas[ticker] = amount
+    ps = common.get_tickers(tas.keys())
+    for ticker, amount in tas.items():
+        price = ps[ticker]
         data.append(
             {
                 "ticker": ticker,
@@ -37,7 +41,9 @@ def get_tickers() -> set[str]:
     return cols
 
 
-@common.walrus_db.cache.cached()
+# This is used in separate graph generation processes so redis caching makes sense.
+@common.walrus_db.db.lock("get_prices_wide_df", ttl=common.LOCK_TTL_SECONDS * 1000)
+@common.walrus_db.cache.cached(timeout=60)
 def get_prices_wide_df() -> pd.DataFrame:
     prices_df = (
         common.read_sql_table(TICKER_PRICES_TABLE)

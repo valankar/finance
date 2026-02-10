@@ -21,6 +21,7 @@ import futures
 import homes
 import margin_loan
 import plot
+import stock_options
 from main_graphs import (
     DEFAULT_RANGE,
     RANGES,
@@ -394,7 +395,11 @@ def make_dataframe_line_graph(
         percent_change = (last_value - first_value) / first_value
         if first_value < 0:
             percent_change *= -1
-        annotation += f" {percent_change:+.1%} ({last_value - first_value:,.0f})"
+        diff_format = ",.0f"
+        diff = last_value - first_value
+        if abs(diff) < 1:
+            diff_format = ".2f"
+        annotation += f" {percent_change:+.1%} ({diff:{diff_format}})"
     ax.annotate(
         annotation,
         xy=(0.5, 0.5),
@@ -642,23 +647,64 @@ def make_loan_graph(broker: Optional[margin_loan.LoanBrokerage] = None) -> bytes
 
 def make_futures_margin_graph(broker: margin_loan.LoanBrokerage) -> bytes:
     futures_df = futures.Futures().futures_df
+    opts = stock_options.get_options_data().opts
     margin_by_account = futures_df.groupby(level="account")["margin_requirement"].sum()
     if broker.name not in margin_by_account:
         return b""
     df = margin_loan.get_balances_broker(broker)
-    categories = ["Cash", "2x Futures Margin", "Excess"]
+    csp = 0
+    if broker.name == "Charles Schwab Brokerage":
+        csp = stock_options.short_put_exposure(opts.pruned_options, broker.name)
     cash_balance = df.iloc[-1]["Cash Balance"]
-    margin_requirement = margin_by_account.get(broker.name, 0) * 2
-    amounts = [
-        cash_balance,
-        -margin_requirement,
-        cash_balance - margin_requirement,
-    ]
-    bottom = [0, amounts[0], 0]
+    money_market = df.iloc[-1]["Money Market"]
+    margin_requirement = margin_by_account.get(broker.name, 0)
+    total = cash_balance - margin_requirement - money_market
+    if abs(money_market) > 100:
+        if csp < 0:
+            categories = [
+                "Cash",
+                "Money Market",
+                "CSP Req",
+                "Futures Margin",
+                "Excess",
+            ]
+            amounts = [
+                cash_balance,
+                -(money_market + csp),
+                csp,
+                -margin_requirement,
+                total,
+            ]
+            bottom = [
+                0,
+                cash_balance,
+                cash_balance - (money_market + csp),
+                cash_balance - money_market,
+                0,
+            ]
+        else:
+            categories = ["Cash", "Money Market", "Futures Margin", "Excess"]
+            amounts = [
+                cash_balance,
+                -money_market,
+                -margin_requirement,
+                total,
+            ]
+            bottom = [0, cash_balance, cash_balance - money_market, 0]
+    else:
+        categories = ["Cash", "Futures Margin", "Excess"]
+        amounts = [
+            cash_balance,
+            -margin_requirement,
+            total,
+        ]
+        bottom = [0, cash_balance, 0]
     labels = [f"{x:,.0f}" for x in amounts]
     fig = Figure(layout=LAYOUT)
     ax = fig.subplots()
     colors = ["tab:green" if v > 0 else "tab:red" for v in amounts]
+    if amounts[-1] < 0:
+        colors[-1] = "darkred"
     p = ax.bar(categories, amounts, bottom=bottom, color=colors)
     ax.bar_label(p, labels=labels, label_type="center")
     ax.set_title(broker.name)
