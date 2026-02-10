@@ -599,12 +599,13 @@ def make_total_bar_mom(column: str) -> bytes:
 
 
 def make_loan_graph(broker: Optional[margin_loan.LoanBrokerage] = None) -> bytes:
+    b = margin_loan.get_balances_broker()
     if broker is None:
-        df = margin_loan.get_balances_all()
+        df = margin_loan.get_balances_all(b)
         name = "Overall"
     else:
-        df = margin_loan.get_balances_broker(broker)
         name = broker.name
+        df = b[name]
     categories = ["Equity", "Loan", "Equity - Loan"]
     total = df.iloc[-1]["Total"]
     equity_balance = df.iloc[-1]["Equity Balance"]
@@ -647,13 +648,14 @@ def make_loan_graph(broker: Optional[margin_loan.LoanBrokerage] = None) -> bytes
 
 def make_futures_margin_graph(broker: margin_loan.LoanBrokerage) -> bytes:
     futures_df = futures.Futures().futures_df
-    opts = stock_options.get_options_data().opts
+    opts = stock_options.get_options_and_spreads()
     margin_by_account = futures_df.groupby(level="account")["margin_requirement"].sum()
     if broker.name not in margin_by_account:
         return b""
-    df = margin_loan.get_balances_broker(broker)
+    b = margin_loan.get_balances_broker()
+    df = b[broker.name]
     csp = 0
-    if broker.name == "Charles Schwab Brokerage":
+    if broker.name == common.Brokerage.SCHWAB:
         csp = stock_options.short_put_exposure(opts.pruned_options, broker.name)
     cash_balance = df.iloc[-1]["Cash Balance"]
     money_market = df.iloc[-1]["Money Market"]

@@ -151,13 +151,13 @@ def get_desired_df(
         else:
             etfs_df.loc[ticker, "value"] = adjust
     # Add in options value
-    options_data = stock_options.get_options_data()
+    opts = stock_options.get_options_and_spreads()
     futures_tickers = futures.Futures().notional_values_df
     futures_tickers.loc[
         futures_tickers.index.isin(FUTURES_INVERSE_CORRELATION), "value"
     ] *= -1
     etfs_df = etfs_df.add(futures_tickers, fill_value=0)
-    options_df = options_data.opts.all_options
+    options_df = opts.all_options
     etfs_df = etfs_df.add(
         options_df.groupby("ticker")
         .sum()[["notional_value"]]
@@ -281,8 +281,7 @@ def options_rebalancing(rebalancing_df: pd.DataFrame, limit_broker: Optional[str
     header = "\nOptions to close for rebalancing:"
     header_printed = False
     df = rebalancing_df[rebalancing_df["usd_to_reconcile"].abs() > 1000]
-    options_data = stock_options.get_options_data()
-    options_df = options_data.opts.all_options
+    options_df = stock_options.get_options_and_spreads().all_options
     for row in df.itertuples():
         subheader = (
             f"Category: {row.Index} Need to reconcile: {row.usd_to_reconcile:.0f}"

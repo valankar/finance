@@ -23,8 +23,9 @@ def load_df() -> pd.DataFrame:
 def main():
     dfs = []
     now = pd.Timestamp.now()
+    b = margin_loan.get_balances_broker()
     for brokerage in margin_loan.LOAN_BROKERAGES:
-        df = margin_loan.get_balances_broker(brokerage)
+        df = b[brokerage.name]
         df["Brokerage"] = brokerage.name
         df["date"] = now
         df = df.set_index("date")

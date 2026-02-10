@@ -469,11 +469,12 @@ def make_loan_section(margin: dict[str, int]) -> Figure:
         )
 
     i = 1
+    b = margin_loan.get_balances_broker()
     for broker in margin_loan.LOAN_BROKERAGES:
-        df = margin_loan.get_balances_broker(broker)
+        df = b[broker.name]
         add_loan_graph(df, i)
         i += 1
-    add_loan_graph(margin_loan.get_balances_all(), i)
+    add_loan_graph(margin_loan.get_balances_all(b), i)
 
     section.update_yaxes(matches=None)
     section.update_yaxes(title_text="USD", col=1)
@@ -557,7 +558,8 @@ def make_futures_margin_section(margin: dict[str, int]) -> Figure:
         section.add_trace(fig, row=1, col=col)
 
     futures_df = futures.Futures().futures_df
-    opts = stock_options.get_options_data().opts
+    opts = stock_options.get_options_and_spreads()
+    b = margin_loan.get_balances_broker()
     margin_by_account = futures_df.groupby(level="account")["margin_requirement"].sum()
     section = make_subplots(
         rows=1,
@@ -573,9 +575,9 @@ def make_futures_margin_section(margin: dict[str, int]) -> Figure:
         if broker.name not in margin_by_account:
             continue
         req = margin_by_account[broker.name]
-        df = margin_loan.get_balances_broker(broker)
+        df = b[broker.name]
         csp = 0
-        if broker.name == "Charles Schwab Brokerage":
+        if broker.name == common.Brokerage.SCHWAB:
             csp = stock_options.short_put_exposure(opts.pruned_options, broker.name)
         add_loan_graph(df, req, csp, i)
 

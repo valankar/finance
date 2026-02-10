@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from functools import reduce
 from pathlib import Path
 from typing import Any, ClassVar, Final, Generator, Mapping, Optional, TypedDict
@@ -44,13 +44,16 @@ PLOTLY_THEME = "plotly_dark"
 # Include currency equivalents like money markets with $1 price.
 CURRENCIES_REGEX = r"^(\\$|CHF|EUR|GBP|SGD|SWVXX)$"
 LEDGER_CURRENCIES_CMD = f"{LEDGER_PREFIX} --limit 'commodity=~/{CURRENCIES_REGEX}/'"
-BROKERAGES = ("Interactive Brokers", "Charles Schwab Brokerage")
 SUBPLOT_MARGIN = {"l": 0, "r": 50, "b": 0, "t": 50}
 
 
-class Brokerage(Enum):
+class Brokerage(StrEnum):
     SCHWAB = "Charles Schwab Brokerage"
+    SCHWAB_PAL = "Charles Schwab PAL Brokerage"
     IBKR = "Interactive Brokers"
+
+
+OPTIONS_BROKERAGES = (Brokerage.IBKR, Brokerage.SCHWAB)
 
 
 @dataclass

@@ -35,8 +35,7 @@ def main():
             )
 
         # Stock options
-        options_data = stock_options.get_options_data()
-        options_df = options_data.opts.all_options
+        options_df = stock_options.get_options_and_spreads().all_options
         commodities_written = set()
         for idx, row in options_df.iterrows():
             idx = typing.cast(tuple, idx)

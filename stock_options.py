@@ -25,8 +25,6 @@ class CommonDetails(typing.NamedTuple):
     expiration: date
     contract_price: float
     contract_price_per_share: float
-    half_mark: float
-    double_mark: float
     quote: float
     profit: float
     intrinsic_value: float
@@ -76,16 +74,6 @@ class IronCondor(typing.NamedTuple):
     details: IronCondorDetails
 
 
-class ExpirationValue(typing.NamedTuple):
-    expiration: date
-    value: float
-
-
-class BrokerExpirationValues(typing.NamedTuple):
-    broker: str
-    values: list[ExpirationValue]
-
-
 class OptionsValue(typing.NamedTuple):
     value: float
     notional_value: float
@@ -107,11 +95,6 @@ class OptionsAndSpreads(typing.NamedTuple):
     bull_call_spreads: list[Spread]
     synthetics: list[Spread]
     options_value_by_brokerage: dict[str, OptionsValue]
-
-
-class OptionsData(typing.NamedTuple):
-    opts: OptionsAndSpreads
-    bev: list[BrokerExpirationValues]
 
 
 def options_df_raw() -> pd.DataFrame:
@@ -363,45 +346,6 @@ def after_assignment_df(itm_df: pd.DataFrame) -> pd.DataFrame:
     return etfs_df.dropna()
 
 
-def get_expiration_values(
-    itm_df: pd.DataFrame,
-) -> list[BrokerExpirationValues]:
-    expiration_values: list[BrokerExpirationValues] = []
-    for broker in sorted(common.BROKERAGES):
-        values: list[ExpirationValue] = []
-        if broker in itm_df.index.get_level_values(0):
-            broker_df = itm_df.xs(broker)
-            for expiration in broker_df.index.get_level_values(1).unique():
-                values.append(
-                    ExpirationValue(
-                        expiration.date(),
-                        broker_df.xs(expiration, level="expiration")[
-                            "exercise_value"
-                        ].sum(),
-                    )
-                )
-            expiration_values.append(BrokerExpirationValues(broker, values))
-    return expiration_values
-
-
-def after_assignment(itm_df):
-    """Output balances after assignment."""
-    if len(etfs_df := after_assignment_df(itm_df)):
-        print(etfs_df.round(2))
-        etfs_value_change = etfs_df["value_change"].sum()
-        liquidity_change = etfs_df["liquidity_change"].sum()
-        print(f"ETFs value change: {etfs_value_change:.0f}")
-        print(f"ETFs liquidity change: {liquidity_change:.0f}")
-    print("  Balance change:")
-    for ev in get_expiration_values(itm_df):
-        print(f"    {ev.broker}")
-        for v in ev.values:
-            print(
-                f"      Expiration: {v.expiration} ({(v.expiration - date.today()).days}d): {v.value:.0f}"
-            )
-    print()
-
-
 def find_synthetics(options_df: pd.DataFrame) -> list[Spread]:
     spreads: list[Spread] = []
     for index, row in options_df.iterrows():
@@ -600,8 +544,6 @@ def get_short_call_details(options_df: pd.DataFrame) -> list[ShortCallDetails]:
                     expiration=expiration,
                     contract_price=contract_price,
                     contract_price_per_share=contract_price_per_share,
-                    half_mark=contract_price_per_share / 2,
-                    double_mark=contract_price_per_share * 2,
                     quote=row["value"],
                     profit=row["value"] - contract_price,
                     intrinsic_value=row["intrinsic_value"],
@@ -637,14 +579,11 @@ def get_spread_details(spread_df: pd.DataFrame) -> SpreadDetails:
     low_strike = spread_df["strike"].min()
     high_strike = spread_df["strike"].max()
     count = int(spread_df["count"].max())
-    multiplier = spread_df["multiplier"].max()
     row = spread_df.iloc[0]
     index = spread_df.index[0]
     c = spread_df.copy()
     c["price"] = c["contract_price"] * c["count"] * c["multiplier"]
     contract_price = c["price"].sum()
-    half_mark = contract_price / count / multiplier / 2
-    double_mark = contract_price / count / multiplier * 2
     quote = spread_df["value"].sum()
     return SpreadDetails(
         details=CommonDetails(
@@ -655,8 +594,6 @@ def get_spread_details(spread_df: pd.DataFrame) -> SpreadDetails:
             expiration=index[2].date(),
             contract_price=contract_price,
             contract_price_per_share=c["contract_price"].sum(),
-            half_mark=half_mark,
-            double_mark=double_mark,
             intrinsic_value=spread_df["intrinsic_value"].sum(),
             quote=quote,
             profit=quote - contract_price,
@@ -684,8 +621,6 @@ def get_iron_condor_details(
     contract_price = c["price"].sum()
     account = index[0]
     ticker = row["ticker"]
-    half_mark = contract_price / count / multiplier / 2
-    double_mark = contract_price / count / multiplier * 2
     quote = iron_condor_df["value"].sum()
     risk = -((width * count * multiplier) + contract_price)
     return IronCondorDetails(
@@ -697,8 +632,6 @@ def get_iron_condor_details(
             expiration=index[2].date(),
             contract_price=contract_price,
             contract_price_per_share=c["contract_price"].sum(),
-            half_mark=half_mark,
-            double_mark=double_mark,
             intrinsic_value=iron_condor_df["intrinsic_value"].sum(),
             quote=quote,
             profit=quote - contract_price,
@@ -719,8 +652,6 @@ def summarize_iron_condor(iron_condor: IronCondor):
         f"{cd.amount} {cd.ticker} {cd.expiration} {d.low_put_strike:.0f}/{d.high_put_strike:.0f}/{d.low_call_strike:.0f}/{d.high_call_strike:.0f} Iron Condor"
     )
     print(f"Contract price: {cd.contract_price:.0f}")
-    print(f"Half mark: {cd.half_mark:.2f}")
-    print(f"Double mark: {cd.double_mark:.2f}")
     print(f"Maximum risk: {d.risk:.0f}")
     print(f"Ticker price: {cd.ticker_price}")
     print(f"Profit: {cd.profit:.0f}\n")
@@ -766,8 +697,6 @@ def summarize_spread(spread: Spread, title: str):
     if (otm_leg := modify_otm_leg(spread.df)) is not None:
         total += otm_leg["exercise_value"].sum()
     print(f"Contract price: {cd.contract_price:.0f}")
-    print(f"Half mark: {cd.half_mark:.2f}")
-    print(f"Double mark: {cd.double_mark:.2f}")
     print(f"Exercise value: {total:.0f}")
     print(f"Maximum risk: {spread.df['exercise_value'].sum():.0f}")
     print(f"Ticker price: {cd.ticker_price}")
@@ -778,7 +707,7 @@ def get_options_value_by_brokerage(
     all_options: pd.DataFrame,
 ) -> dict[str, OptionsValue]:
     values: dict[str, OptionsValue] = {}
-    for broker in common.BROKERAGES:
+    for broker in common.OPTIONS_BROKERAGES:
         options_value = all_options.query(f"account == '{broker}'")["value"].sum()
         options_notional_value = all_options.query(
             f"account == '{broker}' and ticker not in ('SPX', 'SPXW')"
@@ -789,6 +718,8 @@ def get_options_value_by_brokerage(
     return values
 
 
+@common.walrus_db.db.lock("get_options_and_spreads", ttl=common.LOCK_TTL_SECONDS * 1000)
+@common.walrus_db.cache.cached(timeout=60)
 def get_options_and_spreads() -> OptionsAndSpreads:
     all_options = options_df()
     box_spreads = find_box_spreads(all_options)
@@ -843,22 +774,7 @@ def remove_zero_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[:, df.any()]
 
 
-@common.walrus_db.db.lock("get_options_data", ttl=common.LOCK_TTL_SECONDS * 1000)
-@common.walrus_db.cache.cached(timeout=60)
-def get_options_data() -> OptionsData:
-    opts = get_options_and_spreads()
-    itm_df = get_itm_df(opts)
-    expiration_values = get_expiration_values(itm_df)
-    data = OptionsData(
-        opts=opts,
-        bev=expiration_values,
-    )
-    return data
-
-
-def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
-    if not opts:
-        opts = get_options_and_spreads()
+def text_output(opts: OptionsAndSpreads, show_spreads: bool):
     if len(otm_df := opts.all_options.query("in_the_money == False")):
         print("Out of the money")
         print(
@@ -881,8 +797,7 @@ def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
     print(
         "Balances after in the money options assigned (includes spreads not shown above)"
     )
-    after_assignment(itm_df)
-    for broker in common.BROKERAGES:
+    for broker in common.OPTIONS_BROKERAGES:
         if broker in opts.pruned_options.index.get_level_values(0):
             print(f"{broker}")
             print(
@@ -915,5 +830,4 @@ def text_output(opts: typing.Optional[OptionsAndSpreads], show_spreads: bool):
 
 
 if __name__ == "__main__":
-    options_data = get_options_data()
-    text_output(options_data.opts, show_spreads=True)
+    text_output(get_options_and_spreads(), show_spreads=True)

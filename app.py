@@ -182,6 +182,7 @@ async def balance_etfs_page():
                 adjustment[t.value] = int(v.value)
         if adjustment:
             ui.notify(f"Adjustments: {adjustment}")
+            ui.notify(f"Total: {sum(adjustment.values())}")
         df = await run.io_bound(balance_etfs.get_rebalancing_df, amt, adjustment)
         table.update_from_pandas(df.reset_index(names="category"))
         graph.update_figure(
@@ -274,10 +275,10 @@ async def transactions_page(request: Request):
     )
     with ui.grid().classes("md:grid-cols-3"):
         for account, currency in (
-            ("Charles Schwab Brokerage", r"\\$"),
+            (common.Brokerage.SCHWAB, r"\\$"),
             ("Charles Schwab Checking", r"\\$"),
-            ("Interactive Brokers", r"\\$"),
-            ("Interactive Brokers", "CHF"),
+            (common.Brokerage.IBKR, r"\\$"),
+            (common.Brokerage.IBKR, "CHF"),
             ("UBS Personal Account", "CHF"),
             ("Assets:Cash", "CHF"),
             ("Apple Card", r"\\$"),

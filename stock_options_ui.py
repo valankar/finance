@@ -15,18 +15,18 @@ class StockOptionsPage(GraphCommon):
     PL_GRID_COLUMNS: typing.ClassVar[int] = 3
 
     def __init__(self):
-        options_data = stock_options.get_options_data()
-        self.short_calls = self.make_short_calls_data(options_data)
-        self.vertical_spreads = self.make_vertical_spreads_data(options_data)
-        self.iron_condors = self.make_iron_condors_data(options_data)
-        self.synthetics = self.make_synthetics_data(options_data)
+        opts = stock_options.get_options_and_spreads()
+        self.short_calls = self.make_short_calls_data(opts)
+        self.vertical_spreads = self.make_vertical_spreads_data(opts)
+        self.iron_condors = self.make_iron_condors_data(opts)
+        self.synthetics = self.make_synthetics_data(opts)
 
     def make_short_calls_data(
-        self, options_data: stock_options.OptionsData
+        self, opts: stock_options.OptionsAndSpreads
     ) -> list[RowType]:
         rows: list[RowType] = []
         d: stock_options.ShortCallDetails
-        for d in options_data.opts.short_calls:
+        for d in opts.short_calls:
             cd: stock_options.CommonDetails = d.details
             expiration = f"{cd.expiration} ({(cd.expiration - date.today()).days}d)"
             rows.append(
@@ -39,8 +39,6 @@ class StockOptionsPage(GraphCommon):
                     "count": cd.amount,
                     "intrinsic value": f"{cd.intrinsic_value:.0f}",
                     "contract price": f"{cd.contract_price:.0f}",
-                    "half mark": f"{cd.half_mark:.2f}",
-                    "double mark": f"{cd.double_mark:.2f}",
                     "quote": f"{cd.quote:.0f}",
                     "profit option": f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})",
                     "profit stock": f"{d.profit_stock:.2f}",
@@ -54,10 +52,10 @@ class StockOptionsPage(GraphCommon):
 
     def make_synthetics_data(
         self,
-        options_data: stock_options.OptionsData,
+        opts: stock_options.OptionsAndSpreads,
     ) -> list[RowType]:
         rows: list[RowType] = []
-        for d in options_data.opts.synthetics:
+        for d in opts.synthetics:
             sd: stock_options.SpreadDetails = d.details
             cd: stock_options.CommonDetails = sd.details
             if len(d.df.query("type == 'CALL' & count > 0")):
@@ -66,8 +64,6 @@ class StockOptionsPage(GraphCommon):
                 t = "Short Synthetic"
             name = f"{cd.ticker} {sd.low_strike:.0f}/{sd.high_strike:.0f}"
             risk = f"{sd.risk:.0f}"
-            half_mark = f"{cd.half_mark:.2f}"
-            double_mark = f"{cd.double_mark:.2f}"
             profit = f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})"
             rows.append(
                 RowType(
@@ -80,8 +76,6 @@ class StockOptionsPage(GraphCommon):
                         "intrinsic value": f"{cd.intrinsic_value:.0f}",
                         "maximum loss": risk,
                         "contract price": f"{cd.contract_price:.0f}",
-                        "half mark": half_mark,
-                        "double mark": double_mark,
                         "quote": f"{cd.quote:.0f}",
                         "profit": profit,
                         "ticker price": cd.ticker_price,
@@ -92,21 +86,19 @@ class StockOptionsPage(GraphCommon):
 
     def make_vertical_spreads_data(
         self,
-        options_data: stock_options.OptionsData,
+        opts: stock_options.OptionsAndSpreads,
     ) -> list[RowType]:
         rows: list[RowType] = []
         for spreads, spread_type in (
-            (options_data.opts.bull_put_spreads_no_ic, "Bull Put"),
-            (options_data.opts.bear_call_spreads_no_ic, "Bear Call"),
-            (options_data.opts.bull_call_spreads, "Bull Call"),
+            (opts.bull_put_spreads_no_ic, "Bull Put"),
+            (opts.bear_call_spreads_no_ic, "Bear Call"),
+            (opts.bull_call_spreads, "Bull Call"),
         ):
             for d in spreads:
                 sd: stock_options.SpreadDetails = d.details
                 cd: stock_options.CommonDetails = sd.details
                 name = f"{cd.ticker} {sd.low_strike:.0f}/{sd.high_strike:.0f}"
                 risk = f"{sd.risk:.0f}"
-                half_mark = f"{cd.half_mark:.2f}"
-                double_mark = f"{cd.double_mark:.2f}"
                 profit = f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})"
                 rows.append(
                     RowType(
@@ -119,8 +111,6 @@ class StockOptionsPage(GraphCommon):
                             "intrinsic value": f"{cd.intrinsic_value:.0f}",
                             "maximum loss": risk,
                             "contract price": f"{cd.contract_price:.0f}",
-                            "half mark": half_mark,
-                            "double mark": double_mark,
                             "quote": f"{cd.quote:.0f}",
                             "profit": profit,
                             "ticker price": cd.ticker_price,
@@ -131,16 +121,14 @@ class StockOptionsPage(GraphCommon):
 
     def make_iron_condors_data(
         self,
-        options_data: stock_options.OptionsData,
+        opts: stock_options.OptionsAndSpreads,
     ) -> list[RowType]:
         rows: list[RowType] = []
-        for d in options_data.opts.iron_condors:
+        for d in opts.iron_condors:
             icd: stock_options.IronCondorDetails = d.details
             cd: stock_options.CommonDetails = icd.details
             name = f"{cd.ticker} {icd.low_put_strike:.0f}/{icd.high_put_strike:.0f}/{icd.low_call_strike:.0f}/{icd.high_call_strike:.0f}"
             risk = f"{icd.risk:.0f}"
-            half_mark = f"{cd.half_mark:.2f}"
-            double_mark = f"{cd.double_mark:.2f}"
             profit = f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})"
             rows.append(
                 {
@@ -152,8 +140,6 @@ class StockOptionsPage(GraphCommon):
                     "intrinsic value": f"{cd.intrinsic_value:.0f}",
                     "maximum loss": risk,
                     "contract price": f"{cd.contract_price:.0f}",
-                    "half mark": half_mark,
-                    "double mark": double_mark,
                     "quote": f"{cd.quote:.0f}",
                     "profit": profit,
                     "ticker price": cd.ticker_price,
@@ -253,7 +239,7 @@ class StockOptionsPage(GraphCommon):
 
     def main_page(self):
         """Stock options."""
-        opts = stock_options.get_options_data().opts
+        opts = stock_options.get_options_and_spreads()
         for broker in opts.all_options.index.get_level_values("account").unique():
             df = stock_options.remove_spreads(
                 opts.all_options, [s.df for s in opts.box_spreads]

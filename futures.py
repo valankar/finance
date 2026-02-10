@@ -195,10 +195,9 @@ class Futures:
             margin_by_account = df.groupby(level="account")["margin_requirement"].sum()
             margin_reqs = []
             overrides = []
-            for broker in (common.Brokerage.IBKR.value, common.Brokerage.SCHWAB.value):
-                margin_df = margin_loan.get_balances_broker(
-                    margin_loan.find_loan_brokerage(broker)
-                )
+            b = margin_loan.get_balances_broker()
+            for broker in (common.Brokerage.IBKR, common.Brokerage.SCHWAB):
+                margin_df = b[broker]
                 cash = (
                     margin_df["Cash Balance"].iloc[-1]
                     - margin_df["Money Market"].iloc[-1]

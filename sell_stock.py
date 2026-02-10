@@ -8,6 +8,7 @@ from typing import Literal, Optional
 import pandas as pd
 
 import balance_etfs
+import common
 import etfs
 import ledger_amounts
 
@@ -67,9 +68,9 @@ def sell_stock_brokerage(
     print(rebalancing_df)
     match brokerage:
         case "ibkr":
-            account = "Interactive Brokers"
+            account = common.Brokerage.IBKR
         case "schwab":
-            account = "Charles Schwab Brokerage"
+            account = common.Brokerage.SCHWAB
     brokerage_amounts = ledger_amounts.get_commodity_amounts(
         ledger_amounts.LEDGER_LIMIT_ETFS + f' --limit "account=~/{account}/"'
     )
