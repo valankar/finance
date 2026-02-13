@@ -67,8 +67,10 @@ class LedgerUI:
         self.aggrid.run_grid_method("setGridOption", "rowData", self.aggrid_data)
         ui.timer(
             1,
-            lambda: self.aggrid
-            and self.aggrid.run_row_method("0", "setSelected", True, True),
+            lambda: (
+                self.aggrid
+                and self.aggrid.run_row_method("0", "setSelected", True, True)
+            ),
             once=True,
         )
 
@@ -113,6 +115,7 @@ class LedgerUI:
         self.editor_data = self.results[self.selected_index].full_str()
         self.modify_ledger()
 
+    @ui.refreshable_method
     async def main_page(self):
         self.reset()
         with ui.grid().classes("w-full gap-0 md:grid-cols-2"):
@@ -139,7 +142,7 @@ class LedgerUI:
                 ui.button(
                     text="Write Ledger Entry", on_click=self.write_ledger
                 ).bind_enabled_from(self, "editor_data")
-                ui.button(text="Reset", on_click=ui.navigate.reload)
+                ui.button(text="Reset", on_click=self.main_page.refresh)
                 ui.codemirror(theme="basicDark").bind_value(self, "editor_data")
             with ui.card():
                 self.aggrid = ui.aggrid(

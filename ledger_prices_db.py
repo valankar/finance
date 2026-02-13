@@ -22,9 +22,11 @@ def main():
             output_file.write(f"P {NOW} {row.Index} ${row.current_price}\n")
 
         # Forex values
-        for ticker in ("CHF", "SGD"):
-            price = common.get_ticker(f"{ticker}USD=X")
-            output_file.write(f"P {NOW} {ticker} ${price}\n")
+        ts = ("CHF", "SGD")
+        qs = common.get_tickers([f"{t}USD" for t in ts])
+        for t in ts:
+            q = qs[f"{t}USD"]
+            output_file.write(f"P {NOW} {t} ${q}\n")
 
         # Properties
         real_estate_df = homes.get_real_estate_df()

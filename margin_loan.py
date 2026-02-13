@@ -56,7 +56,7 @@ def get_balances_all(b: dict[str, pd.DataFrame]) -> pd.DataFrame:
 
 # This is used in separate graph generation processes so redis caching makes sense.
 @common.walrus_db.db.lock("get_balances_broker", ttl=common.LOCK_TTL_SECONDS * 1000)
-@common.walrus_db.cache.cached(timeout=60)
+@common.walrus_db.cache.cached()
 def get_balances_broker() -> dict[str, pd.DataFrame]:
     r: dict[str, pd.DataFrame] = {}
     opts = stock_options.get_options_and_spreads()

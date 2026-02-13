@@ -28,7 +28,6 @@ app = App()
 def run_all(
     calculate: bool = True,
     daily: bool = True,
-    flush_cache: bool = True,
     matplot: bool = True,
     plotly: bool = True,
 ):
@@ -36,9 +35,6 @@ def run_all(
     with common.walrus_db.db.lock(
         common.SCRIPT_LOCK_NAME, ttl=common.LOCK_TTL_SECONDS * 1000
     ):
-        if flush_cache:
-            common.walrus_db.cache.flush()
-            common.get_tickers(etfs.get_tickers() | {"^SPX", "CHFUSD=X", "SGDUSD=X"})
         if calculate:
             etfs.main()
             index_prices.main()

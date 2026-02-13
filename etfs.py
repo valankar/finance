@@ -37,13 +37,12 @@ def get_etfs_df(account: Optional[str] = None) -> pd.DataFrame:
 def get_tickers() -> set[str]:
     cols = set(ledger_amounts.get_etfs_amounts().keys())
     cols |= set(stock_options.options_df_raw()["ticker"].unique())
-    cols -= {"SPX", "SPXW"}
     return cols
 
 
 # This is used in separate graph generation processes so redis caching makes sense.
 @common.walrus_db.db.lock("get_prices_wide_df", ttl=common.LOCK_TTL_SECONDS * 1000)
-@common.walrus_db.cache.cached(timeout=60)
+@common.walrus_db.cache.cached()
 def get_prices_wide_df() -> pd.DataFrame:
     prices_df = (
         common.read_sql_table(TICKER_PRICES_TABLE)
@@ -72,10 +71,9 @@ def get_prices_percent_diff_df(
 
 def main():
     """Main."""
-    for ticker in sorted(get_tickers()):
-        common.insert_sql(
-            TICKER_PRICES_TABLE, {"ticker": ticker, "price": common.get_ticker(ticker)}
-        )
+    q = common.get_tickers(get_tickers())
+    for t in sorted(q):
+        common.insert_sql(TICKER_PRICES_TABLE, {"ticker": t, "price": q[t]})
     for row in futures.Futures().futures_df.groupby("commodity").first().itertuples():
         common.insert_sql(
             TICKER_PRICES_TABLE,

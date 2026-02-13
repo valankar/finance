@@ -226,7 +226,6 @@ def floatify(string: str) -> float:
 def regenerate_page():
     with ui.row():
         button = ui.button("Run")
-        flush_cache = ui.checkbox("Flush ticker cache", value=True)
     log = ui.log().classes("w-full h-[90vh]")
 
     async def run_command():
@@ -235,8 +234,6 @@ def regenerate_page():
             "./code/accounts/finance_hourly.py",
             "--no-daily",
         ]
-        if not flush_cache.value:
-            cmd.append("--no-flush-cache")
 
         process = await asyncio.create_subprocess_exec(
             *cmd,

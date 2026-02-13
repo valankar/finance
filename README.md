@@ -23,8 +23,8 @@ docker compose up accounts_hourly --force-recreate --exit-code-from accounts_hou
 
 ```shell
 # For indices.
-TICKER="^SSMI"
-./add_ticker.py --ticker ^SPX
+TICKER='$SPX'
+./add_ticker.py --ticker $TICKER
 ```
 
 Update `balance_etfs.py` to include new ticker.

@@ -15,7 +15,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from functools import reduce
 from pathlib import Path
-from typing import Any, ClassVar, Final, Generator, Mapping, Optional, TypedDict
+from typing import Any, ClassVar, Final, Generator, Mapping, Optional
 
 import duckdb
 import pandas as pd
@@ -83,12 +83,23 @@ FUTURE_SPEC: dict[str, FutureSpec] = {
     "MFS": FutureSpec(multiplier=50, margin_requirement_percent={Brokerage.IBKR: 6}),
     "MGC": FutureSpec(
         multiplier=10,
-        margin_requirement_percent={Brokerage.SCHWAB: 6, Brokerage.IBKR: 7},
+        margin_requirement_percent={Brokerage.SCHWAB: 16, Brokerage.IBKR: 11},
     ),
     "MTN": FutureSpec(multiplier=100, margin_requirement_percent={Brokerage.IBKR: 4}),
+    # Silver 2500oz
+    "QI": FutureSpec(
+        multiplier=2500,
+        margin_requirement_percent={Brokerage.SCHWAB: 30, Brokerage.IBKR: 21},
+    ),
+    # Silver 1000oz
     "SIL": FutureSpec(
         multiplier=1000,
-        margin_requirement_percent={Brokerage.SCHWAB: 12.5},
+        margin_requirement_percent={Brokerage.SCHWAB: 30},
+    ),
+    # Silver 5000oz
+    "SI": FutureSpec(
+        multiplier=5000,
+        margin_requirement_percent={Brokerage.SCHWAB: 30, Brokerage.IBKR: 21},
     ),
     "TN": FutureSpec(multiplier=1000, margin_requirement_percent={Brokerage.IBKR: 4}),
     "ZN": FutureSpec(
@@ -111,7 +122,7 @@ class GetTickerError(Exception):
 class WalrusDb:
     def __init__(self):
         self.db = walrus.Database(host=os.environ.get("REDIS_HOST", "localhost"))
-        self.cache = walrus.Cache(self.db)
+        self.cache = walrus.Cache(self.db, default_timeout=5 * 60)
 
 
 walrus_db: Final[WalrusDb] = WalrusDb()
@@ -140,18 +151,7 @@ schwab_lock: Final[walrus.Lock] = walrus_db.db.lock(
 
 
 class Schwab:
-    class TickerMod(TypedDict):
-        alias: str
-        invert: bool
-
     SCHWAB_TOKEN_FILE: ClassVar[str] = f"{CODE_DIR}/.schwab_token.json"
-    TICKER_MODS: dict[str, TickerMod] = {
-        "CHFUSD=X": {"alias": "USD/CHF", "invert": True},
-        "SGDUSD=X": {"alias": "USD/SGD", "invert": True},
-        "^SPX": {"alias": "$SPX", "invert": False},
-        "SPX": {"alias": "$SPX", "invert": False},
-        "SPXW": {"alias": "$SPX", "invert": False},
-    }
 
     def __init__(self):
         self.api_key: str = os.environ.get("SCHWAB_API_KEY", "")
@@ -200,42 +200,26 @@ class Schwab:
             f.write(json.dumps(data))
 
     def get_quotes(self, ts: Iterable[str]) -> dict[str, float]:
-        results: dict[str, float] = {}
-        fetch_tickers: set[str] = set()
-        rename_results: dict[str, str] = {}
-        for ticker in ts:
-            if alias := self.TICKER_MODS.get(ticker, {}).get("alias"):
-                rename_results[alias] = ticker
-                ticker = alias
-            fetch_tickers.add(ticker)
-        if not fetch_tickers:
-            return results
-        j = self.client.get_quotes(fetch_tickers).json()
-        for ticker in fetch_tickers:
+        r: dict[str, float] = {}
+        j = self.client.get_quotes(ts).json()
+        for t in ts:
             try:
-                p = j[ticker]
+                p = j[t]
             except KeyError:
-                logger.error(f"Cannot find {ticker} in quote: {j}")
-                raise GetTickerError(f"{ticker=} ticker not found")
+                logger.error(f"Cannot find {t} in quote: {j}")
+                raise GetTickerError(f"{t=} ticker not found")
             if "regular" in p:
-                value = p["regular"]["regularMarketLastPrice"]
+                q = p["regular"]["regularMarketLastPrice"]
             elif "quote" in p:
-                value = p["quote"]["lastPrice"]
+                q = p["quote"]["lastPrice"]
             else:
                 logger.error(p)
-                raise GetTickerError(f"{ticker=} cannot find schwab price field")
-            if value == 0:
-                raise GetTickerError(f"{ticker=} received 0 as quote")
-            logger.info(f"{ticker=} {value=}")
-            if original := rename_results.get(ticker):
-                ticker = original
-                if self.TICKER_MODS.get(ticker, {}).get("invert"):
-                    value = 1 / value
-            results[ticker] = value
-        return results
-
-    def get_quote(self, ticker: str) -> float:
-        return self.get_quotes([ticker])[ticker]
+                raise GetTickerError(f"{t=} cannot find schwab price field")
+            if q == 0:
+                raise GetTickerError(f"{t=} received 0 as quote")
+            logger.info(f"{t=} {q=}")
+            r[t] = q
+        return r
 
     def get_delta_override(self, symbol: str) -> float:
         if (p := Path(f"{PUBLIC_HTML}delta_overrides")).exists():
@@ -278,23 +262,15 @@ class Schwab:
         return self.get_option_quotes([t]).get(t, None)
 
     def get_future_quotes(self, ts: Iterable[str]) -> dict[str, FutureQuote]:
-        results: dict[str, FutureQuote] = {}
-        fetch_tickers: set[str] = set()
-        for t in ts:
-            if t.startswith("/MTN"):
-                fetch_tickers.add(t.replace("/MTN", "/TN"))
-            else:
-                fetch_tickers.add(t)
-        if not fetch_tickers:
-            return results
-        j = self.client.get_quotes(fetch_tickers).json()
+        r: dict[str, FutureQuote] = {}
+        j = self.client.get_quotes(ts).json()
         for t, p in j.items():
             mark = p["quote"]["mark"]
             multiplier = p["reference"]["futureMultiplier"]
             q = FutureQuote(mark=mark, multiplier=multiplier)
             logger.info(f"{t=} {q=}")
-            results[t] = q
-        return results
+            r[t] = q
+        return r
 
     def get_future_quote(self, ticker: str) -> FutureQuote:
         return self.get_future_quotes([ticker])[ticker]
@@ -313,30 +289,30 @@ def pandas_options():
 
 
 @schwab_lock
-@walrus_db.cache.cached(key_fn=lambda a, _: a[0])
-def get_ticker(ticker: str) -> float:
-    return schwab_conn.get_quote(ticker)
-
-
-@schwab_lock
 def get_tickers(ts: Iterable[str]) -> dict[str, float]:
     prefix = "get_ticker:"
     r: dict[str, float] = {}
-    for t, p in walrus_db.cache.get_many([f"{prefix}{t}" for t in ts]).items():
+    fetch_ts = set()
+    for t in ts:
+        if t.endswith("USD"):
+            fetch_ts.add(f"USD/{t[:3]}")
+        elif t in ("SPX", "SPXW"):
+            fetch_ts.add("$SPX")
+        else:
+            fetch_ts.add(t)
+    for t, p in walrus_db.cache.get_many([f"{prefix}{t}" for t in fetch_ts]).items():
         r[t.lstrip(prefix)] = p
-    ts = set(ts) - set(r)
-    if ts:
-        qs = schwab_conn.get_quotes(ts)
-        for t, mod in schwab_conn.TICKER_MODS.items():
-            if p := qs.get(t):
-                if mod["alias"] not in qs:
-                    qs[mod["alias"]] = p
-            elif p := qs.get(mod["alias"]):
-                if t not in qs:
-                    qs[t] = p
+    fetch_ts = set(fetch_ts) - set(r)
+    if fetch_ts:
+        qs = schwab_conn.get_quotes(fetch_ts)
         cache_qs = {f"{prefix}{t}": qs[t] for t in qs}
         walrus_db.cache.set_many(cache_qs)
         r.update(qs)
+    for t in ts:
+        if t.endswith("USD"):
+            r[t] = 1 / r[f"USD/{t[:3]}"]
+        elif t in ("SPX", "SPXW"):
+            r[t] = r["$SPX"]
     return r
 
 
@@ -370,20 +346,24 @@ def get_option_quotes(
 def get_future_quotes(ts: Iterable[str]) -> dict[str, FutureQuote]:
     prefix = "get_future_quote:"
     r: dict[str, FutureQuote] = {}
-    for t, p in walrus_db.cache.get_many([f"{prefix}{t}" for t in ts]).items():
+    fetch_ts = set()
+    for t in ts:
+        if t.startswith("/MTN"):
+            fetch_ts.add(t.replace("/MTN", "/TN"))
+        else:
+            fetch_ts.add(t)
+    for t, p in walrus_db.cache.get_many([f"{prefix}{t}" for t in fetch_ts]).items():
         r[t.lstrip(prefix)] = p
-    ts = set(ts) - set(r)
-    if ts:
-        qs = schwab_conn.get_future_quotes(ts)
-        for t, q in qs.items():
-            r[t] = FutureQuote(mark=q.mark, multiplier=get_future_spec(t).multiplier)
-            if t.startswith("/TN"):
-                t = t.replace("/TN", "/MTN")
-                r[t] = FutureQuote(
-                    mark=q.mark, multiplier=get_future_spec(t).multiplier
-                )
-        cache_qs = {f"{prefix}{t}": r[t] for t in r}
+    fetch_ts = set(fetch_ts) - set(r)
+    if fetch_ts:
+        qs = schwab_conn.get_future_quotes(fetch_ts)
+        cache_qs = {f"{prefix}{t}": qs[t] for t in qs}
         walrus_db.cache.set_many(cache_qs)
+        r.update(qs)
+    for t in ts:
+        if t.startswith("/MTN"):
+            q = r[t.replace("/MTN", "/TN")]
+            r[t] = FutureQuote(mark=q.mark, multiplier=get_future_spec(t).multiplier)
     return r
 
 
@@ -455,16 +435,12 @@ def to_sql(dataframe, table, if_exists="append"):
 
 
 def write_ticker_sql(
-    amounts_table: str,
     prices_table: str,
     ticker_prices: Mapping | None = None,
 ):
     # Just get the latest row and use columns to figure out tickers.
-    amounts_df = read_sql_last(amounts_table)
     if not ticker_prices:
-        ticker_prices = {}
-        for ticker in amounts_df.columns:
-            ticker_prices[ticker] = get_ticker(ticker)
+        ticker_prices = get_tickers(read_sql_last(prices_table).columns)
     if not ticker_prices:
         logger.info("No ticker prices found. Not writing table.")
         return

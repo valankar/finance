@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Methods for stock options."""
 
+import csv
 import io
 import itertools
 import re
@@ -9,6 +10,7 @@ import typing
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from functools import partial
+from pathlib import Path
 
 import pandas as pd
 
@@ -117,7 +119,7 @@ def options_df_raw() -> pd.DataFrame:
         expiration = call_name.split()[-3]
         multiplier = 100
         if ticker == "SMI":
-            multiplier = 10 * common.get_ticker("CHFUSD=X")
+            multiplier = 10 * common.get_tickers(["CHFUSD"])["CHFUSD"]
         if account:
             entries.append(
                 {
@@ -194,7 +196,7 @@ def convert_to_usd(amount: str) -> float:
     if amount.startswith("$"):
         return float(amount[1:])
     elif amount.endswith(" CHF"):
-        return float(amount.split()[0]) * common.get_ticker("CHFUSD=X")
+        return float(amount.split()[0]) * common.get_tickers(["CHFUSD"])["CHFUSD"]
     return 0
 
 
@@ -242,10 +244,22 @@ def get_ledger_total(broker: str, option_name: str) -> float:
     return total
 
 
+def get_trade_price_override(broker: str, option_name: str) -> float:
+    if (p := Path(f"{common.PUBLIC_HTML}options_trade_price_overrides")).exists():
+        with p.open("r") as f:
+            reader = csv.reader(f, delimiter=":")
+            for row in reader:
+                if row[0] == broker and row[1] == option_name:
+                    return float(row[2])
+    return 0
+
+
 def add_contract_price(options_df: pd.DataFrame) -> pd.DataFrame:
     ops = []
 
     def divide_total(broker: str, name: str, divisor: float) -> float:
+        if p := get_trade_price_override(broker, name):
+            return p
         return get_ledger_total(broker, name) / divisor
 
     for idx, row in options_df.iterrows():
@@ -719,7 +733,7 @@ def get_options_value_by_brokerage(
 
 
 @common.walrus_db.db.lock("get_options_and_spreads", ttl=common.LOCK_TTL_SECONDS * 1000)
-@common.walrus_db.cache.cached(timeout=60)
+@common.walrus_db.cache.cached()
 def get_options_and_spreads() -> OptionsAndSpreads:
     all_options = options_df()
     box_spreads = find_box_spreads(all_options)

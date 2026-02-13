@@ -6,7 +6,7 @@ import common
 
 def main():
     """Main."""
-    common.write_ticker_sql("index_prices", "index_prices")
+    common.write_ticker_sql("index_prices")
 
 
 if __name__ == "__main__":
