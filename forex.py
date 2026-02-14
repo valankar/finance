@@ -3,12 +3,13 @@
 
 import common
 
+TICKERS = ("CHFUSD", "SGDUSD")
+
 
 def main():
     """Get and update forex data."""
-    ts = ("CHFUSD", "SGDUSD")
-    q = common.get_tickers(ts)
-    common.insert_sql("forex", {k: v for k, v in q.items() if k in ts})
+    q = common.get_tickers(TICKERS)
+    common.insert_sql("forex", {k: v for k, v in q.items() if k in TICKERS})
 
 
 if __name__ == "__main__":

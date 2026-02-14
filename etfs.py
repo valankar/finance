@@ -19,7 +19,7 @@ def get_etfs_df(account: Optional[str] = None) -> pd.DataFrame:
     tas = {}
     for ticker, amount in ledger_amounts.get_etfs_amounts(account).items():
         tas[ticker] = amount
-    ps = common.get_tickers(tas.keys())
+    ps = common.get_tickers(get_tickers())
     for ticker, amount in tas.items():
         price = ps[ticker]
         data.append(

@@ -45,6 +45,7 @@ PLOTLY_THEME = "plotly_dark"
 CURRENCIES_REGEX = r"^(\\$|CHF|EUR|GBP|SGD|SWVXX)$"
 LEDGER_CURRENCIES_CMD = f"{LEDGER_PREFIX} --limit 'commodity=~/{CURRENCIES_REGEX}/'"
 SUBPLOT_MARGIN = {"l": 0, "r": 50, "b": 0, "t": 50}
+SCHWAB_PAL_INTEREST_SPREAD = 2.8
 
 
 class Brokerage(StrEnum):

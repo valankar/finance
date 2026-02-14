@@ -19,12 +19,3 @@ This could be run with a systemd timer:
 docker compose up accounts_hourly --force-recreate --exit-code-from accounts_hourly
 ```
 
-## Adding new indices
-
-```shell
-# For indices.
-TICKER='$SPX'
-./add_ticker.py --ticker $TICKER
-```
-
-Update `balance_etfs.py` to include new ticker.

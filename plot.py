@@ -656,4 +656,5 @@ def get_interest_rate_df() -> pd.DataFrame:
             ibkr_df,
         ],
     )
+    merged["Schwab PAL"] = merged["SOFR"] + common.SCHWAB_PAL_INTEREST_SPREAD
     return merged.ffill()

@@ -24,7 +24,7 @@ COMMODITIES_PERCENTAGE = {
 COMMODITIES_PERCENTAGE_FLOOR = 8
 # See https://testfol.io/?s=fkCyZLoXExo
 ETF_TYPE_MAP = {
-    "COMMODITIES_GOLD": ["GLD", "GLDM", "SGOL", "/MGC"],
+    "COMMODITIES_GOLD": ["GLD", "GLDM", "IAU", "SGOL", "/MGC"],
     "COMMODITIES_SILVER": ["SIVR", "SLV", "/SIL"],
     "COMMODITIES_CRYPTO": ["BITX", "IBIT", "MSTR", "/MBT"],
     "US_SMALL_CAP": ["SCHA", "VB", "IWM", "/M2K", "/RTY"],

@@ -228,10 +228,24 @@ class StockOptionsPage(GraphCommon):
         df.insert(i, "days", (df["expiration"] - pd.Timestamp.now()).dt.days)
         i = int(df.columns.get_loc("notional_value")) + 1  # type: ignore
         df.insert(i, "nv_per_contract", df["notional_value"] / abs(df["count"]))
+        df["contract_price"] = df["contract_price"] * df["multiplier"] * df["count"]
+        df["profit_percent"] = round(
+            df["profit_option_value"] / abs(df["contract_price"]) * 100
+        )
+        df = df.drop(columns=["multiplier", "intrinsic_value"]).sort_values(
+            "profit_option_value", ascending=False
+        )
         table = ui.table.from_pandas(df.assign(**df.select_dtypes("number").round(2)))
         body_cell_slot(
             table,
             "profit_option_value",
+            "red",
+            "Number(props.value) < 0",
+            "green",
+        )
+        body_cell_slot(
+            table,
+            "profit_percent",
             "red",
             "Number(props.value) < 0",
             "green",

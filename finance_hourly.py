@@ -16,7 +16,6 @@ import etfs
 import finance_daily
 import forex
 import history
-import index_prices
 import ledger_prices_db
 import main_graphs
 import main_matplot
@@ -36,8 +35,9 @@ def run_all(
         common.SCRIPT_LOCK_NAME, ttl=common.LOCK_TTL_SECONDS * 1000
     ):
         if calculate:
+            # Cache all tickers
+            common.get_tickers(etfs.get_tickers() | set(forex.TICKERS))
             etfs.main()
-            index_prices.main()
             forex.main()
             ledger_prices_db.main()
             history.main()
