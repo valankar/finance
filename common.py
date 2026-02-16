@@ -144,6 +144,7 @@ class FutureQuote(typing.NamedTuple):
 class OptionQuote(typing.NamedTuple):
     mark: float
     delta: float
+    underlying_price: float
 
 
 schwab_lock: Final[walrus.Lock] = walrus_db.db.lock(
@@ -233,12 +234,12 @@ class Schwab:
 
     def get_option_quotes(
         self, ts: Iterable[TickerOption]
-    ) -> dict[TickerOption, Optional[OptionQuote]]:
-        results: dict[TickerOption, Optional[OptionQuote]] = {}
+    ) -> dict[TickerOption, OptionQuote]:
+        results: dict[TickerOption, OptionQuote] = {}
         fetch_tickers: dict[str, TickerOption] = {}
         for t in ts:
             if t.expiration < date.today():
-                results[t] = None
+                raise GetTickerError(f"Option is expired: {t=}")
             symbol = OptionSymbol(
                 t.ticker, t.expiration, t.contract_type[0], str(t.strike)
             ).build()
@@ -247,16 +248,22 @@ class Schwab:
             return results
         js = self.client.get_quotes(fetch_tickers.keys()).json()
         for symbol, j in js.items():
-            mark = j["quote"]["mark"]
-            delta = j["quote"]["delta"]
+            q = j["quote"]
+            mark = q["mark"]
+            delta = q["delta"]
+            underlying_price = q["underlyingPrice"]
             if delta == 0:
                 if new_delta := self.get_delta_override(symbol):
                     delta = new_delta
                     logger.info(f"{symbol=} overriding {delta=}")
-            logger.info(f"{symbol=} {mark=} {delta=}")
+            logger.info(f"{symbol=} {mark=} {delta=} {underlying_price=}")
             if abs(delta) > 1:
                 raise GetTickerError(f"Invalid delta value: {delta=}")
-            results[fetch_tickers[symbol]] = OptionQuote(mark=mark, delta=delta)
+            results[fetch_tickers[symbol]] = OptionQuote(
+                mark=mark,
+                delta=delta,
+                underlying_price=underlying_price,
+            )
         return results
 
     def get_option_quote(self, t: TickerOption) -> Optional[OptionQuote]:
@@ -297,8 +304,10 @@ def get_tickers(ts: Iterable[str]) -> dict[str, float]:
     for t in ts:
         if t.endswith("USD"):
             fetch_ts.add(f"USD/{t[:3]}")
-        elif t in ("SPX", "SPXW"):
+        elif t.startswith("SPX"):
             fetch_ts.add("$SPX")
+        elif t.startswith("XSP"):
+            fetch_ts.add("$XSP")
         else:
             fetch_ts.add(t)
     for t, p in walrus_db.cache.get_many([f"{prefix}{t}" for t in fetch_ts]).items():
@@ -312,8 +321,10 @@ def get_tickers(ts: Iterable[str]) -> dict[str, float]:
     for t in ts:
         if t.endswith("USD"):
             r[t] = 1 / r[f"USD/{t[:3]}"]
-        elif t in ("SPX", "SPXW"):
+        elif t.startswith("SPX"):
             r[t] = r["$SPX"]
+        elif t.startswith("XSP"):
+            r[t] = r["$XSP"]
     return r
 
 
@@ -340,6 +351,9 @@ def get_option_quotes(
         cache_qs = {f"{prefix}{make_option_key(t)}": qs[t] for t in qs}
         walrus_db.cache.set_many(cache_qs)
         r.update(qs)
+        # Underlying prices are returned as well, save them
+        cache_qs = {f"get_ticker:{k.ticker}": v.underlying_price for k, v in qs.items()}
+        walrus_db.cache.set_many(cache_qs)
     return r
 
 

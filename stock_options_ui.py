@@ -240,14 +240,14 @@ class StockOptionsPage(GraphCommon):
             table,
             "profit_option_value",
             "red",
-            "Number(props.value) < 0",
+            "Number(props.value) <= 0",
             "green",
         )
         body_cell_slot(
             table,
             "profit_percent",
             "red",
-            "Number(props.value) < 0",
+            "Number(props.value) <= 0",
             "green",
         )
 

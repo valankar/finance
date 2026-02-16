@@ -15,7 +15,6 @@ from pathlib import Path
 import pandas as pd
 
 import common
-import etfs
 import ledger_ops
 
 
@@ -153,19 +152,21 @@ def add_options_quotes(options_df: pd.DataFrame):
         return options_df
     prices = []
     deltas = []
+    underlying_prices = []
     tos: set[common.TickerOption] = set()
     for idx, row in options_df.iterrows():
         tos.add(get_ticker_option(idx, row))
     qs = common.get_option_quotes(tos)
     for idx, row in options_df.iterrows():
-        price = delta = 0
         if quote := qs.get(get_ticker_option(idx, row)):
-            price = quote.mark
-            delta = quote.delta
-        prices.append(price)
-        deltas.append(delta)
+            prices.append(quote.mark)
+            deltas.append(quote.delta)
+            underlying_prices.append(quote.underlying_price)
+        else:
+            raise ValueError(f"No option quote found for {idx=} {row=}")
     options_df["quote"] = prices
     options_df["delta"] = deltas
+    options_df["current_price"] = underlying_prices
     options_df["value"] = (
         options_df["count"] * options_df["quote"] * options_df["multiplier"]
     )
@@ -178,8 +179,7 @@ def add_options_quotes(options_df: pd.DataFrame):
     return options_df
 
 
-def add_value(options_df: pd.DataFrame) -> pd.DataFrame:
-    df = add_options_quotes(options_df)
+def add_value(df: pd.DataFrame) -> pd.DataFrame:
     df["profit_option_value"] = df["value"] - (
         df["contract_price"] * df["count"] * df["multiplier"]
     )
@@ -274,20 +274,13 @@ def add_contract_price(options_df: pd.DataFrame) -> pd.DataFrame:
     return options_df
 
 
-def add_current_price(calls_puts_df: pd.DataFrame) -> pd.DataFrame:
-    qs = common.get_tickers(calls_puts_df["ticker"].unique())
-    for t, q in qs.items():
-        calls_puts_df.loc[lambda df: df["ticker"] == t, "current_price"] = q
-    return calls_puts_df
-
-
 def options_df() -> pd.DataFrame:
     """Get call and put dataframe."""
-    calls_puts_df = options_df_raw()
-    if not len(calls_puts_df):
-        return calls_puts_df
-    df = add_current_price(calls_puts_df)
+    df = options_df_raw()
+    if not len(df):
+        return df
     df = df.set_index(["account", "name", "expiration"])
+    df = add_options_quotes(df)
     df["in_the_money"] = False
     df.loc[df["type"] == "CALL", "in_the_money"] = df["strike"] < df["current_price"]
     df.loc[df["type"] == "PUT", "in_the_money"] = df["strike"] > df["current_price"]
@@ -326,38 +319,6 @@ def short_put_exposure(dataframe, broker):
         ticker_date = " ".join(index[0].split()[0:2])
         total += sum(broker_puts.filter(like=ticker_date, axis=0)["exercise_value"])
     return total
-
-
-def after_assignment_df(itm_df: pd.DataFrame) -> pd.DataFrame:
-    etfs_df = etfs.get_etfs_df()
-    for ticker in itm_df["ticker"].unique():
-        if ticker not in etfs_df.index:
-            for f in ("current_price", "shares", "value"):
-                etfs_df.loc[ticker, f] = 0
-    etfs_df = add_current_price(etfs_df.reset_index()).set_index("ticker")
-    etfs_df["shares_change"] = 0.0
-    etfs_df["liquidity_change"] = 0.0
-    for _, cols in itm_df.iterrows():
-        match cols["type"]:
-            case "CALL":
-                multiplier = 1
-            case "PUT":
-                multiplier = -1
-            case _:
-                continue
-        etfs_df.loc[cols["ticker"], "shares"] += (
-            multiplier * cols["count"] * cols["multiplier"]
-        )
-        etfs_df.loc[cols["ticker"], "shares_change"] += (
-            multiplier * cols["count"] * cols["multiplier"]
-        )
-        etfs_df.loc[cols["ticker"], "liquidity_change"] += cols["exercise_value"]
-
-    etfs_df = etfs_df[etfs_df["shares_change"] != 0]
-    etfs_df["original_value"] = etfs_df["value"]
-    etfs_df["value"] = etfs_df["shares"] * etfs_df["current_price"]
-    etfs_df["value_change"] = etfs_df["value"] - etfs_df["original_value"]
-    return etfs_df.dropna()
 
 
 def find_synthetics(options_df: pd.DataFrame) -> list[Spread]:

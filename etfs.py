@@ -9,7 +9,6 @@ import pandas as pd
 import common
 import futures
 import ledger_amounts
-import stock_options
 
 TICKER_PRICES_TABLE = "ticker_prices"
 
@@ -35,9 +34,7 @@ def get_etfs_df(account: Optional[str] = None) -> pd.DataFrame:
 
 
 def get_tickers() -> set[str]:
-    cols = set(ledger_amounts.get_etfs_amounts().keys())
-    cols |= set(stock_options.options_df_raw()["ticker"].unique())
-    return cols
+    return set(ledger_amounts.get_etfs_amounts().keys())
 
 
 # This is used in separate graph generation processes so redis caching makes sense.
