@@ -8,11 +8,11 @@ services:
       - ${HOME}/code/ledger:/app/code/ledger
     environment: &environment
       REDIS_HOST: valkey
-      ALPHA_VANTAGE_KEY: ${ALPHA_VANTAGE_KEY}
       SCHWAB_API_KEY: ${SCHWAB_API_KEY}
       SCHWAB_SECRET: ${SCHWAB_SECRET}
       SCHWAB_CALLBACK_URI: ${SCHWAB_CALLBACK_URI}
       FRED_API_KEY: ${FRED_API_KEY}
+      BROWSER_USE_API_KEY: ${BROWSER_USE_API_KEY}
     restart: unless-stopped
     networks: &networks
       - caddy
@@ -42,8 +42,6 @@ services:
     image: valkey/valkey
     container_name: valkey
     networks: *networks
-    environment:
-      VALKEY_EXTRA_FLAGS: "--save ''"
     volumes:
       - ${HOME}/code/accounts/web/valkey:/data
     user: "1000:1000"
@@ -61,6 +59,8 @@ services:
     container_name: chrome-cdp
     restart: unless-stopped
     networks: *networks
+    ports:
+      - "9222:9222"
 
 networks:
   caddy:

@@ -34,10 +34,6 @@ plt.style.use("dark_background")
 LAYOUT: Literal["constrained", "compressed", "tight"] = "constrained"
 
 
-class GraphGenerationError(Exception):
-    pass
-
-
 class GraphResult(NamedTuple):
     f: Future[bytes]
     redis_key: str
@@ -492,11 +488,16 @@ def make_investing_allocation_bar() -> bytes:
         cast(float, df.loc[col]["usd_to_reconcile"])
         for _, col in INVESTING_ALLOCATION_LABEL_COL
     ]
-    bar_labels = [f"{v:,.0f}" for v in values]
+
+    # Sort by y values (lowest to highest)
+    sorted_pairs = sorted(zip(labels, values), key=lambda pair: pair[1])
+    sorted_labels, sorted_values = zip(*sorted_pairs)
+
+    bar_labels = [f"{v:,.0f}" for v in sorted_values]
     rebalancing = make_bar_graph(
         "Rebalancing Required",
-        labels,
-        values,
+        list(sorted_labels),
+        list(sorted_values),
         labels=bar_labels,
         rotate_x_labels=True,
     )
@@ -660,53 +661,59 @@ def make_futures_margin_graph(broker: margin_loan.LoanBrokerage) -> bytes:
     cash_balance = df.iloc[-1]["Cash Balance"]
     money_market = df.iloc[-1]["Money Market"]
     margin_requirement = margin_by_account.get(broker.name, 0)
-    total = cash_balance - margin_requirement - money_market
-    if abs(money_market) > 100:
-        if csp < 0:
-            categories = [
-                "Cash",
-                "Money Market",
-                "CSP Req",
-                "Futures Margin",
-                "Excess",
-            ]
-            amounts = [
-                cash_balance,
-                -(money_market + csp),
-                csp,
-                -margin_requirement,
-                total,
-            ]
-            bottom = [
-                0,
-                cash_balance,
-                cash_balance - (money_market + csp),
-                cash_balance - money_market,
-                0,
-            ]
-        else:
-            categories = ["Cash", "Money Market", "Futures Margin", "Excess"]
-            amounts = [
-                cash_balance,
-                -money_market,
-                -margin_requirement,
-                total,
-            ]
-            bottom = [0, cash_balance, cash_balance - money_market, 0]
-    else:
-        categories = ["Cash", "Futures Margin", "Excess"]
-        amounts = [
-            cash_balance,
-            -margin_requirement,
-            total,
-        ]
-        bottom = [0, cash_balance, 0]
-    labels = [f"{x:,.0f}" for x in amounts]
+
+    # Build waterfall: relative bars stack, total bar shows final result
+    categories = []
+    amounts = []
+    bottom = []
+    colors = []
+    labels = []
+
+    running_total = 0.0
+
+    # Cash (relative)
+    categories.append("Cash")
+    amounts.append(cash_balance)
+    bottom.append(0)
+    colors.append("tab:green" if cash_balance > 0 else "tab:red")
+    labels.append(f"{cash_balance:,.0f}")
+    running_total += cash_balance
+
+    # Money Market (relative, optional)
+    if money_market > 100:
+        categories.append("Money Market")
+        amounts.append(-money_market)
+        bottom.append(running_total)
+        colors.append("tab:red")
+        labels.append(f"{-money_market:,.0f}")
+        running_total -= money_market
+
+    # CSP Req (relative, optional)
+    if csp < 0:
+        categories.append("CSP Req")
+        amounts.append(csp)
+        bottom.append(running_total)
+        colors.append("tab:green" if csp > 0 else "tab:red")
+        labels.append(f"{csp:,.0f}")
+        running_total += csp
+
+    # Futures Margin (relative)
+    categories.append("Futures Margin")
+    amounts.append(-margin_requirement)
+    bottom.append(running_total)
+    colors.append("tab:red")
+    labels.append(f"{-margin_requirement:,.0f}")
+    running_total -= margin_requirement
+
+    # Excess (total)
+    categories.append("Excess")
+    amounts.append(running_total)
+    bottom.append(0)
+    colors.append("tab:green" if running_total > 0 else "darkred")
+    labels.append(f"{running_total:,.0f}")
+
     fig = Figure(layout=LAYOUT)
     ax = fig.subplots()
-    colors = ["tab:green" if v > 0 else "tab:red" for v in amounts]
-    if amounts[-1] < 0:
-        colors[-1] = "darkred"
     p = ax.bar(categories, amounts, bottom=bottom, color=colors)
     ax.bar_label(p, labels=labels, label_type="center")
     ax.set_title(broker.name)

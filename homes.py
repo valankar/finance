@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Get estimated home values."""
 
-import re
+import os
 import typing
 from datetime import datetime
 
 import pandas as pd
+from browser_use_sdk import BrowserUse
 from cyclopts import App, Parameter, Token
 from dateutil import parser
+from pydantic import BaseModel
 
 import common
 
@@ -19,14 +21,7 @@ class Property(typing.NamedTuple):
     address: str
 
 
-PROPERTIES = (
-    Property(
-        name="Some Real Estate",
-        redfin_url="URL",
-        zillow_url="URL",
-        address="ADDRESS",
-    ),
-)
+PROPERTIES = ()
 
 
 def get_real_estate_df() -> pd.DataFrame:
@@ -95,10 +90,6 @@ def get_property(name: str) -> Property | None:
     return None
 
 
-def integerize_value(value):
-    return int(re.sub(r"\D", "", value))
-
-
 def write_prices_table(name, value, site, timestamp: typing.Optional[datetime] = None):
     """Write prices to sql."""
     common.insert_sql(
@@ -119,6 +110,47 @@ def comma_separated(type_, tokens: typing.Sequence[Token]) -> int:
 
 
 type CommaInt = typing.Annotated[int, Parameter(converter=comma_separated)]
+
+
+class RedfinEstimate(BaseModel):
+    value: int
+
+
+class ZillowEstimate(BaseModel):
+    zestimate: int
+    estimated_rent: int
+
+
+def get_from_browser_use():
+    api_key = os.environ.get("BROWSER_USE_API_KEY")
+    if not api_key:
+        print("No API key")
+        return
+    client = BrowserUse(api_key=api_key)
+    for p in PROPERTIES:
+        redfin_price = zillow_price = zillow_rent = None
+        redfin_t = client.tasks.create_task(
+            task=f"Get the estimate value from https://www.redfin.com{p.redfin_url}",
+            llm="browser-use-llm",
+            schema=RedfinEstimate,
+        )
+        zillow_t = client.tasks.create_task(
+            task=f"Get the zestimate and estimated rent from https://www.zillow.com{p.zillow_url}",
+            llm="browser-use-llm",
+            schema=ZillowEstimate,
+        )
+        if o := redfin_t.complete().parsed_output:
+            redfin_price = o.value
+        if o := zillow_t.complete().parsed_output:
+            zillow_price = o.zestimate
+            zillow_rent = o.estimated_rent
+        if all((redfin_price, zillow_price, zillow_rent)):
+            print(
+                f"Name: {p.name} Redfin: {redfin_price} Zillow: {zillow_price} Zillow Rent: {zillow_rent}"
+            )
+            write_prices_table(p.name, zillow_price, "Zillow")
+            write_rents_table(p.name, zillow_rent, "Zillow")
+            write_prices_table(p.name, redfin_price, "Redfin")
 
 
 @app.default
@@ -147,6 +179,8 @@ def main(
                 write_rents_table(p.name, zillow_rent, "Zillow")
         else:
             print(f"Property {name} is unknown")
+    else:
+        get_from_browser_use()
 
 
 if __name__ == "__main__":

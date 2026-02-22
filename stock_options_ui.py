@@ -47,9 +47,6 @@ class StockOptionsPage(GraphCommon):
             )
         return rows
 
-    def make_short_calls_table(self, rows: list[RowType]):
-        self.make_spread_section("Short Calls", rows, profit_color_col="profit option")
-
     def make_synthetics_data(
         self,
         opts: stock_options.OptionsAndSpreads,
@@ -232,22 +229,23 @@ class StockOptionsPage(GraphCommon):
         df["profit_percent"] = round(
             df["profit_option_value"] / abs(df["contract_price"]) * 100
         )
-        df = df.drop(columns=["multiplier", "intrinsic_value"]).sort_values(
-            "profit_option_value", ascending=False
+        df["profit_display"] = df.apply(
+            lambda row: (
+                f"{row['profit_option_value']:.0f} ({row['profit_percent']:.0f}%)"
+            ),
+            axis=1,
+        )
+        df = (
+            df.drop(columns=["multiplier", "intrinsic_value"])
+            .sort_values("profit_option_value", ascending=False)
+            .drop(columns=["profit_option_value", "profit_percent"])
         )
         table = ui.table.from_pandas(df.assign(**df.select_dtypes("number").round(2)))
         body_cell_slot(
             table,
-            "profit_option_value",
+            "profit_display",
             "red",
-            "Number(props.value) <= 0",
-            "green",
-        )
-        body_cell_slot(
-            table,
-            "profit_percent",
-            "red",
-            "Number(props.value) <= 0",
+            "Number(props.value.split(' ')[0]) <= 0",
             "green",
         )
 

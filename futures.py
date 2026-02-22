@@ -136,6 +136,8 @@ class Futures:
             current_price = qs[commodity].mark
             multiplier = qs[commodity].multiplier
             notional_value = current_price * multiplier * count
+            nv_per_contract = notional_value / abs(count)
+            value = (current_price - trade_price) * multiplier * count
             margin_req = abs(
                 round(
                     (
@@ -147,13 +149,16 @@ class Futures:
                     * notional_value
                 )
             )
+            mr_per_contract = margin_req / abs(count)
             e.update(
                 {
-                    "value": (current_price - trade_price) * multiplier * count,
+                    "value": value,
                     "notional_value": notional_value,
+                    "nv_per_contract": nv_per_contract,
                     "current_price": current_price,
                     "multiplier": multiplier,
                     "margin_requirement": margin_req,
+                    "mr_per_contract": mr_per_contract,
                 }
             )
         return pd.DataFrame(entries)
@@ -165,10 +170,12 @@ class Futures:
                 "count": "sum",
                 "value": "sum",
                 "notional_value": "sum",
+                "nv_per_contract": "first",
                 "current_price": "first",
                 "trade_price": "mean",
                 "multiplier": "first",
                 "margin_requirement": "sum",
+                "mr_per_contract": "first",
             }
         )
         return df

@@ -262,7 +262,7 @@ def futures_rebalancing(rebalancing_df: pd.DataFrame, limit_broker: Optional[str
                 xact = "Selling"
                 if f.count < 0:  # type: ignore
                     xact = "Buying"
-                profit = (f.value / f.count) * count  # type: ignore
+                profit = (f.value / abs(f.count)) * count  # type: ignore
                 if profit < 0:
                     continue
                 if not header_printed:

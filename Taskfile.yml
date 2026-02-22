@@ -43,6 +43,7 @@ tasks:
         -forcepartial "BelowPath web -> ssh://{{.HOST}}/code/{{.PROJECT_NAME}}"
         -forcepartial 'Path .schwab_token.json -> newer'
         -ignore 'Path .venv' -ignore 'Path __pycache__' -ignore 'Path .task'
+        -ignore 'Path .pytest_cache' -ignore 'Path .ruff_cache'
         . ssh://{{.HOST}}/code/{{.PROJECT_NAME}}
       - task: prod-sync-ledger
       - task: dev-valkey-restart

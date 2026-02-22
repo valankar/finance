@@ -2,7 +2,7 @@
 """Plot finance graphs."""
 
 from functools import reduce
-from typing import Optional
+from typing import Optional, cast
 
 import pandas as pd
 import plotly.express as px
@@ -20,6 +20,17 @@ import stock_options
 
 COLOR_GREEN = "DarkGreen"
 COLOR_RED = "DarkRed"
+
+INVESTING_LABELS = (
+    ("US Large Cap", "US_LARGE_CAP"),
+    ("US Small Cap", "US_SMALL_CAP"),
+    ("US Bonds", "US_BONDS"),
+    ("International Developed", "INTERNATIONAL_DEVELOPED"),
+    ("International Emerging", "INTERNATIONAL_EMERGING"),
+    ("Gold", "COMMODITIES_GOLD"),
+    ("Silver", "COMMODITIES_SILVER"),
+    ("Crypto", "COMMODITIES_CRYPTO"),
+)
 
 
 def set_bar_chart_color(trace, fig: Figure, row, col):
@@ -230,6 +241,34 @@ def make_real_estate_profit_bar_yearly(real_estate_df: pd.DataFrame) -> go.Bar:
     return profit_bar
 
 
+def make_investing_rebalancing_bar(
+    dataframe: Optional[pd.DataFrame] = None,
+) -> Figure:
+    """Make investing rebalancing bar graph."""
+    if dataframe is None:
+        dataframe = balance_etfs.get_rebalancing_df(0)
+
+    values: list[float] = [
+        float(cast(float, dataframe.at[col, "usd_to_reconcile"]))
+        for _, col in INVESTING_LABELS
+    ]
+    labels = [name for name, _ in INVESTING_LABELS]
+
+    # Sort by y values (lowest to highest)
+    sorted_pairs = sorted(zip(labels, values), key=lambda pair: pair[1])
+    sorted_labels, sorted_values = zip(*sorted_pairs)
+
+    fig = go.Figure(
+        go.Bar(
+            x=list(sorted_labels),
+            y=list(sorted_values),
+            text=[f"{y:,.0f}" for y in sorted_values],
+            marker_color=[COLOR_GREEN if y > 0 else COLOR_RED for y in sorted_values],
+        )
+    )
+    return fig
+
+
 def make_investing_allocation_section(
     dataframe: Optional[pd.DataFrame] = None,
 ) -> Figure:
@@ -242,32 +281,15 @@ def make_investing_allocation_section(
     )
     if dataframe is None:
         dataframe = balance_etfs.get_rebalancing_df(0)
-    label_col = (
-        ("US Large Cap", "US_LARGE_CAP"),
-        ("US Small Cap", "US_SMALL_CAP"),
-        ("US Bonds", "US_BONDS"),
-        ("International Developed", "INTERNATIONAL_DEVELOPED"),
-        ("International Emerging", "INTERNATIONAL_EMERGING"),
-        ("Gold", "COMMODITIES_GOLD"),
-        ("Silver", "COMMODITIES_SILVER"),
-        ("Crypto", "COMMODITIES_CRYPTO"),
-    )
-    values = [dataframe.loc[col]["value"] for _, col in label_col]
-    pie_total = go.Pie(labels=[name for name, _ in label_col], values=values)
+    values = [dataframe.loc[col]["value"] for _, col in INVESTING_LABELS]
+    pie_total = go.Pie(labels=[name for name, _ in INVESTING_LABELS], values=values)
     changes_section.add_trace(pie_total, row=1, col=1)
     changes_section.update_traces(row=1, col=1, textinfo="percent")
 
     # Rebalancing
-    values = [dataframe.loc[col]["usd_to_reconcile"] for _, col in label_col]
-    fig = go.Figure(
-        go.Bar(
-            x=[name for name, _ in label_col],
-            y=values,
-            text=[f"{y:,.0f}" for y in values],
-        )
-    )
-    fig.update_traces(textangle=0)
-    fig.for_each_trace(lambda t: set_bar_chart_color(t, changes_section, 1, 2))
+    fig = make_investing_rebalancing_bar(dataframe)
+    for trace in fig.data:
+        changes_section.add_trace(trace, row=1, col=2)
     changes_section.update_traces(row=1, col=2, showlegend=False)
     centered_title(changes_section, "Investing Allocation")
     return changes_section
@@ -492,61 +514,31 @@ def make_futures_margin_section(margin: dict[str, int]) -> Figure:
         csp_requirement: int,
         col: int,
     ):
-        money_market = df.iloc[-1]["Money Market"]
         cash_balance = df.iloc[-1]["Cash Balance"]
-        total = cash_balance - margin_requirement - money_market
-        if abs(money_market) > 100:
-            if csp_requirement < 0:
-                measure = ["relative", "relative", "relative", "relative", "total"]
-                x = [
-                    "Cash",
-                    "Money Market",
-                    "CSP Req",
-                    "Futures Margin",
-                    "Excess",
-                ]
-                y = [
-                    cash_balance,
-                    -(money_market + csp_requirement),
-                    csp_requirement,
-                    -margin_requirement,
-                    0,
-                ]
-                text = [
-                    f"{cash_balance:,.0f}",
-                    f"{-(money_market + csp_requirement):,.0f}",
-                    f"{csp_requirement:,.0f}",
-                    f"{-margin_requirement:,.0f}",
-                    f"{total:,.0f}",
-                ]
-            else:
-                measure = ["relative", "relative", "relative", "total"]
-                x = ["Cash", "Money Market", "Futures Margin", "Excess"]
-                y = [
-                    cash_balance,
-                    -money_market,
-                    -margin_requirement,
-                    0,
-                ]
-                text = [
-                    f"{cash_balance:,.0f}",
-                    f"{-money_market:,.0f}",
-                    f"{-margin_requirement:,.0f}",
-                    f"{total:,.0f}",
-                ]
-        else:
-            measure = ["relative", "relative", "total"]
-            x = ["Cash", "Futures Margin", "Excess"]
-            y = [
-                cash_balance,
-                -margin_requirement,
-                0,
-            ]
-            text = [
-                f"{cash_balance:,.0f}",
-                f"{-margin_requirement:,.0f}",
-                f"{total:,.0f}",
-            ]
+        money_market = df.iloc[-1]["Money Market"]
+        total = cash_balance - margin_requirement + csp_requirement - money_market
+        measure = ["relative", "relative", "total"]
+        x = ["Cash", "Futures Margin", "Excess"]
+        y = [
+            cash_balance,
+            -margin_requirement,
+            0,
+        ]
+        text = [
+            f"{cash_balance:,.0f}",
+            f"{-margin_requirement:,.0f}",
+            f"{total:,.0f}",
+        ]
+        if csp_requirement < 0:
+            measure.insert(1, "relative")
+            x.insert(1, "CSP Req")
+            y.insert(1, csp_requirement)
+            text.insert(1, f"{csp_requirement:,.0f}")
+        if money_market > 100:
+            measure.insert(1, "relative")
+            x.insert(1, "Money Market")
+            y.insert(1, -money_market)
+            text.insert(1, f"{-money_market:,.0f}")
 
         fig = go.Waterfall(
             measure=measure,

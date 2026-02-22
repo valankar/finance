@@ -7,6 +7,7 @@ import io
 import os
 import re
 import subprocess
+import traceback
 from datetime import date
 from typing import Awaitable, Iterable
 
@@ -26,6 +27,7 @@ import latest_values
 import ledger_ui
 import main_graphs
 import plot
+import stock_options
 import stock_options_ui
 from main_matplot import Matplots
 
@@ -120,11 +122,17 @@ async def ledger_page():
     await ledger_ui.LedgerUI().main_page()
 
 
+def show_error():
+    with ui.context.client.content.clear():
+        ui.code(traceback.format_exc())
+
+
 @ui.page("/stock_options", title="Stock Options")
 async def stock_options_page():
     """Stock options."""
     log_request()
     await ui.context.client.connected()
+    ui.on_exception(show_error)
     stock_options_ui.StockOptionsPage().main_page()
 
 
@@ -143,12 +151,13 @@ async def balance_etfs_page():
     """Balance ETFs."""
     log_request()
     await ui.context.client.connected()
+    ui.on_exception(show_error)
     adjustments = {}
     ticker_vals = []
     df = await run.io_bound(balance_etfs.get_rebalancing_df, 0)
     with ui.grid(columns=2).classes("w-full"):
         table = ui.table.from_pandas(df.reset_index(names="category"))
-        graph = ui.plotly(plot.make_investing_allocation_section(df))
+        graph = ui.plotly(plot.make_investing_rebalancing_bar(df))
 
     def validate(x: str):
         if not x:
@@ -185,9 +194,7 @@ async def balance_etfs_page():
             ui.notify(f"Total: {sum(adjustment.values())}")
         df = await run.io_bound(balance_etfs.get_rebalancing_df, amt, adjustment)
         table.update_from_pandas(df.reset_index(names="category"))
-        graph.update_figure(
-            await run.io_bound(plot.make_investing_allocation_section, df)
-        )
+        graph.update_figure(plot.make_investing_rebalancing_bar(df))
         main_out.text = await run.io_bound(get_main_out, df)
 
     amount = ui.input(label="Amount", validation=validate).on("keydown.enter", update)
@@ -209,12 +216,14 @@ async def balance_etfs_page():
                         "keydown.enter", update
                     )
                     ticker_vals.append((ticker, val))
+    stock_options_ui.StockOptionsPage().main_page()
 
 
 @ui.page("/futures", title="Futures")
 async def futures_page():
     log_request()
     await ui.context.client.connected()
+    ui.on_exception(show_error)
     html.pre(await run.io_bound(futures.Futures().get_summary))
 
 
@@ -270,6 +279,7 @@ async def transactions_page(request: Request):
         .futures_df.groupby(level="account")[["value", "margin_requirement"]]
         .sum()
     )
+    options_df = stock_options.get_options_and_spreads().pruned_options
     with ui.grid().classes("md:grid-cols-3"):
         for account, currency in (
             (common.Brokerage.SCHWAB, r"\\$"),
@@ -310,6 +320,15 @@ async def transactions_page(request: Request):
                             - futures_by_account.loc[account]["margin_requirement"],
                         )
                     )
+                if account == common.Brokerage.SCHWAB:
+                    csp = stock_options.short_put_exposure(options_df, account)
+                    vals.append(
+                        (
+                            pd.Timestamp(date.today()),
+                            "CSP Requirement",
+                            csp,
+                        )
+                    )
                 if vals:
                     exp_df = pd.DataFrame(
                         data=vals, columns=["Date", "Payee", "Amount"]
@@ -348,11 +367,6 @@ async def schwab_callback(request: Request) -> RedirectResponse:
     token = await common.schwab_conn.oauth.authorize_access_token(request)
     common.schwab_conn.write_token(token)
     return RedirectResponse("/")
-
-
-@ui.page("/screenshot", title="Screenshot")
-def screenshot_page():
-    ui.image(f"{common.PUBLIC_HTML}/screenshot.png")
 
 
 if __name__ in {"__main__", "__mp_main__"}:

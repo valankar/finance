@@ -15,7 +15,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from functools import reduce
 from pathlib import Path
-from typing import Any, ClassVar, Final, Generator, Mapping, Optional
+from typing import Any, ClassVar, Final, Generator, Optional
 
 import duckdb
 import pandas as pd
@@ -258,7 +258,7 @@ class Schwab:
                     logger.info(f"{symbol=} overriding {delta=}")
             logger.info(f"{symbol=} {mark=} {delta=} {underlying_price=}")
             if abs(delta) > 1:
-                raise GetTickerError(f"Invalid delta value: {delta=}")
+                raise GetTickerError(f"Invalid delta value: {delta=} {symbol=}")
             results[fetch_tickers[symbol]] = OptionQuote(
                 mark=mark,
                 delta=delta,
@@ -279,9 +279,6 @@ class Schwab:
             logger.info(f"{t=} {q=}")
             r[t] = q
         return r
-
-    def get_future_quote(self, ticker: str) -> FutureQuote:
-        return self.get_future_quotes([ticker])[ticker]
 
 
 schwab_conn: Final[Schwab] = Schwab()
@@ -447,22 +444,6 @@ def to_sql(dataframe, table, if_exists="append"):
         else:
             sql = f"INSERT INTO {table} BY NAME SELECT * FROM dataframe"
             con.execute(sql)
-
-
-def write_ticker_sql(
-    prices_table: str,
-    ticker_prices: Mapping | None = None,
-):
-    # Just get the latest row and use columns to figure out tickers.
-    if not ticker_prices:
-        ticker_prices = get_tickers(read_sql_last(prices_table).columns)
-    if not ticker_prices:
-        logger.info("No ticker prices found. Not writing table.")
-        return
-    prices_df = pd.DataFrame(
-        ticker_prices, index=[pd.Timestamp.now()], columns=sorted(ticker_prices.keys())
-    ).rename_axis("date")
-    to_sql(prices_df, prices_table)
 
 
 @contextmanager
