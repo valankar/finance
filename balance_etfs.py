@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Balance portfolio based on SWYGX."""
 
+import typing
 from typing import Any, Optional
 
 import pandas as pd
@@ -28,7 +29,19 @@ ETF_TYPE_MAP = {
     "COMMODITIES_SILVER": ["SIVR", "SLV", "/SIL"],
     "COMMODITIES_CRYPTO": ["BITX", "IBIT", "MSTR", "/MBT"],
     "US_SMALL_CAP": ["SCHA", "VB", "IWM", "/M2K", "/RTY"],
-    "US_LARGE_CAP": ["SCHX", "SPY", "SPYM", "VOO", "VV", "/MES", "/ES"],
+    "US_LARGE_CAP": [
+        "SCHX",
+        "SPY",
+        "SPYM",
+        "SPX",
+        "SPXW",
+        "XSP",
+        "XSPW",
+        "VOO",
+        "VV",
+        "/MES",
+        "/ES",
+    ],
     "US_BONDS": [
         "BND",
         "IEF",
@@ -151,13 +164,13 @@ def get_desired_df(
         else:
             etfs_df.loc[ticker, "value"] = adjust
     # Add in options value
-    opts = stock_options.get_options_and_spreads()
+    opts: stock_options.OptionsAndSpreads = stock_options.get_options_and_spreads()
     futures_tickers = futures.Futures().notional_values_df
     futures_tickers.loc[
         futures_tickers.index.isin(FUTURES_INVERSE_CORRELATION), "value"
     ] *= -1
     etfs_df = etfs_df.add(futures_tickers, fill_value=0)
-    options_df = opts.all_options
+    options_df = opts.get_all_without_box_spreads()
     etfs_df = etfs_df.add(
         options_df.groupby("ticker")
         .sum()[["notional_value"]]
@@ -229,99 +242,117 @@ def get_rebalancing_df(
     return allocation_df
 
 
-def futures_rebalancing(rebalancing_df: pd.DataFrame, limit_broker: Optional[str]):
-    header = "\nFutures to close for rebalancing:"
+def _rebalancing(
+    rebalancing_df: pd.DataFrame,
+    limit_broker: Optional[str],
+    header: str,
+    positions_df: pd.DataFrame,
+    get_ticker: typing.Callable[[tuple], str],
+    get_profit: typing.Callable[[pd.Series, int], float],
+    extra_lines: typing.Callable[[pd.Series, int], str],
+):
+    positions_by_category: dict[str, list[tuple[tuple, pd.Series, str]]] = {}
+    for idx, pos in positions_df.iterrows():
+        idx_tuple = typing.cast(tuple, idx)
+        if pos["count"] == 0:
+            continue
+        if limit_broker and limit_broker not in idx_tuple[0]:
+            continue
+        ticker = get_ticker(idx_tuple)
+        for cat, tickers in ETF_TYPE_MAP.items():
+            if ticker in tickers:
+                positions_by_category.setdefault(cat, []).append(
+                    (idx_tuple, pos, ticker)
+                )
+                break
+
     header_printed = False
     df = rebalancing_df[rebalancing_df["usd_to_reconcile"].abs() > 1000]
-    futures_df = futures.Futures().futures_df
-    for row in df.itertuples():
+    for category, row in df.iterrows():
+        category_str = typing.cast(str, category)
+        positions = positions_by_category.get(category_str, [])
+        if not positions:
+            continue
         subheader = (
-            f"Category: {row.Index} Need to reconcile: {row.usd_to_reconcile:.0f}"
+            f"Category: {category_str} Need to reconcile: {row['usd_to_reconcile']:.0f}"
         )
         subheader_printed = False
-        for f in futures_df.itertuples():
-            if limit_broker and limit_broker not in f.Index[0]:  # type: ignore
+        for idx_tuple, pos, ticker in positions:
+            nv = pos["notional_value"]
+            if ticker in FUTURES_INVERSE_CORRELATION:
+                nv *= -1
+            if (value_per_contract := nv / abs(pos["count"])) == 0:
                 continue
-            if (ticker := f.Index[1][:-3]) in ETF_TYPE_MAP[f"{row.Index}"]:  # type: ignore
-                nv = f.notional_value
-                if ticker in FUTURES_INVERSE_CORRELATION:
-                    nv *= -1  # type: ignore
-                value_per_contract = nv / abs(f.count)  # type: ignore
-                # Need to close positions of opposite sign
-                if value_per_contract * row.usd_to_reconcile > 0:
-                    continue
-                count = round(
-                    min(
-                        abs(row.usd_to_reconcile / value_per_contract),
-                        abs(f.count),  # type: ignore
-                    )
+            if value_per_contract * row["usd_to_reconcile"] > 0:
+                continue
+            count = round(
+                min(
+                    abs(row["usd_to_reconcile"] / value_per_contract),
+                    abs(pos["count"]),
                 )
-                if count < 1:
-                    continue
-                value = -(value_per_contract * count)
-                xact = "Selling"
-                if f.count < 0:  # type: ignore
-                    xact = "Buying"
-                profit = (f.value / abs(f.count)) * count  # type: ignore
-                if profit < 0:
-                    continue
-                if not header_printed:
-                    print(header)
-                    header_printed = True
-                if not subheader_printed:
-                    print(subheader)
-                    subheader_printed = True
-                print(
-                    f"  {xact} {count} {f.Index[0]} {f.Index[1]} contracts worth {value / count:.0f} results in value change of: {value:.0f}\n"  # type: ignore
-                    f"    Futures cash value/profit: {profit:.0f}"
-                )
+            )
+            if count < 1:
+                continue
+            if get_profit(pos, count) < 0:
+                continue
+            value = -(value_per_contract * count)
+            if abs(value) > abs(row["usd_to_reconcile"]):
+                continue
+            xact = "Selling" if pos["count"] > 0 else "Buying"
+            if not header_printed:
+                print(header)
+                header_printed = True
+            if not subheader_printed:
+                print(subheader)
+                subheader_printed = True
+            print(
+                f"  {xact} {count} {idx_tuple[0]} {idx_tuple[1]} contracts worth {value / count:.0f} results in value change of: {value:.0f}"
+            )
+            print(extra_lines(pos, count))
+
+
+def futures_rebalancing(rebalancing_df: pd.DataFrame, limit_broker: Optional[str]):
+    def get_ticker(idx: tuple) -> str:
+        return idx[1][:-3]
+
+    def get_profit(pos: pd.Series, count: int) -> float:
+        return (pos["value"] / abs(pos["count"])) * count
+
+    def extra_lines(pos: pd.Series, count: int) -> str:
+        return f"    Futures cash value/profit: {get_profit(pos, count):.0f}"
+
+    _rebalancing(
+        rebalancing_df,
+        limit_broker,
+        "\nFutures to close for rebalancing:",
+        futures.Futures().futures_df,
+        get_ticker,
+        get_profit,
+        extra_lines,
+    )
 
 
 def options_rebalancing(rebalancing_df: pd.DataFrame, limit_broker: Optional[str]):
-    header = "\nOptions to close for rebalancing:"
-    header_printed = False
-    df = rebalancing_df[rebalancing_df["usd_to_reconcile"].abs() > 1000]
-    options_df = stock_options.get_options_and_spreads().all_options
-    for row in df.itertuples():
-        subheader = (
-            f"Category: {row.Index} Need to reconcile: {row.usd_to_reconcile:.0f}"
-        )
-        subheader_printed = False
-        for o in options_df.itertuples():
-            if limit_broker and limit_broker not in o.Index[0]:  # type: ignore
-                continue
-            if o.ticker in ETF_TYPE_MAP[f"{row.Index}"]:
-                if (value_per_contract := o.notional_value / abs(o.count)) == 0:  # type: ignore
-                    continue
-                # Need to close positions of opposite sign
-                if value_per_contract * row.usd_to_reconcile > 0:
-                    continue
-                count = round(
-                    min(
-                        abs(row.usd_to_reconcile / value_per_contract),
-                        abs(o.count),  # type: ignore
-                    )
-                )
-                if count < 1:
-                    continue
-                value = -(value_per_contract * count)
-                xact = "Selling"
-                if o.count < 0:  # type: ignore
-                    xact = "Buying"
-                profit = (o.profit_option_value / abs(o.count)) * count  # type: ignore
-                if profit < 0:
-                    continue
-                if not header_printed:
-                    print(header)
-                    header_printed = True
-                if not subheader_printed:
-                    print(subheader)
-                    subheader_printed = True
-                print(
-                    f"  {xact} {count} {o.Index[0]} {o.Index[1]} contracts worth {value / count:.0f} results in value change of: {value:.0f}\n"  # type: ignore
-                    f"    Options cash value: {(o.value / o.count) * count:.0f}\n"  # type: ignore
-                    f"    Profit: {profit:.0f}"
-                )
+    def get_ticker(idx: tuple) -> str:
+        return typing.cast(pd.Series, options_df.loc[idx])["ticker"]
+
+    def get_profit(pos: pd.Series, count: int) -> float:
+        return (pos["profit_option_value"] / abs(pos["count"])) * count
+
+    def extra_lines(pos: pd.Series, count: int) -> str:
+        cash = (pos["value"] / pos["count"]) * count
+        return f"    Options cash value: {cash:.0f}\n    Profit: {get_profit(pos, count):.0f}"
+
+    options_df = stock_options.get_options_and_spreads().get_all_without_box_spreads()
+    _rebalancing(
+        rebalancing_df,
+        limit_broker,
+        "\nOptions to close for rebalancing:",
+        options_df,
+        get_ticker,
+        get_profit,
+        extra_lines,
+    )
 
 
 app = App()

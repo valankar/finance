@@ -1,34 +1,32 @@
 #!/usr/bin/env python3
 """Store IBKR margin rate history for USD, CHF."""
 
-import re
+from typing import Optional
 
-from loguru import logger
+from pydantic import BaseModel
 
 import common
 
 
-def get_interest_rate(currency):
-    """Get interest rate from IB."""
-    logger.info(f"Getting interest rate for {currency=}")
-    with common.run_with_browser_page(
-        "https://www.interactivebrokers.com/en/trading/margin-rates.php"
-    ) as page:
-        page.get_by_text("Stay on US website").click()
-        page.get_by_role("link", name="Accept Cookies").click()
-        row = page.locator("table tr", has=page.locator("td", has_text=f"{currency}"))
-        rate = row.locator("td", has_text="%").first.text_content()
-        rate = re.sub(r"%.*", "", rate)  # type: ignore
-        return float(rate)
+class GetMarginRateError(Exception):
+    """Failed to get margin rate."""
 
 
-def main():
+class MarginRate(BaseModel):
+    currencies: dict[str, float]
+
+
+async def get_from_browser_use() -> Optional[dict[str, float]]:
+    t = await common.run_browser_use(
+        task="On https://www.interactivebrokers.com/en/trading/margin-rates.php, get IBKR Pro rate for USD and CHF. Just use the first tier for the currency.",
+        model=MarginRate,
+    )
+    if o := t.output:
+        return o.currencies
+
+
+async def main():
     """Writes IB margin rates to DB."""
-    interest_rates = {}
-    for currency in ["USD", "CHF"]:
-        interest_rates[currency] = get_interest_rate(currency)
+    if not (interest_rates := await get_from_browser_use()):
+        raise GetMarginRateError
     common.insert_sql("interactive_brokers_margin_rates", interest_rates)
-
-
-if __name__ == "__main__":
-    main()

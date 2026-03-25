@@ -24,6 +24,7 @@ ENV PATH="/app/.venv/bin:/root/.duckdb/cli/latest:$PATH"
 ENTRYPOINT []
 
 ENV HOME="/app"
+RUN uv run playwright install chromium
 CMD [ "/app/code/accounts/app.py" ]
 EXPOSE 8080/tcp
 

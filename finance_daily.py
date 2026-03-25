@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run daily finance functions."""
 
+import inspect
 from enum import Enum, auto
 from typing import Callable, NamedTuple
 
@@ -35,16 +36,18 @@ METHODS: list[PeriodicMethod] = [
     PeriodicMethod(
         name="Interactive Brokers Margin",
         method=interactive_brokers_margin.main,
-        frequency=Period.DAILY,
+        frequency=Period.WEEKLY,
     ),
     PeriodicMethod(
         name="SWTSX Market Cap",
         method=swtsx_market_cap.main,
-        frequency=Period.DAILY,
+        frequency=Period.WEEKLY,
     ),
-    PeriodicMethod(name="SWVXX Yield", method=swvxx_yield.main, frequency=Period.DAILY),
     PeriodicMethod(
-        name="SWYGX Holdings", method=swygx_holdings.main, frequency=Period.DAILY
+        name="SWVXX Yield", method=swvxx_yield.main, frequency=Period.WEEKLY
+    ),
+    PeriodicMethod(
+        name="SWYGX Holdings", method=swygx_holdings.main, frequency=Period.WEEKLY
     ),
     PeriodicMethod(
         name="Compact DuckDB", method=common.compact_db, frequency=Period.DAILY
@@ -55,7 +58,7 @@ METHODS: list[PeriodicMethod] = [
 ]
 
 
-def run_all():
+async def run_all():
     failed_methods = []
     daily_cache = common.walrus_db.db.cache(
         "Daily Methods", default_timeout=24 * 60 * 60
@@ -73,10 +76,12 @@ def run_all():
             continue
         try:
             logger.info(f"Running {method.name}")
-            method.method()
+            r = method.method()
+            if inspect.isawaitable(r):
+                await r
             cache.set(method.name, True)
         except Exception:
-            logger.exception("Failed")
+            logger.exception(f"{method.name} failed")
             failed_methods.append(method)
     if failed_methods:
         for m in failed_methods:

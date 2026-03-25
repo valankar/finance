@@ -26,6 +26,8 @@ This repository contains a personal financial tracking application using **NiceG
 - **Docker:**
   - Build: `task dev-build` (via `Taskfile.yml`)
   - The project is designed to run in a containerized environment (Arch Linux base).
+  - **Bind Mount:** The project directory is bind-mounted to `/app/code/accounts/` in the accounts-dev container. Files created locally are immediately available in the container - no `docker cp` needed.
+  - **Working Directory:** Use `-w /app/code/accounts` when running commands in the container.
 
 ### Testing & Verification
 
@@ -33,9 +35,29 @@ This repository contains a personal financial tracking application using **NiceG
   ```bash
   uv run pytest
   ```
-- **Run Single Test:**
+- **Run Tests in Directory:**
   ```bash
-  uv run pytest path/to/test.py::test_function_name
+  uv run pytest tests/
+  ```
+- **Run Single Test File:**
+  ```bash
+  uv run pytest tests/test_stock_options.py
+  ```
+- **Run Single Test Function:**
+  ```bash
+  uv run pytest tests/test_stock_options.py::test_function_name
+  ```
+- **Run Test Class:**
+  ```bash
+  uv run pytest tests/test_stock_options.py::TestClassName
+  ```
+- **Run with Verbose Output:**
+  ```bash
+  uv run pytest -v
+  ```
+- **Run with Coverage Report:**
+  ```bash
+  uv run pytest --cov=. --cov-report=term-missing
   ```
 - **Manual Verification:** Run the relevant script (e.g., `app.py` for UI changes, `finance_hourly.py` for logic) and check for runtime errors.
 - **Linting:** The project uses `ruff` for linting and formatting.
@@ -44,10 +66,16 @@ This repository contains a personal financial tracking application using **NiceG
   uv run ruff format .
   uv run ruff check . --fix
   ```
+- **Type Checking:** Run pyright to verify type correctness after making changes.
+  ```bash
+  uv run pyright .
+  ```
 
 ### Deployment
 
-- **After checking in new code, run:**
+- **Always git commit before deploying:** Changes must be committed to git before running the deploy command.
+- **Deploy after every commit:** You must run the deploy command immediately after each commit to ensure changes are pushed to production.
+- **After committing new code, run:**
   ```bash
   go-task prod-sync
   ```

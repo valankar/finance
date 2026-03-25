@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Store holdings of SWYGX."""
 
+from typing import Optional
+
 from loguru import logger
+from pydantic import BaseModel
 
 import common
 
@@ -10,20 +13,23 @@ class GetHoldingsError(Exception):
     """Error getting holdings."""
 
 
-def save_holdings():
-    """Writes SWYGX holdings to swygx_holdings DB table."""
-    with common.run_with_browser_page(
-        "https://www.schwabassetmanagement.com/allholdings/SWYGX"
-    ) as page:
-        holdings = {}
-        common.schwab_browser_page(page)
-        text = page.get_by_role("cell", name="SCHX").inner_text()
-        logger.info(f"Found {text=}")
-        for row in page.get_by_role("table").get_by_role("row").all()[1:]:
-            holdings[row.get_by_role("cell").nth(1).inner_text()] = float(
-                row.get_by_role("cell").nth(2).inner_text().strip("%")
-            )
+class Holdings(BaseModel):
+    symbols: dict[str, float]
 
+
+async def get_from_browser_use() -> Optional[dict[str, float]]:
+    t = await common.run_browser_use(
+        task="Get the table from https://www.schwabassetmanagement.com/allholdings/SWYGX, storing the symbol and percent in the symbols dictionary",
+        model=Holdings,
+    )
+    if o := t.output:
+        return o.symbols
+
+
+async def save_holdings():
+    """Writes SWYGX holdings to swygx_holdings DB table."""
+    if not (holdings := await get_from_browser_use()):
+        raise GetHoldingsError("Unable to get holdings from browser-use")
     expected_tickers = set(common.read_sql_last("swygx_holdings").columns)
     found_tickers = set(holdings)
     if found_tickers != expected_tickers:
@@ -35,10 +41,6 @@ def save_holdings():
     common.insert_sql("swygx_holdings", holdings)
 
 
-def main():
+async def main():
     """Main."""
-    save_holdings()
-
-
-if __name__ == "__main__":
-    main()
+    await save_holdings()

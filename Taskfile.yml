@@ -30,7 +30,7 @@ tasks:
         {{.UNISON_CMD}} -force {{.LEDGER_DIR}}
         -forcepartial "Path ledger.ledger -> ssh://{{.HOST}}/code/ledger"
         -forcepartial "Path prices.db -> ssh://{{.HOST}}/code/ledger"
-        -ignore 'Path __pycache__'
+        -ignore 'Name __pycache__'
         {{.LEDGER_DIR}} ssh://{{.HOST}}/code/ledger
     vars:
       LEDGER_DIR: '{{.HOME}}/code/ledger'
@@ -42,7 +42,7 @@ tasks:
         {{.UNISON_CMD}} -force .
         -forcepartial "BelowPath web -> ssh://{{.HOST}}/code/{{.PROJECT_NAME}}"
         -forcepartial 'Path .schwab_token.json -> newer'
-        -ignore 'Path .venv' -ignore 'Path __pycache__' -ignore 'Path .task'
+        -ignore 'Path .venv' -ignore 'Name __pycache__' -ignore 'Path .task'
         -ignore 'Path .pytest_cache' -ignore 'Path .ruff_cache'
         . ssh://{{.HOST}}/code/{{.PROJECT_NAME}}
       - task: prod-sync-ledger

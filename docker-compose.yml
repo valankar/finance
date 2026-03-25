@@ -7,18 +7,19 @@ services:
       - ${HOME}/code/accounts:/app/code/accounts
       - ${HOME}/code/ledger:/app/code/ledger
     environment: &environment
+      BROWSER_USE_API_KEY: ${BROWSER_USE_API_KEY}
+      FRED_API_KEY: ${FRED_API_KEY}
+      HEALTHCHECKS_IO_HOURLY: ${HEALTHCHECKS_IO_HOURLY}
+      HEALTHCHECKS_IO_SCHWAB_AUTH: ${HEALTHCHECKS_IO_SCHWAB_AUTH}
       REDIS_HOST: valkey
       SCHWAB_API_KEY: ${SCHWAB_API_KEY}
-      SCHWAB_SECRET: ${SCHWAB_SECRET}
       SCHWAB_CALLBACK_URI: ${SCHWAB_CALLBACK_URI}
-      FRED_API_KEY: ${FRED_API_KEY}
-      BROWSER_USE_API_KEY: ${BROWSER_USE_API_KEY}
+      SCHWAB_SECRET: ${SCHWAB_SECRET}
     restart: unless-stopped
     networks: &networks
       - caddy
     depends_on:
       - valkey
-      - chrome-cdp
 
   accounts-dev:
     <<: *accounts
@@ -29,7 +30,6 @@ services:
     profiles: [ "development" ]
     depends_on:
       - valkey-dev
-      - chrome-cdp
 
   accounts_hourly:
     <<: *accounts
@@ -55,6 +55,7 @@ services:
 
   chrome-cdp:
     image: chromedp/headless-shell
+    profiles: [ "chrome" ]
     command: ["--disable-gpu"]
     container_name: chrome-cdp
     restart: unless-stopped

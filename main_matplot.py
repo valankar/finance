@@ -522,12 +522,9 @@ def get_real_estate_change_df() -> pd.DataFrame:
     cols = [f"{home.name} Price" for home in homes.PROPERTIES]
     for home in cols:
         real_estate_df[f"{home} Percent Change"] = (
-            (
-                real_estate_df[home]
-                - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
-            )
-            / real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
-        )
+            real_estate_df[home]
+            - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
+        ) / real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
     return real_estate_df
 
 
@@ -555,7 +552,7 @@ def make_real_estate_change_bar_yearly() -> bytes:
     for home in cols:
         time_diff = (
             real_estate_df[home].index[-1] - real_estate_df[home].first_valid_index()
-        )  # type: ignore
+        )
         value_diff = (
             real_estate_df.iloc[-1][home]
             - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
@@ -657,7 +654,9 @@ def make_futures_margin_graph(broker: margin_loan.LoanBrokerage) -> bytes:
     df = b[broker.name]
     csp = 0
     if broker.name == common.Brokerage.SCHWAB:
-        csp = stock_options.short_put_exposure(opts.pruned_options, broker.name)
+        csp = stock_options.short_put_exposure(
+            pd.concat([x.df for x in opts.short_options]), broker.name
+        )
     cash_balance = df.iloc[-1]["Cash Balance"]
     money_market = df.iloc[-1]["Money Market"]
     margin_requirement = margin_by_account.get(broker.name, 0)

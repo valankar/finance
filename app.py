@@ -5,13 +5,15 @@ import asyncio
 import contextlib
 import io
 import os
+import pickle
 import re
 import subprocess
-import traceback
 from datetime import date
+from pathlib import Path
 from typing import Awaitable, Iterable
 
 import pandas as pd
+import plotly.express as px
 import plotly.io as pio
 from fastapi import Request
 from loguru import logger
@@ -20,12 +22,15 @@ from plotly.graph_objects import Figure
 from starlette.responses import RedirectResponse
 
 import balance_etfs
+import brokerages
 import common
 import futures
 import i_and_e
 import latest_values
+import ledger_amounts
 import ledger_ui
 import main_graphs
+import margin_loan
 import plot
 import stock_options
 import stock_options_ui
@@ -89,7 +94,23 @@ def log_request():
 async def main_page():
     """Generate main UI."""
     log_request()
-    main_graphs.MainGraphs().create()
+    mg = main_graphs.MainGraphs()
+    mg.create()
+
+    # Check for graph updates and reload if changed
+    if updated := mg.plotly_graphs.get("updated"):
+        last_update = pickle.loads(updated)
+    else:
+        last_update = None
+
+    async def check_for_update():
+        nonlocal last_update
+        if current := mg.plotly_graphs.get("updated"):
+            stored = pickle.loads(current)
+            if last_update and stored > last_update:
+                ui.navigate.to("/")
+
+    ui.timer(30, check_for_update)
 
 
 @ui.page("/image_only")
@@ -116,15 +137,35 @@ async def i_and_e_page():
 
 
 @ui.page("/ledger", title="Ledger")
-async def ledger_page():
+async def ledger_page(request: Request):
     """Generate income & expenses page."""
     log_request()
+    if not authorized(request):
+        return
     await ledger_ui.LedgerUI().main_page()
+
+
+def authorized(request: Request) -> bool:
+    if request.headers.get("remote-email", None) != "valankar@gmail.com":
+        ui.label("Unauthorized")
+        return False
+    return True
 
 
 def show_error():
     with ui.context.client.content.clear():
-        ui.code(traceback.format_exc())
+        # Capture loguru's formatted exception output
+        log_capture = io.StringIO()
+        handler_id = logger.add(log_capture, enqueue=True, backtrace=False)
+        logger.exception("Error occurred")
+        logger.remove(handler_id)
+        ui.code(log_capture.getvalue())
+
+
+@ui.page("/hourly_logs", title="Hourly Logs")
+def hourly_logs_page():
+    log_request()
+    ui.code(Path(common.HOURLY_LOGFILE).read_text())
 
 
 @ui.page("/stock_options", title="Stock Options")
@@ -152,9 +193,41 @@ async def balance_etfs_page():
     log_request()
     await ui.context.client.connected()
     ui.on_exception(show_error)
+
+    log_area = ui.log().classes("w-full")
+    log_area.set_visibility(False)
+
+    show_log = False
+
+    def on_log_checkbox_changed(e):
+        nonlocal show_log
+        show_log = e.value
+        log_area.set_visibility(e.value)
+
+    async def run_with_log(func, *args):
+        handler_id = logger.add(lambda message: log_area.push(message), enqueue=True)
+        try:
+            log_area.set_visibility(True)
+            result = await run.io_bound(func, *args)
+            return result
+        finally:
+            log_area.set_visibility(show_log)
+            logger.remove(handler_id)
+
+    def get_main_out(
+        rebalancing_df: pd.DataFrame,
+    ):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            with common.pandas_options():
+                balance_etfs.options_rebalancing(rebalancing_df, None)
+                balance_etfs.futures_rebalancing(rebalancing_df, None)
+            return output.getvalue()
+
     adjustments = {}
     ticker_vals = []
-    df = await run.io_bound(balance_etfs.get_rebalancing_df, 0)
+    df = await run_with_log(balance_etfs.get_rebalancing_df, 0)
+    main_out_text = await run_with_log(get_main_out, df)
+
     with ui.grid(columns=2).classes("w-full"):
         table = ui.table.from_pandas(df.reset_index(names="category"))
         graph = ui.plotly(plot.make_investing_rebalancing_bar(df))
@@ -168,18 +241,7 @@ async def balance_etfs_page():
             return "Only int allowed"
         return None
 
-    def get_main_out(
-        rebalancing_df: pd.DataFrame,
-    ):
-        with contextlib.redirect_stdout(io.StringIO()) as output:
-            with common.pandas_options():
-                balance_etfs.options_rebalancing(rebalancing_df, None)
-                balance_etfs.futures_rebalancing(rebalancing_df, None)
-            return output.getvalue()
-
-    main_out = ui.label(await run.io_bound(get_main_out, df)).style(
-        "white-space: pre; font-family: monospace"
-    )
+    main_out = ui.label(main_out_text).style("white-space: pre; font-family: monospace")
 
     async def update():
         adjustment = {k: int(v.value) for k, v in adjustments.items() if v.value}
@@ -192,12 +254,16 @@ async def balance_etfs_page():
         if adjustment:
             ui.notify(f"Adjustments: {adjustment}")
             ui.notify(f"Total: {sum(adjustment.values())}")
-        df = await run.io_bound(balance_etfs.get_rebalancing_df, amt, adjustment)
+        df = await run_with_log(balance_etfs.get_rebalancing_df, amt, adjustment)
         table.update_from_pandas(df.reset_index(names="category"))
         graph.update_figure(plot.make_investing_rebalancing_bar(df))
-        main_out.text = await run.io_bound(get_main_out, df)
+        main_out.text = await run_with_log(get_main_out, df)
 
-    amount = ui.input(label="Amount", validation=validate).on("keydown.enter", update)
+    with ui.row().classes("items-center"):
+        amount = ui.input(label="Amount", validation=validate).on(
+            "keydown.enter", update
+        )
+        ui.checkbox("Show log", value=False).on_value_change(on_log_checkbox_changed)
 
     with ui.grid(rows=1, columns=2).classes("w-full"):
         with ui.card(align_items="center").classes("w-full"):
@@ -271,15 +337,16 @@ def regenerate_page():
 async def transactions_page(request: Request):
     log_request()
     await ui.context.client.connected()
-    if request.headers.get("remote-email", None) != "valankar@gmail.com":
-        ui.label("Unauthorized")
+    ui.on_exception(show_error)
+    if not authorized(request):
         return
     futures_by_account = (
         futures.Futures()
         .futures_df.groupby(level="account")[["value", "margin_requirement"]]
         .sum()
     )
-    options_df = stock_options.get_options_and_spreads().pruned_options
+    o: stock_options.OptionsAndSpreads = stock_options.get_options_and_spreads()
+    options_df = pd.concat([x.df for x in o.short_options])
     with ui.grid().classes("md:grid-cols-3"):
         for account, currency in (
             (common.Brokerage.SCHWAB, r"\\$"),
@@ -339,10 +406,10 @@ async def transactions_page(request: Request):
                         .reset_index(drop=True)
                     )
                     for i in range(1, len(df)):
-                        df.loc[i, "Balance"] = (
-                            df.loc[i - 1, "Balance"] + df.loc[i, "Amount"]
-                        )  # type: ignore
-                df["Days"] = -(pd.Timestamp.now() - df["Date"]).dt.days  # type: ignore
+                        balance = df.at[i - 1, "Balance"]
+                        amount = df.at[i, "Amount"]
+                        df.at[i, "Balance"] = balance + amount  # type: ignore
+                df["Days"] = -(pd.Timestamp.now() - pd.to_datetime(df["Date"])).dt.days
                 table = ui.table.from_pandas(df.round({"Amount": 2, "Balance": 2}))
                 stock_options_ui.body_cell_slot(
                     table, "Days", "green", "Number(props.value) > 0"
@@ -359,14 +426,165 @@ async def transactions_page(request: Request):
 async def schwab_login(request: Request) -> RedirectResponse:
     if not (uri := os.environ.get("SCHWAB_CALLBACK_URI")):
         raise ValueError("SCHWAB_CALLBACK_URI not defined")
-    return await common.schwab_conn.oauth.authorize_redirect(request, uri)
+    return await common.Schwab().oauth.authorize_redirect(request, uri)
 
 
 @app.get("/callback")
 async def schwab_callback(request: Request) -> RedirectResponse:
-    token = await common.schwab_conn.oauth.authorize_access_token(request)
-    common.schwab_conn.write_token(token)
+    s = common.Schwab()
+    token = await s.oauth.authorize_access_token(request)
+    s.write_token(token)
     return RedirectResponse("/")
+
+
+@ui.page("/brokerages", title="Current Brokerage Values")
+async def brokerages_page():
+    log_request()
+    await ui.context.client.connected()
+    ui.on_exception(show_error)
+    df = brokerages.load_df()
+    cutoff = df.index.max() - pd.Timedelta(hours=12)
+    df = df[df.index >= cutoff]
+    new_entry = {}
+    for b, b_df in (await run.io_bound(margin_loan.get_balances_broker)).items():
+        new_entry[b] = b_df["Total"].iloc[-1]
+    df.loc[pd.Timestamp.now()] = new_entry
+    p = plot.make_brokerage_total_section(df, common.SUBPLOT_MARGIN)
+    ui.plotly(p).classes("w-full")
+
+
+@ui.page("/swygx_holdings", title="SWYGX Holdings History")
+async def swygx_holdings_page():
+    """Display SWYGX holdings history as a stacked area plot and pie chart."""
+    log_request()
+    await ui.context.client.connected()
+
+    def get_holdings_graphs():
+        df = common.read_sql_table("swygx_holdings")
+        holdings_cols = [c for c in df.columns if c != "date"]
+
+        # Stacked area plot
+        area_fig = px.area(
+            df.reset_index(),
+            x="date",
+            y=holdings_cols,
+            title="SWYGX Holdings History",
+            labels={"value": "Allocation %", "variable": "Holding"},
+        )
+        area_fig.update_layout(
+            yaxis_title="Allocation %",
+            xaxis_title="",
+        )
+
+        # Pie chart of latest values
+        latest = df.iloc[-1][holdings_cols]
+        pie_fig = px.pie(
+            names=latest.index,
+            values=latest.values,
+            title=f"Latest Allocations ({df.index[-1].strftime('%Y-%m-%d')})",
+        )
+        pie_fig.update_traces(textinfo="percent+label")
+
+        return area_fig, pie_fig
+
+    area_graph, pie_graph = await run.io_bound(get_holdings_graphs)
+    with ui.grid().classes("w-full gap-4 grid-cols-2"):
+        ui.plotly(area_graph).classes("w-full").style("height: 80vh")
+        ui.plotly(pie_graph).classes("w-full").style("height: 80vh")
+
+
+@ui.page("/stocks_by_brokerage", title="Stocks by Brokerage")
+async def stocks_by_brokerage_page():
+    """Display pie charts of stock/ETF holdings as percentage of portfolio for each brokerage."""
+    log_request()
+    await ui.context.client.connected()
+
+    def get_brokerage_stock_pies():
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+
+        # Get stock holdings for each brokerage
+        brokerage_data = {}
+        for brokerage in common.Brokerage:
+            amounts = ledger_amounts.get_etfs_amounts(brokerage.value)
+            if amounts:
+                prices = common.get_tickers(set(amounts.keys()))
+                holdings = []
+                for ticker, shares in amounts.items():
+                    if ticker in prices:
+                        value = shares * prices[ticker]
+                        holdings.append({"ticker": ticker, "value": value})
+                if holdings:
+                    brokerage_data[brokerage.value] = pd.DataFrame(holdings)
+
+        if not brokerage_data:
+            return None
+
+        # Create subplots with one pie chart per brokerage
+        n_brokerages = len(brokerage_data)
+        fig = make_subplots(
+            rows=1,
+            cols=n_brokerages,
+            subplot_titles=list(brokerage_data.keys()),
+            specs=[[{"type": "pie"}] * n_brokerages],
+        )
+
+        for i, (brokerage_name, df) in enumerate(brokerage_data.items(), start=1):
+            pie = go.Pie(
+                labels=df["ticker"],
+                values=df["value"],
+                textinfo="percent+label",
+                name=brokerage_name,
+            )
+            fig.add_trace(pie, row=1, col=i)
+
+        fig.update_layout(
+            title={
+                "text": "Stock/ETF Holdings by Brokerage",
+                "x": 0.5,
+                "xanchor": "center",
+            },
+            showlegend=False,
+        )
+
+        return fig
+
+    fig = await run.io_bound(get_brokerage_stock_pies)
+    if fig:
+        ui.plotly(fig).classes("w-full").style("height: 80vh")
+    else:
+        ui.label("No stock data available for brokerages.")
+
+
+@ui.page("/real_estate", title="Real Estate")
+async def real_estate_page():
+    """Display raw real estate values from Redfin, Zillow, and Taxes."""
+    log_request()
+    await ui.context.client.connected()
+
+    # Time period options: days mapping (None = all)
+    periods = {"1 Week": 7, "1 Month": 30, "1 Year": 365, "All": None}
+    selected_period = (
+        ui.radio(options=list(reversed(periods.keys())), value="All")
+        .props("inline")
+        .classes("w-full justify-center")
+    )
+
+    def get_fig(days):
+        return plot.make_real_estate_raw_section(common.SUBPLOT_MARGIN, days)
+
+    fig = await run.io_bound(get_fig, None)
+    plotly_graph = ui.plotly(fig).classes("w-full").style("height: 85vh")
+
+    def on_change(e):
+        days = periods[e.value]
+        background_tasks.create(update_graph(days))
+
+    async def update_graph(days):
+        new_fig = await run.io_bound(get_fig, days)
+        plotly_graph.update_figure(new_fig)
+
+    selected_period.on_value_change(on_change)
 
 
 if __name__ in {"__main__", "__mp_main__"}:

@@ -5,7 +5,6 @@ import csv
 import json
 import os
 import shutil
-import socket
 import tempfile
 import typing
 from collections.abc import Iterable
@@ -15,21 +14,24 @@ from datetime import date, datetime
 from enum import StrEnum
 from functools import reduce
 from pathlib import Path
-from typing import Any, ClassVar, Final, Generator, Optional
+from typing import Any, ClassVar, Final, Generator, Optional, TypeVar
 
 import duckdb
 import pandas as pd
 import schwab
 import walrus
 from authlib.integrations.starlette_client import OAuth, StarletteOAuth2App
+from browser_use_sdk import AsyncBrowserUse, TaskResult
 from loguru import logger
 from playwright.sync_api import sync_playwright
+from pydantic import BaseModel
 from schwab.client import AsyncClient, Client
 from schwab.orders.options import OptionSymbol
 
 CODE_DIR = f"{Path.home()}/code/accounts"
 PUBLIC_HTML = f"{CODE_DIR}/web/"
 PREFIX = PUBLIC_HTML
+HOURLY_LOGFILE = f"{PREFIX}/finance_hourly.log"
 LOCK_TTL_SECONDS = 10 * 60
 DUCKDB = f"{PREFIX}/db.duckdb"
 DUCKDB_LOCK_NAME = "duckdb"
@@ -158,23 +160,21 @@ class Schwab:
     def __init__(self):
         self.api_key: str = os.environ.get("SCHWAB_API_KEY", "")
         self.secret: str = os.environ.get("SCHWAB_SECRET", "")
-        if not all([self.api_key, self.secret]):
-            raise GetTickerError("No schwab environment variables found")
-        self._client: Optional[Client | AsyncClient] = None
         self._oauth: Optional[StarletteOAuth2App] = None
 
     @property
     def client(self) -> Client | AsyncClient:
-        if not self._client:
-            logger.info("Creating Schwab client")
-            self._client = schwab.auth.client_from_token_file(
-                self.SCHWAB_TOKEN_FILE, self.api_key, self.secret
-            )
-        return self._client
+        if not all([self.api_key, self.secret]):
+            raise GetTickerError("No schwab environment variables found")
+        return schwab.auth.client_from_token_file(
+            self.SCHWAB_TOKEN_FILE, self.api_key, self.secret
+        )
 
     @property
     def oauth(self) -> StarletteOAuth2App:
         if not self._oauth:
+            if not all([self.api_key, self.secret]):
+                raise GetTickerError("No schwab environment variables found")
             self._oauth = OAuth().register(
                 name="schwab",
                 client_id=self.api_key,
@@ -210,10 +210,10 @@ class Schwab:
             except KeyError:
                 logger.error(f"Cannot find {t} in quote: {j}")
                 raise GetTickerError(f"{t=} ticker not found")
-            if "regular" in p:
-                q = p["regular"]["regularMarketLastPrice"]
-            elif "quote" in p:
+            if "quote" in p:
                 q = p["quote"]["lastPrice"]
+            elif "regular" in p:
+                q = p["regular"]["regularMarketLastPrice"]
             else:
                 logger.error(p)
                 raise GetTickerError(f"{t=} cannot find schwab price field")
@@ -266,9 +266,6 @@ class Schwab:
             )
         return results
 
-    def get_option_quote(self, t: TickerOption) -> Optional[OptionQuote]:
-        return self.get_option_quotes([t]).get(t, None)
-
     def get_future_quotes(self, ts: Iterable[str]) -> dict[str, FutureQuote]:
         r: dict[str, FutureQuote] = {}
         j = self.client.get_quotes(ts).json()
@@ -279,9 +276,6 @@ class Schwab:
             logger.info(f"{t=} {q=}")
             r[t] = q
         return r
-
-
-schwab_conn: Final[Schwab] = Schwab()
 
 
 @contextmanager
@@ -311,7 +305,7 @@ def get_tickers(ts: Iterable[str]) -> dict[str, float]:
         r[t.lstrip(prefix)] = p
     fetch_ts = set(fetch_ts) - set(r)
     if fetch_ts:
-        qs = schwab_conn.get_quotes(fetch_ts)
+        qs = Schwab().get_quotes(fetch_ts)
         cache_qs = {f"{prefix}{t}": qs[t] for t in qs}
         walrus_db.cache.set_many(cache_qs)
         r.update(qs)
@@ -344,13 +338,10 @@ def get_option_quotes(
         else:
             needed.add(t)
     if needed:
-        qs = schwab_conn.get_option_quotes(needed)
+        qs = Schwab().get_option_quotes(needed)
         cache_qs = {f"{prefix}{make_option_key(t)}": qs[t] for t in qs}
         walrus_db.cache.set_many(cache_qs)
         r.update(qs)
-        # Underlying prices are returned as well, save them
-        cache_qs = {f"get_ticker:{k.ticker}": v.underlying_price for k, v in qs.items()}
-        walrus_db.cache.set_many(cache_qs)
     return r
 
 
@@ -368,7 +359,7 @@ def get_future_quotes(ts: Iterable[str]) -> dict[str, FutureQuote]:
         r[t.lstrip(prefix)] = p
     fetch_ts = set(fetch_ts) - set(r)
     if fetch_ts:
-        qs = schwab_conn.get_future_quotes(fetch_ts)
+        qs = Schwab().get_future_quotes(fetch_ts)
         cache_qs = {f"{prefix}{t}": qs[t] for t in qs}
         walrus_db.cache.set_many(cache_qs)
         r.update(qs)
@@ -454,22 +445,24 @@ def temporary_file_move(dest_file):
     shutil.move(write_file.name, dest_file)
 
 
-def schwab_browser_page(page, accept_cookies=False):
-    """Click popups that sometimes appears."""
-    page.get_by_text("Continue with a limited experience").click()
-    # Only necessary outside of US.
-    if accept_cookies:
-        page.get_by_role("button", name="Accept All Cookies").click()
-    return page
+BaseModelType = TypeVar("BaseModelType", bound=BaseModel)
+
+
+async def run_browser_use(
+    task: str, model: typing.Type[BaseModelType]
+) -> TaskResult[BaseModelType]:
+    rate_limit = walrus_db.db.rate_limit("BrowserUse", limit=1, per=24 * 60 * 60)
+    if rate_limit.limit(task):
+        raise walrus.RateLimitException("Browser Use rate limited to once per day")
+    client = AsyncBrowserUse()
+    return await client.run(task=task, output_schema=model)
 
 
 @contextmanager
 def run_with_browser_page(url):
     """Run code with a Chromium browser page."""
     with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(
-            f"http://{socket.gethostbyname('chrome-cdp')}:9222"
-        )
+        browser = p.chromium.launch()
         page = browser.new_page()
         try:
             page.goto(url)

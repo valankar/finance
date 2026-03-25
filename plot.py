@@ -196,6 +196,96 @@ def make_real_estate_section(
     return section
 
 
+def make_real_estate_raw_section(
+    margin: dict[str, int], days: int | None = None
+) -> Figure:
+    """Line graph of raw real estate values from Redfin, Zillow, and Taxes."""
+    df = common.read_sql_table("real_estate_prices")
+
+    # Filter by date range if specified
+    if days is not None:
+        cutoff_date = pd.Timestamp.now() - pd.Timedelta(days=days)
+        df = df[df.index >= cutoff_date]
+
+    # Create subplots - one row per property, with columns for each source
+    n_properties = len(homes.PROPERTIES)
+    fig = make_subplots(
+        rows=n_properties,
+        cols=1,
+        subplot_titles=[f"{p.name}" for p in homes.PROPERTIES],
+        vertical_spacing=0.1,
+    )
+
+    colors = {
+        "Redfin": "#FF6B6B",
+        "Zillow": "#4ECDC4",
+        "Taxes": "#45B7D1",
+        "Average": "#FFD700",
+    }
+
+    for row_idx, prop in enumerate(homes.PROPERTIES, start=1):
+        prop_df = df[df["name"] == prop.name]
+
+        for site in ["Redfin", "Zillow", "Taxes"]:
+            site_df = prop_df[prop_df["site"] == site]
+            if not site_df.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=site_df.index,
+                        y=site_df["value"],
+                        mode="lines",
+                        name=site,
+                        legendgroup=site,
+                        showlegend=(row_idx == 1),
+                        line=dict(color=colors.get(site, "gray")),
+                    ),
+                    row=row_idx,
+                    col=1,
+                )
+
+        # Calculate and plot the average of Redfin, Zillow, and Taxes
+        # First resample and interpolate each source to have consistent daily data
+        pivot_df = prop_df.reset_index().pivot_table(
+            index="date", columns="site", values="value"
+        )
+
+        # Resample to daily frequency and interpolate missing values
+        pivot_df = pivot_df.resample("D").last().interpolate()
+
+        sites = ["Redfin", "Zillow", "Taxes"]
+        available_sites = [s for s in sites if s in pivot_df.columns]
+        if len(available_sites) >= 2:  # Only show average if we have at least 2 sources
+            pivot_df["Average"] = pivot_df[available_sites].mean(axis=1)
+            fig.add_trace(
+                go.Scatter(
+                    x=pivot_df.index,
+                    y=pivot_df["Average"],
+                    mode="lines",
+                    name="Average",
+                    legendgroup="Average",
+                    showlegend=(row_idx == 1),
+                    line=dict(color=colors["Average"]),
+                ),
+                row=row_idx,
+                col=1,
+            )
+
+    fig.update_yaxes(title_text="USD")
+    fig.update_xaxes(title_text="")
+    centered_title(fig, "Real Estate Raw Values")
+    fig.update_layout(
+        margin=margin,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.1,
+            xanchor="center",
+            x=0.5,
+        ),
+    )
+    return fig
+
+
 def make_real_estate_profit_bar(real_estate_df: pd.DataFrame) -> go.Bar:
     """Bar chart of real estate profit."""
     values = []
@@ -224,7 +314,7 @@ def make_real_estate_profit_bar_yearly(real_estate_df: pd.DataFrame) -> go.Bar:
     for home in cols:
         time_diff = (
             real_estate_df[home].index[-1] - real_estate_df[home].first_valid_index()
-        )  # type: ignore
+        )
         value_diff = (
             real_estate_df.iloc[-1][home]
             - real_estate_df.loc[real_estate_df[home].first_valid_index(), home]  # type: ignore
@@ -486,8 +576,8 @@ def make_loan_section(margin: dict[str, int]) -> Figure:
             showarrow=False,
             x="Loan",
             y=df.iloc[-1]["Equity Balance"] * ((i + 1) / 10),
-            row=1,
-            col=col,
+            row=1,  # type: ignore
+            col=col,  # type: ignore
         )
 
     i = 1
@@ -570,7 +660,9 @@ def make_futures_margin_section(margin: dict[str, int]) -> Figure:
         df = b[broker.name]
         csp = 0
         if broker.name == common.Brokerage.SCHWAB:
-            csp = stock_options.short_put_exposure(opts.pruned_options, broker.name)
+            csp = stock_options.short_put_exposure(
+                pd.concat([x.df for x in opts.short_options]), broker.name
+            )
         add_loan_graph(df, req, csp, i)
 
     section.update_yaxes(matches=None)

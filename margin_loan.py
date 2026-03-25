@@ -59,7 +59,8 @@ def get_balances_all(b: dict[str, pd.DataFrame]) -> pd.DataFrame:
 @common.walrus_db.cache.cached()
 def get_balances_broker() -> dict[str, pd.DataFrame]:
     r: dict[str, pd.DataFrame] = {}
-    opts = stock_options.get_options_and_spreads()
+    opts: stock_options.OptionsAndSpreads = stock_options.get_options_and_spreads()
+    ovb = opts.get_options_value_by_brokerage()
     futures_df = futures.Futures().futures_df
     for broker in LOAN_BROKERAGES:
         loan_df = load_loan_balance_df(broker)
@@ -70,8 +71,11 @@ def get_balances_broker() -> dict[str, pd.DataFrame]:
         cash_balance = loan_df["Loan Balance"].sum()
         logger.info(f"Cash balance for {broker.name}: {cash_balance:.0f}")
         portfolio_equity = notional_value + cash_balance
-        if options_value := opts.options_value_by_brokerage.get(broker.name):
+        if options_value := ovb.get(broker.name):
             logger.info(f"Options value for {broker.name}: {options_value.value:.0f}")
+            logger.info(
+                f"Options notional value for {broker.name}: {options_value.notional_value:.0f}"
+            )
             notional_value += options_value.notional_value
             portfolio_equity += options_value.value
         try:

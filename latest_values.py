@@ -9,7 +9,7 @@ import common
 
 def difference_df(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     yesterday = df.index[-1] - timedelta(days=1)
-    closest_idx = df.index.get_indexer([yesterday], method="nearest")
+    closest_idx = df.index.get_indexer([yesterday], method="nearest")  # type: ignore
     df = pd.concat([df.iloc[closest_idx], df.iloc[-1:]])
     return df, df.diff()
 

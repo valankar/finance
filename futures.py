@@ -2,11 +2,14 @@ import csv
 import io
 import re
 import subprocess
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 import pandas as pd
 from loguru import logger
+from pydantic import BaseModel
 
 import common
 import ledger_ops
@@ -30,6 +33,30 @@ MONTH_CODES: dict[str, str] = {
 
 class IceUnknownFuture(Exception):
     pass
+
+
+class Quote(BaseModel):
+    value: float
+
+
+@dataclass
+class MfsQuote:
+    quote: float
+    timestamp: datetime
+
+
+@common.walrus_db.cache.cached(key_fn=lambda a, _: a[0], timeout=60 * 60)
+async def get_mfs_from_browser_use(ticker: str) -> Optional[float]:
+    month_prefix = MONTH_CODES[ticker[4]]
+    year = ticker[5:]
+    contract = f"{month_prefix}{year}"
+    logger.info(f"Looking for {ticker=} {contract=} with browser-use")
+    t = await common.run_browser_use(
+        task=f"On https://www.ice.com/products/31196848/MSCI-EAFE-Index-Future/data get last quote value for contract {contract}",
+        model=Quote,
+    )
+    if o := t.output:
+        return o.value
 
 
 @common.walrus_db.cache.cached(key_fn=lambda a, _: a[0])

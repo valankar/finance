@@ -3,13 +3,12 @@
 
 import csv
 import io
-import itertools
 import re
 import subprocess
 import typing
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import date, datetime
-from functools import partial
 from pathlib import Path
 
 import pandas as pd
@@ -18,7 +17,8 @@ import common
 import ledger_ops
 
 
-class CommonDetails(typing.NamedTuple):
+@dataclass
+class CommonDetails:
     account: str
     amount: int
     ticker: str
@@ -29,39 +29,48 @@ class CommonDetails(typing.NamedTuple):
     quote: float
     profit: float
     intrinsic_value: float
+    notional_value: float
 
 
-class ShortCallDetails(typing.NamedTuple):
+@dataclass
+class OptionDetails:
     details: CommonDetails
+    option_type: typing.Literal["CALL", "PUT"]
     strike: float
     profit_stock: float
+    df: pd.DataFrame
 
 
-class SpreadDetails(typing.NamedTuple):
+@dataclass
+class SpreadDetails:
     details: CommonDetails
     low_strike: float
     high_strike: float
-    risk: float
+    delta: float
 
 
-class Spread(typing.NamedTuple):
+@dataclass
+class Spread:
     df: pd.DataFrame
     details: SpreadDetails
 
 
-class BoxSpreadDetails(typing.NamedTuple):
+@dataclass
+class BoxSpreadDetails:
     details: SpreadDetails
     earliest_transaction_date: date
     loan_term_days: int
     apy: float
 
 
-class BoxSpread(typing.NamedTuple):
+@dataclass
+class BoxSpread:
     df: pd.DataFrame
     details: BoxSpreadDetails
 
 
-class IronCondorDetails(typing.NamedTuple):
+@dataclass
+class IronCondorDetails:
     details: CommonDetails
     low_put_strike: float
     high_put_strike: float
@@ -70,32 +79,52 @@ class IronCondorDetails(typing.NamedTuple):
     risk: float
 
 
-class IronCondor(typing.NamedTuple):
+@dataclass
+class IronCondor:
     df: pd.DataFrame
     details: IronCondorDetails
 
 
-class OptionsValue(typing.NamedTuple):
+@dataclass
+class OptionsValue:
     value: float
     notional_value: float
 
 
-class OptionsAndSpreads(typing.NamedTuple):
+@dataclass
+class OptionsAndSpreads:
     all_options: pd.DataFrame
-    # Options with box, bull put, and bear call spreads removed.
+    # Options outside of groups.
     pruned_options: pd.DataFrame
-    short_calls: list[ShortCallDetails]
+    short_options: list[OptionDetails]
+    long_options: list[OptionDetails]
     box_spreads: list[BoxSpread]
     iron_condors: list[IronCondor]
     # These include spreads part of iron condors.
     bull_put_spreads: list[Spread]
     bear_call_spreads: list[Spread]
-    # These do not include spreads part of iron condors.
-    bull_put_spreads_no_ic: list[Spread]
-    bear_call_spreads_no_ic: list[Spread]
     bull_call_spreads: list[Spread]
     synthetics: list[Spread]
-    options_value_by_brokerage: dict[str, OptionsValue]
+    strangles: list[Spread]
+
+    def get_all_without_box_spreads(self) -> pd.DataFrame:
+        return remove_spreads_with_quantities(self.all_options, self.box_spreads)
+
+    def get_options_value_by_brokerage(self) -> dict[str, OptionsValue]:
+        values: dict[str, OptionsValue] = {}
+        for broker in common.OPTIONS_BROKERAGES:
+            options_value = self.all_options.query(f"account == '{broker}'")[
+                "value"
+            ].sum()
+            options_notional_value = (
+                self.get_all_without_box_spreads()
+                .query(f"account == '{broker}'")["notional_value"]
+                .sum()
+            )
+            values[broker] = OptionsValue(
+                value=options_value, notional_value=options_notional_value
+            )
+        return values
 
 
 def options_df_raw() -> pd.DataFrame:
@@ -255,21 +284,26 @@ def get_trade_price_override(broker: str, option_name: str) -> float:
 
 
 def add_contract_price(options_df: pd.DataFrame) -> pd.DataFrame:
-    ops = []
-
-    def divide_total(broker: str, name: str, divisor: float) -> float:
-        if p := get_trade_price_override(broker, name):
-            return p
+    def get_contract_price(
+        broker: str, name: str, count: int, multiplier: int
+    ) -> float:
+        divisor = count * multiplier
+        if override := get_trade_price_override(broker, name):
+            return override
         return get_ledger_total(broker, name) / divisor
 
-    for idx, row in options_df.iterrows():
-        broker: str = typing.cast(tuple, idx)[0]
-        name: str = typing.cast(tuple, idx)[1]
-        ops.append(
-            partial(divide_total, broker, name, row["count"] * row["multiplier"])
-        )
-    with ThreadPoolExecutor() as e:
-        prices = list(e.map(lambda op: op(), ops))
+    with ThreadPoolExecutor() as executor:
+        futures = []
+        for idx, row in options_df.iterrows():
+            broker: str = typing.cast(tuple, idx)[0]
+            name: str = typing.cast(tuple, idx)[1]
+            futures.append(
+                executor.submit(
+                    get_contract_price, broker, name, row["count"], row["multiplier"]
+                )
+            )
+        prices = [f.result() for f in futures]
+
     options_df["contract_price"] = prices
     return options_df
 
@@ -295,17 +329,13 @@ def options_df() -> pd.DataFrame:
         (df["type"] == "PUT") & df["in_the_money"],
         "intrinsic_value",
     ] = (df["strike"] - df["current_price"]) * df["count"] * df["multiplier"]
-    df["min_contract_price"] = 0.0
-    df.loc[df["in_the_money"], "min_contract_price"] = df["intrinsic_value"] / (
-        df["count"] * df["multiplier"]
-    )
     df = df.sort_values(["account", "expiration", "name"])
     df = add_contract_price(df)
     df = add_value(df)
     return df
 
 
-def short_put_exposure(dataframe, broker):
+def short_put_exposure(dataframe: pd.DataFrame, broker: str):
     """Get exposure of short puts along with long puts."""
     try:
         broker_puts = dataframe.xs(broker, level="account").loc[
@@ -321,105 +351,263 @@ def short_put_exposure(dataframe, broker):
     return total
 
 
+def _query_spread_leg(
+    options_df: pd.DataFrame,
+    ticker: str,
+    option_type: str,
+    strike_cond: str,
+    expiration: pd.Timestamp,
+    account: str,
+    count_cond: str,
+) -> pd.DataFrame:
+    """Query for a spread leg matching the given criteria."""
+    # Use eval for conditions, but direct comparison for index levels
+    # First filter by index levels
+    filtered = options_df[
+        (options_df.index.get_level_values("account") == account)
+        & (options_df.index.get_level_values("expiration") == expiration)
+    ]
+    # Then apply remaining query conditions
+    query_str = (
+        f'ticker == "{ticker}" & type == "{option_type}" & {strike_cond} & {count_cond}'
+    )
+    return filtered.query(query_str)
+
+
+def _create_spread(
+    leg1_df: pd.DataFrame,
+    leg2_df: pd.DataFrame,
+    normalize_counts: bool = False,
+) -> typing.Optional[Spread]:
+    """Create a Spread from two leg DataFrames if both exist."""
+    found = pd.concat([leg1_df, leg2_df])
+    if len(found) != 2:
+        return None
+
+    if normalize_counts:
+        min_count = found["count"].abs().min()
+        # Store original counts before modifying
+        found = found.copy()
+        found["_original_count"] = found["count"].copy()
+        found.loc[found.index[0], "count"] = min_count
+        found.loc[found.index[1], "count"] = -min_count
+        # Recalculate notional_value based on new count: delta * strike * count * multiplier
+        found["notional_value"] = (
+            found["delta"] * found["strike"] * found["count"] * found["multiplier"]
+        )
+        # Recalculate value based on new count: count * quote * multiplier
+        found["value"] = found["count"] * found["quote"] * found["multiplier"]
+        # Recalculate profit_option_value: value - (contract_price * count * multiplier)
+        found["profit_option_value"] = found["value"] - (
+            found["contract_price"] * found["count"] * found["multiplier"]
+        )
+
+    return Spread(df=found, details=get_spread_details(found))
+
+
 def find_synthetics(options_df: pd.DataFrame) -> list[Spread]:
+    """Find synthetic positions: Long CALL + Short PUT or Long PUT + Short CALL at same strike."""
     spreads: list[Spread] = []
-    for index, row in options_df.iterrows():
-        ticker = row["ticker"]  # noqa: F841
+
+    for idx, row in options_df.iterrows():
+        account, name, expiration = typing.cast(tuple, idx)
+        ticker = row["ticker"]
         if ticker in ("SPX", "SPXW"):
             continue
-        # Find a long CALL
+
         if row["type"] == "CALL" and row["count"] > 0:
-            # The long CALL
-            long_call = options_df.query(
-                'ticker == @ticker & type == "CALL" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == @row["count"]'
+            # Long CALL + Short PUT at same strike
+            leg1 = _query_spread_leg(
+                options_df,
+                ticker,
+                "CALL",
+                f"strike == {row['strike']}",
+                expiration,
+                account,
+                f"count == {row['count']}",
             )
-            # Find a short PUT at same strike, count, expiration and broker
-            short_put = options_df.query(
-                'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count < 0 & count >= -@row["count"]'
+            leg2 = _query_spread_leg(
+                options_df,
+                ticker,
+                "PUT",
+                f"strike == {row['strike']}",
+                expiration,
+                account,
+                f"count < 0 & count >= {-row['count']}",
             )
-            found = pd.concat([long_call, short_put])
-            if len(found) == 2:
-                found.loc[found.index[0], "count"] = found["count"].abs().min()
-                found.loc[found.index[1], "count"] = -found["count"].abs().min()
-                spreads.append(Spread(df=found, details=get_spread_details(found)))
-        # Find a long PUT
-        if row["type"] == "PUT" and row["count"] > 0:
-            # The long PUT
-            long_put = options_df.query(
-                'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == @row["count"]'
+            if spread := _create_spread(leg1, leg2, normalize_counts=True):
+                spreads.append(spread)
+
+        elif row["type"] == "PUT" and row["count"] > 0:
+            # Long PUT + Short CALL at same strike
+            leg1 = _query_spread_leg(
+                options_df,
+                ticker,
+                "PUT",
+                f"strike == {row['strike']}",
+                expiration,
+                account,
+                f"count == {row['count']}",
             )
-            # Find a short CALL at same strike, count, expiration and broker
-            short_call = options_df.query(
-                'ticker == @ticker & type == "CALL" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count < 0 & count >= -@row["count"]'
+            leg2 = _query_spread_leg(
+                options_df,
+                ticker,
+                "CALL",
+                f"strike == {row['strike']}",
+                expiration,
+                account,
+                f"count < 0 & count >= {-row['count']}",
             )
-            found = pd.concat([long_put, short_call])
-            if len(found) == 2:
-                found.loc[found.index[0], "count"] = found["count"].abs().min()
-                found.loc[found.index[1], "count"] = -found["count"].abs().min()
-                spreads.append(Spread(df=found, details=get_spread_details(found)))
+            if spread := _create_spread(leg1, leg2, normalize_counts=True):
+                spreads.append(spread)
+
     return spreads
 
 
 def find_bull_put_spreads(options_df: pd.DataFrame) -> list[Spread]:
-    """Find bull put spreads. Remove box spreads before calling."""
+    """Find bull put spreads: Long PUT at lower strike + Short PUT at higher strike."""
     spreads: list[Spread] = []
-    for index, row in options_df.iterrows():
-        ticker = row["ticker"]  # noqa: F841
-        # Find a long PUT
-        if row["type"] == "PUT" and row["count"] > 0:
-            # The long PUT
-            low_long_put = options_df.query(
-                'ticker == @ticker & type == "PUT" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == @row["count"]'
-            )
-            # Find a short PUT at higher strike, same expiration and broker
-            high_short_put = options_df.query(
-                'ticker == @ticker & type == "PUT" & strike > @row["strike"] & expiration == @index[2] & account == @index[0] & count == -@row["count"]'
-            )
-            found = pd.concat([low_long_put, high_short_put])
-            if len(found) == 2:
-                spreads.append(Spread(df=found, details=get_spread_details(found)))
+
+    for idx, row in options_df.iterrows():
+        account, name, expiration = typing.cast(tuple, idx)
+        if row["type"] != "PUT" or row["count"] <= 0:
+            continue
+
+        ticker = row["ticker"]
+        # Long PUT (identity leg)
+        leg1 = _query_spread_leg(
+            options_df,
+            ticker,
+            "PUT",
+            f"strike == {row['strike']}",
+            expiration,
+            account,
+            f"count == {row['count']}",
+        )
+        # Short PUT at higher strike
+        leg2 = _query_spread_leg(
+            options_df,
+            ticker,
+            "PUT",
+            f"strike > {row['strike']}",
+            expiration,
+            account,
+            f"count == {-row['count']}",
+        )
+        if spread := _create_spread(leg1, leg2):
+            spreads.append(spread)
+
     return spreads
 
 
 def find_bear_call_spreads(options_df: pd.DataFrame) -> list[Spread]:
-    """Find bear call spreads. Remove box spreads before calling."""
-    spreads = []
-    for index, row in options_df.iterrows():
-        ticker = row["ticker"]  # noqa: F841
-        # Find a long CALL
-        if row["type"] == "CALL" and row["count"] > 0:
-            # The long CALL
-            high_long_call = options_df.query(
-                'ticker == @ticker & type == "CALL" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == @row["count"]'
-            )
-            # Find a short CALL at lower strike, same expiration and broker
-            low_short_call = options_df.query(
-                'ticker == @ticker & type == "CALL" & strike < @row["strike"] & expiration == @index[2] & account == @index[0] & count == -@row["count"]'
-            )
-            found = pd.concat([low_short_call, high_long_call])
-            if len(found) == 2:
-                spreads.append(Spread(df=found, details=get_spread_details(found)))
+    """Find bear call spreads: Short CALL at lower strike + Long CALL at higher strike."""
+    spreads: list[Spread] = []
+
+    for idx, row in options_df.iterrows():
+        account, name, expiration = typing.cast(tuple, idx)
+        if row["type"] != "CALL" or row["count"] <= 0:
+            continue
+
+        ticker = row["ticker"]
+        # Short CALL at lower strike
+        leg1 = _query_spread_leg(
+            options_df,
+            ticker,
+            "CALL",
+            f"strike < {row['strike']}",
+            expiration,
+            account,
+            f"count == {-row['count']}",
+        )
+        # Long CALL (identity leg)
+        leg2 = _query_spread_leg(
+            options_df,
+            ticker,
+            "CALL",
+            f"strike == {row['strike']}",
+            expiration,
+            account,
+            f"count == {row['count']}",
+        )
+        if spread := _create_spread(leg1, leg2):
+            spreads.append(spread)
+
     return spreads
 
 
 def find_bull_call_spreads(options_df: pd.DataFrame) -> list[Spread]:
-    """Find bull call spreads. Remove box spreads before calling."""
-    spreads = []
-    for index, row in options_df.iterrows():
-        ticker = row["ticker"]  # noqa: F841
-        # Find a long CALL
-        if row["type"] == "CALL" and row["count"] > 0:
-            # The long CALL
-            low_long_call = options_df.query(
-                'ticker == @ticker & type == "CALL" & strike == @row["strike"] & expiration == @index[2] & account == @index[0] & count == @row["count"]'
-            )
-            # Find a short CALL at higher strike, same expiration and broker
-            high_short_call = options_df.query(
-                'ticker == @ticker & type == "CALL" & strike > @row["strike"] & expiration == @index[2] & account == @index[0] & count == -@row["count"]'
-            )
-            for i in range(len(high_short_call)):
-                found = pd.concat([low_long_call, high_short_call.iloc[i : i + 1]])
-                spreads.append(Spread(df=found, details=get_spread_details(found)))
+    """Find bull call spreads: Long CALL at lower strike + Short CALL at higher strike."""
+    spreads: list[Spread] = []
+
+    for idx, row in options_df.iterrows():
+        account, name, expiration = typing.cast(tuple, idx)
+        if row["type"] != "CALL" or row["count"] <= 0:
+            continue
+
+        ticker = row["ticker"]
+        # Long CALL (identity leg)
+        leg1 = _query_spread_leg(
+            options_df,
+            ticker,
+            "CALL",
+            f"strike == {row['strike']}",
+            expiration,
+            account,
+            f"count == {row['count']}",
+        )
+        # Short CALL at higher strike - can have multiple matches
+        leg2_candidates = _query_spread_leg(
+            options_df,
+            ticker,
+            "CALL",
+            f"strike > {row['strike']}",
+            expiration,
+            account,
+            f"count == {-row['count']}",
+        )
+
+        for i in range(len(leg2_candidates)):
+            leg2 = leg2_candidates.iloc[i : i + 1]
+            if spread := _create_spread(leg1, leg2):
+                spreads.append(spread)
+
+    return spreads
+
+
+def find_strangles(options_df: pd.DataFrame) -> list[Spread]:
+    """Find strangles: Short CALL + Short PUT at lower strike."""
+    spreads: list[Spread] = []
+
+    for idx, row in options_df.iterrows():
+        account, name, expiration = typing.cast(tuple, idx)
+        if row["type"] != "CALL" or row["count"] >= 0:
+            continue
+
+        ticker = row["ticker"]
+        # Short CALL (identity leg)
+        leg1 = _query_spread_leg(
+            options_df,
+            ticker,
+            "CALL",
+            f"strike == {row['strike']}",
+            expiration,
+            account,
+            f"count == {row['count']}",
+        )
+        # Short PUT at lower strike
+        leg2 = _query_spread_leg(
+            options_df,
+            ticker,
+            "PUT",
+            f"strike < {row['strike']}",
+            expiration,
+            account,
+            f"count == {row['count']}",
+        )
+        if spread := _create_spread(leg1, leg2):
+            spreads.append(spread)
+
     return spreads
 
 
@@ -489,28 +677,86 @@ def find_box_spreads(options_df: pd.DataFrame) -> list[BoxSpread]:
     return box_spreads
 
 
-def remove_spreads(
-    options_df: pd.DataFrame, spreads: list[pd.DataFrame]
+def remove_spreads_with_quantities(
+    options_df: pd.DataFrame, spreads: typing.Sequence[typing.Any]
 ) -> pd.DataFrame:
-    if len(spreads) == 0:
-        return options_df
-    try:
-        return options_df[~options_df.isin(pd.concat(spreads))].dropna()
-    except ValueError:
+    """Remove options used in spreads/spreads, keeping excess quantities as separate rows.
+
+    This properly handles cases where a spread uses only part of an option position,
+    leaving the remainder in the pruned options.
+    """
+    if not spreads or options_df.empty:
         return options_df
 
+    # Track how much of each option index is used by spreads
+    usage: dict[tuple, int] = {}
+    for spread in spreads:
+        df = spread.df if hasattr(spread, "df") else spread.df
+        for idx, row in df.iterrows():
+            key = tuple(idx) if isinstance(idx, tuple) else (idx,)
+            count = abs(row["count"])
+            usage[key] = usage.get(key, 0) + count
 
-def get_short_call_details(options_df: pd.DataFrame) -> list[ShortCallDetails]:
-    short_calls = options_df.query("type == 'CALL' & count < 0")
-    short_call_details = []
-    for i in range(len(short_calls)):
-        row = short_calls.iloc[i]
+    # Build new DataFrame with adjusted quantities
+    new_rows = []
+    new_index = []
+    for idx, row in options_df.iterrows():
+        key = tuple(idx) if isinstance(idx, tuple) else (idx,)
+        original_count = row["count"]
+        used_count = usage.get(key, 0)
+
+        # Determine remaining count based on sign
+        if original_count > 0:
+            remaining_count = original_count - used_count
+        else:
+            remaining_count = original_count + used_count
+
+        if remaining_count == 0:
+            continue  # Fully used, skip
+
+        # Create adjusted row
+        new_row = row.copy()
+        new_row["count"] = remaining_count
+
+        # Recalculate all derived values based on new count
+        ratio = remaining_count / original_count
+        new_row["value"] = row["value"] * ratio
+        new_row["notional_value"] = row["notional_value"] * ratio
+        new_row["intrinsic_value"] = row["intrinsic_value"] * ratio
+        new_row["exercise_value"] = row["exercise_value"] * ratio
+        new_row["profit_stock_price"] = row["profit_stock_price"] * ratio
+        new_row["profit_option_value"] = row["profit_option_value"] * ratio
+
+        new_rows.append(new_row)
+        new_index.append(idx)
+
+    if not new_rows:
+        return options_df.iloc[0:0]  # Return empty DataFrame with same columns
+
+    result = pd.DataFrame(new_rows)
+    # Preserve the original index
+    result.index = pd.MultiIndex.from_tuples(new_index, names=options_df.index.names)
+    return result
+
+
+def get_option_details(
+    options_df: pd.DataFrame, option_type: typing.Literal["long", "short"]
+) -> list[OptionDetails]:
+    match option_type:
+        case "long":
+            q = "count > 0"
+        case "short":
+            q = "count < 0"
+    options = options_df.query(q)
+    option_details = []
+    for i in range(len(options)):
+        row = options.iloc[i]
         account = row.name[0]  # type: ignore
         expiration = row.name[2].date()  # type: ignore
         contract_price = row["contract_price"] * row["count"] * row["multiplier"]
         contract_price_per_share = row["contract_price"]
-        short_call_details.append(
-            ShortCallDetails(
+        option_details.append(
+            OptionDetails(
                 details=CommonDetails(
                     account=account,
                     amount=row["count"],
@@ -522,12 +768,15 @@ def get_short_call_details(options_df: pd.DataFrame) -> list[ShortCallDetails]:
                     quote=row["value"],
                     profit=row["value"] - contract_price,
                     intrinsic_value=row["intrinsic_value"],
+                    notional_value=row["notional_value"],
                 ),
+                option_type=row["type"],
                 strike=row["strike"],
                 profit_stock=row["profit_stock_price"],
+                df=options.iloc[[i]],
             )
         )
-    return short_call_details
+    return option_details
 
 
 def get_box_spread_details(spread_df: pd.DataFrame) -> BoxSpreadDetails:
@@ -560,6 +809,7 @@ def get_spread_details(spread_df: pd.DataFrame) -> SpreadDetails:
     c["price"] = c["contract_price"] * c["count"] * c["multiplier"]
     contract_price = c["price"].sum()
     quote = spread_df["value"].sum()
+    delta = sum(spread_df["delta"] * (spread_df["count"] / abs(spread_df["count"])))
     return SpreadDetails(
         details=CommonDetails(
             account=index[0],
@@ -570,12 +820,13 @@ def get_spread_details(spread_df: pd.DataFrame) -> SpreadDetails:
             contract_price=contract_price,
             contract_price_per_share=c["contract_price"].sum(),
             intrinsic_value=spread_df["intrinsic_value"].sum(),
+            notional_value=spread_df["notional_value"].sum(),
             quote=quote,
             profit=quote - contract_price,
         ),
         low_strike=low_strike,
         high_strike=high_strike,
-        risk=spread_df["exercise_value"].sum() - contract_price,
+        delta=delta,
     )
 
 
@@ -608,6 +859,7 @@ def get_iron_condor_details(
             contract_price=contract_price,
             contract_price_per_share=c["contract_price"].sum(),
             intrinsic_value=iron_condor_df["intrinsic_value"].sum(),
+            notional_value=iron_condor_df["notional_value"].sum(),
             quote=quote,
             profit=quote - contract_price,
         ),
@@ -619,190 +871,37 @@ def get_iron_condor_details(
     )
 
 
-def summarize_iron_condor(iron_condor: IronCondor):
-    d = iron_condor.details
-    cd = d.details
-    print(f"{cd.account}")
-    print(
-        f"{cd.amount} {cd.ticker} {cd.expiration} {d.low_put_strike:.0f}/{d.high_put_strike:.0f}/{d.low_call_strike:.0f}/{d.high_call_strike:.0f} Iron Condor"
-    )
-    print(f"Contract price: {cd.contract_price:.0f}")
-    print(f"Maximum risk: {d.risk:.0f}")
-    print(f"Ticker price: {cd.ticker_price}")
-    print(f"Profit: {cd.profit:.0f}\n")
-
-
-def summarize_box(box: BoxSpread):
-    d = box.details
-    cd = d.details.details
-    print(f"{cd.account}")
-    print(
-        f"{cd.amount} {cd.ticker} {cd.expiration} {d.details.low_strike:.0f}/{d.details.high_strike:.0f} Box"
-    )
-    print(f"Earliest transaction date: {d.earliest_transaction_date}")
-    print(f"Loan term: {d.loan_term_days} days")
-    print(f"APY: {d.apy:.2%}")
-    print(f"Contract price: {cd.contract_price:.0f}")
-    print(f"Exercise value: {cd.intrinsic_value:.0f}", end="")
-    if cd.amount > 1:
-        print(f" ({cd.intrinsic_value / cd.amount:.0f} per contract)", end="")
-    print("\n")
-
-
-def modify_otm_leg(spread_df: pd.DataFrame) -> typing.Optional[pd.DataFrame]:
-    leg = spread_df.query("in_the_money == False").copy()
-    if len(leg) == 1:
-        # Keep sign
-        sign = leg["exercise_value"].iloc[0] / abs(leg["exercise_value"].iloc[0])
-        leg["exercise_value"] = (
-            leg["count"] * leg["multiplier"] * leg["current_price"] * sign
-        )
-        return leg
-    return None
-
-
-def summarize_spread(spread: Spread, title: str):
-    d = spread.details
-    cd = d.details
-    print(f"{cd.account}")
-    print(
-        f"{cd.amount} {cd.ticker} {cd.expiration} {d.low_strike:.0f}/{d.high_strike:.0f} {title}"
-    )
-    total = spread.df.query("in_the_money == True")["exercise_value"].sum()
-    if (otm_leg := modify_otm_leg(spread.df)) is not None:
-        total += otm_leg["exercise_value"].sum()
-    print(f"Contract price: {cd.contract_price:.0f}")
-    print(f"Exercise value: {total:.0f}")
-    print(f"Maximum risk: {spread.df['exercise_value'].sum():.0f}")
-    print(f"Ticker price: {cd.ticker_price}")
-    print(f"Profit: {cd.profit:.0f}\n")
-
-
-def get_options_value_by_brokerage(
-    all_options: pd.DataFrame,
-) -> dict[str, OptionsValue]:
-    values: dict[str, OptionsValue] = {}
-    for broker in common.OPTIONS_BROKERAGES:
-        options_value = all_options.query(f"account == '{broker}'")["value"].sum()
-        options_notional_value = all_options.query(
-            f"account == '{broker}' and ticker not in ('SPX', 'SPXW')"
-        )["notional_value"].sum()
-        values[broker] = OptionsValue(
-            value=options_value, notional_value=options_notional_value
-        )
-    return values
-
-
 @common.walrus_db.db.lock("get_options_and_spreads", ttl=common.LOCK_TTL_SECONDS * 1000)
 @common.walrus_db.cache.cached()
 def get_options_and_spreads() -> OptionsAndSpreads:
     all_options = options_df()
     box_spreads = find_box_spreads(all_options)
-    pruned_options = remove_spreads(all_options, [s.df for s in box_spreads])
+    pruned_options = remove_spreads_with_quantities(all_options, box_spreads)
     bull_put_spreads = find_bull_put_spreads(pruned_options)
-    pruned_options = remove_spreads(pruned_options, [s.df for s in bull_put_spreads])
+    pruned_options = remove_spreads_with_quantities(pruned_options, bull_put_spreads)
     bear_call_spreads = find_bear_call_spreads(pruned_options)
-    pruned_options = remove_spreads(pruned_options, [s.df for s in bear_call_spreads])
+    pruned_options = remove_spreads_with_quantities(pruned_options, bear_call_spreads)
     iron_condors = find_iron_condors(bull_put_spreads, bear_call_spreads)
-    synthetics = find_synthetics(pruned_options)
     bull_call_spreads = find_bull_call_spreads(pruned_options)
-
-    def get_spread_no_ic(spreads: list[Spread]) -> list[Spread]:
-        pruned_spreads: list[Spread] = []
-        for spread in spreads:
-            spread_df = remove_spreads(spread.df, [s.df for s in iron_condors])
-            if not len(spread_df):
-                continue
-            pruned_spreads.append(spread)
-        return pruned_spreads
-
-    bull_put_spreads_no_ic = get_spread_no_ic(bull_put_spreads)
-    bear_call_spreads_no_ic = get_spread_no_ic(bear_call_spreads)
-    short_calls = get_short_call_details(pruned_options)
-    options_value_by_brokerage = get_options_value_by_brokerage(all_options)
+    pruned_options = remove_spreads_with_quantities(pruned_options, bull_call_spreads)
+    synthetics = find_synthetics(pruned_options)
+    pruned_options = remove_spreads_with_quantities(pruned_options, synthetics)
+    strangles = find_strangles(pruned_options)
+    pruned_options = remove_spreads_with_quantities(pruned_options, strangles)
+    short_options = get_option_details(pruned_options, "short")
+    pruned_options = remove_spreads_with_quantities(pruned_options, short_options)
+    long_options = get_option_details(pruned_options, "long")
+    pruned_options = remove_spreads_with_quantities(pruned_options, long_options)
     return OptionsAndSpreads(
         all_options=all_options,
         pruned_options=pruned_options,
-        short_calls=short_calls,
+        short_options=short_options,
+        long_options=long_options,
         box_spreads=box_spreads,
         bull_put_spreads=bull_put_spreads,
         bear_call_spreads=bear_call_spreads,
         iron_condors=iron_condors,
-        bull_put_spreads_no_ic=bull_put_spreads_no_ic,
-        bear_call_spreads_no_ic=bear_call_spreads_no_ic,
         bull_call_spreads=bull_call_spreads,
         synthetics=synthetics,
-        options_value_by_brokerage=options_value_by_brokerage,
+        strangles=strangles,
     )
-
-
-def get_itm_df(opts: OptionsAndSpreads) -> pd.DataFrame:
-    itm_df = opts.all_options.query("in_the_money == True")
-    # Handle spreads where one leg is in the money
-    for spread in itertools.chain(opts.bull_put_spreads, opts.bear_call_spreads):
-        if (otm_leg := modify_otm_leg(spread.df)) is not None:
-            itm_df = pd.concat([itm_df, otm_leg])
-    return itm_df
-
-
-def remove_zero_columns(df: pd.DataFrame) -> pd.DataFrame:
-    return df.loc[:, df.any()]
-
-
-def text_output(opts: OptionsAndSpreads, show_spreads: bool):
-    if len(otm_df := opts.all_options.query("in_the_money == False")):
-        print("Out of the money")
-        print(
-            remove_zero_columns(
-                otm_df.drop(
-                    columns=[
-                        "in_the_money",
-                        "intrinsic_value",
-                        "min_contract_price",
-                        "profit_stock_price",
-                    ]
-                )
-            ),
-            "\n",
-        )
-    if len(itm_df := opts.all_options.query("in_the_money == True")):
-        print("In the money")
-        print(remove_zero_columns(itm_df.drop(columns="in_the_money")), "\n")
-    itm_df = get_itm_df(opts)
-    print(
-        "Balances after in the money options assigned (includes spreads not shown above)"
-    )
-    for broker in common.OPTIONS_BROKERAGES:
-        if broker in opts.pruned_options.index.get_level_values(0):
-            print(f"{broker}")
-            print(
-                f"  Short put exposure: {short_put_exposure(opts.pruned_options, broker):.0f}"
-            )
-            print(
-                f"  Total exercise value: {opts.pruned_options.xs(broker, level='account')['exercise_value'].sum():.0f}"
-            )
-            print(
-                remove_zero_columns(opts.pruned_options.xs(broker, level="account")),  # type: ignore
-                "\n",
-            )
-    if show_spreads:
-        if opts.bull_put_spreads:
-            print("Bull put spreads")
-            for spread in opts.bull_put_spreads:
-                summarize_spread(spread, "Bull Put")
-        if opts.bear_call_spreads:
-            print("Bear call spreads")
-            for spread in opts.bear_call_spreads:
-                summarize_spread(spread, "Bear Call")
-        if opts.iron_condors:
-            print("Iron condors")
-            for ic in opts.iron_condors:
-                summarize_iron_condor(ic)
-        if opts.box_spreads:
-            print("Box spreads")
-            for box in opts.box_spreads:
-                summarize_box(box)
-
-
-if __name__ == "__main__":
-    text_output(get_options_and_spreads(), show_spreads=True)

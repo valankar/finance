@@ -1,8 +1,10 @@
 import asyncio
 import base64
 import glob
+import json
 import os
 import pickle
+import re
 import tempfile
 from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass
@@ -38,6 +40,12 @@ class FigureData:
     fig: Future[Figure]
     range: Optional[str] = None
     fig_json: Optional[Future[dict]] = None
+
+
+@dataclass
+class Link:
+    url: str
+    text: str
 
 
 class GraphCommon:
@@ -123,17 +131,72 @@ class GraphCommon:
             xrange = ((latest_time + relative), latest_time)
         return xrange
 
-    def section_title(self, title: str, color: str = "white"):
+    def section_title(
+        self,
+        title: str,
+        color: str = "white",
+        link: Optional[Link] = None,
+    ):
         with ui.column(align_items="center").classes("w-full"):
-            ui.label(title).classes(f"text-{color}")
+            with ui.row():
+                ui.label(title).classes(f"text-{color}")
+                if link:
+                    ui.link(text=link.text, target=link.url)
+
+    def determine_error(self) -> Optional[str]:
+        matchers = {
+            r"USD.*received 0 as quote": "Bad forex quote: 0",
+            r"Invalid delta value:": "Bad options delta",
+            r"OAuthError": "Schwab authentication error",
+        }
+        lines = Path(common.HOURLY_LOGFILE).read_text().splitlines()
+        for line in lines:
+            for r, t in matchers.items():
+                if re.search(r, line):
+                    return t
+        return None
 
     def daily_change(self):
         diff = latest_values.difference_df(common.read_sql_table("history"))[1].iloc[-1]
         age = datetime.now() - cast(pd.Timestamp, diff.name)
-        age_color = "red-500" if age > timedelta(hours=2) else "white"
+        age_color = "white"
+        link = None
+        if age > timedelta(hours=2):
+            age_color = "red-500"
+            link = Link(url="/hourly_logs", text=(self.determine_error() or "Logs"))
+
+        # Check Schwab token expiry
+        token_warning = None
+        token_file = Path(common.Schwab.SCHWAB_TOKEN_FILE)
+        if token_file.exists():
+            try:
+                with token_file.open() as f:
+                    token_data = json.load(f)
+                creation_timestamp = token_data.get("creation_timestamp")
+                if creation_timestamp:
+                    token_age = datetime.now() - datetime.fromtimestamp(
+                        creation_timestamp
+                    )
+                    if token_age > timedelta(
+                        days=6
+                    ):  # Token is older than 6 days (expires at 7)
+                        time_remaining = timedelta(days=7) - token_age
+                        token_warning = f" (Token expires in {humanize.naturaldelta(time_remaining)})"
+            except (json.JSONDecodeError, KeyError, OSError) as e:
+                logger.warning(f"Failed to read Schwab token file: {e}")
+
+        title_text = f"Daily Change (Staleness: {humanize.naturaldelta(age)})"
         self.section_title(
-            f"Daily Change (Staleness: {humanize.naturaldelta(age)})", color=age_color
+            title_text,
+            color=age_color,
+            link=link,
         )
+
+        # Add token warning in yellow if applicable
+        if token_warning:
+            with ui.column(align_items="center").classes("w-full"):
+                ui.label(token_warning).classes("text-yellow-500 text-sm")
+
         total = diff["total"]
         total_color = "green-500" if total >= 0 else "red-500"
         total_no_real_estate = diff["total_no_real_estate"]
@@ -149,15 +212,33 @@ class GraphCommon:
             )
 
     def common_links(self):
+        # List of (url, text) tuples in alphabetical order by text
+        url_to_text = [
+            ("/balance_etfs", "Balance ETFs"),
+            ("/brokerages", "Brokerages"),
+            ("/", "Dynamic Graphs"),
+            ("/futures", "Futures"),
+            ("/hourly_logs", "Hourly Logs"),
+            ("/latest_values", "Latest Values"),
+            ("/ledger", "Ledger"),
+            ("/matplot", "Matplot"),
+            ("/real_estate", "Real Estate"),
+            ("/image_only", "Static Images"),
+            ("/stock_options", "Stock Options"),
+            ("/stocks_by_brokerage", "Stocks by Brokerage"),
+            ("/swygx_holdings", "SWYGX Holdings"),
+            ("/transactions", "Transactions"),
+        ]
+
+        # Get current page path
+        current_path = (
+            ui.context.client.request.url.path if ui.context.client.request else ""
+        )
+
         with ui.row().classes("flex justify-center w-full"):
-            ui.link("Dynamic Graphs", "/")
-            ui.link("Static Images", "/image_only")
-            ui.link("Matplot", "/matplot")
-            ui.link("Stock Options", "/stock_options")
-            ui.link("Futures", "/futures")
-            ui.link("Transactions", "/transactions")
-            ui.link("Rebalancing", "/balance_etfs")
-            ui.link("Latest Values", "/latest_values")
+            for url, text in url_to_text:
+                if url != current_path:
+                    ui.link(text, url)
 
 
 class MainGraphs(GraphCommon):
@@ -193,9 +274,9 @@ class MainGraphs(GraphCommon):
     def create(self) -> None:
         """Create all graphs."""
         # To avoid out of webgl context errors. See https://plotly.com/python/webgl-vs-svg/
-        ui.add_body_html(
-            '<script src="https://unpkg.com/virtual-webgl@1.0.6/src/virtual-webgl.js"></script>'
-        )
+        # ui.add_body_html(
+        #     '<script src="https://unpkg.com/virtual-webgl@1.0.6/src/virtual-webgl.js"></script>'
+        # )
         with ui.footer().classes("transparent q-py-none"):
             with ui.tabs().classes("w-full") as tabs:
                 for timerange in RANGES:
@@ -408,6 +489,8 @@ class MainGraphs(GraphCommon):
                 self.plotly_graphs[self.make_redis_key(f.name, f.range)] = pickle.dumps(
                     f.fig_json.result()
                 )
+        # Set update timestamp so clients know to refresh
+        self.plotly_graphs["updated"] = pickle.dumps(datetime.now())
         logger.info(
             f"Graph generation time for Plotly: {humanize.precisedelta(datetime.now() - start_time)}"
         )

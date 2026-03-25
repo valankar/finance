@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Get estimated home values."""
 
-import os
 import typing
 from datetime import datetime
 
 import pandas as pd
-from browser_use_sdk import BrowserUse
 from cyclopts import App, Parameter, Token
 from dateutil import parser
+from loguru import logger
 from pydantic import BaseModel
 
 import common
@@ -24,63 +23,48 @@ class Property(typing.NamedTuple):
 PROPERTIES = ()
 
 
+def _pivot_resample(df: pd.DataFrame, suffix: str) -> pd.DataFrame:
+    """Pivot dataframe and resample daily with interpolation."""
+    return (
+        df.drop(columns="site")
+        .pivot_table(index="date", columns="name", values="value")
+        .resample("D")
+        .last()
+        .interpolate()
+        .add_suffix(suffix)
+    )
+
+
 def get_real_estate_df() -> pd.DataFrame:
+    """Get combined real estate prices and rents."""
     df = common.read_sql_table("real_estate_prices")
-    redfin = (
-        df.query("site == 'Redfin'")
-        .drop(columns="site")
-        .pivot_table(index="date", columns="name", values="value")
-        .resample("D")
-        .last()
-        .interpolate()
-    )
-    zillow = (
-        df.query("site == 'Zillow'")
-        .drop(columns="site")
-        .pivot_table(index="date", columns="name", values="value")
-        .resample("D")
-        .last()
-        .interpolate()
-    )
-    taxes = (
-        df.query("site == 'Taxes'")
-        .drop(columns="site")
-        .pivot_table(index="date", columns="name", values="value")
-        .add_suffix(" Taxes")
-        .resample("D")
-        .last()
-        .interpolate()
-    )
-    merged = pd.merge_asof(
-        redfin,
-        zillow,
-        left_index=True,
-        right_index=True,
-        suffixes=(" Redfin", " Zillow"),
-    )
-    merged = pd.merge_asof(
-        merged,
-        taxes,
-        left_index=True,
-        right_index=True,
-    ).interpolate()
-    for p in PROPERTIES:
-        merged[p.name] = merged[
+
+    # Process each site type with appropriate suffixes
+    redfin = _pivot_resample(df.query("site == 'Redfin'"), " Redfin")
+    zillow = _pivot_resample(df.query("site == 'Zillow'"), " Zillow")
+    taxes = _pivot_resample(df.query("site == 'Taxes'"), " Taxes")
+
+    # Merge all price sources and calculate means for each property
+    merged = common.reduce_merge_asof([redfin, zillow, taxes]).interpolate()
+    means = {
+        p.name: merged[
             [f"{p.name} Redfin", f"{p.name} Zillow", f"{p.name} Taxes"]
         ].mean(axis=1)
-    price_df = merged[[p.name for p in PROPERTIES]].add_suffix(" Price")
-    rent_df = (
-        common.read_sql_table("real_estate_rents")
-        .pivot_table(index="date", columns="name", values="value")
-        .add_suffix(" Rent")
-        .resample("D")
-        .last()
+        for p in PROPERTIES
+    }
+    price_df = pd.DataFrame(means).add_suffix(" Price")
+
+    # Get rent data
+    rent_df = _pivot_resample(common.read_sql_table("real_estate_rents"), " Rent")
+
+    # Merge prices and rents, apply 30-day rolling mean
+    return (
+        common.reduce_merge_asof([price_df, rent_df])
         .interpolate()
+        .sort_index(axis=1)
+        .rolling("30D")
+        .mean()
     )
-    merged = (
-        common.reduce_merge_asof([price_df, rent_df]).interpolate().sort_index(axis=1)
-    )
-    return merged.rolling("30D").mean()
 
 
 def get_property(name: str) -> Property | None:
@@ -121,31 +105,24 @@ class ZillowEstimate(BaseModel):
     estimated_rent: int
 
 
-def get_from_browser_use():
-    api_key = os.environ.get("BROWSER_USE_API_KEY")
-    if not api_key:
-        print("No API key")
-        return
-    client = BrowserUse(api_key=api_key)
+async def get_from_browser_use():
     for p in PROPERTIES:
         redfin_price = zillow_price = zillow_rent = None
-        redfin_t = client.tasks.create_task(
-            task=f"Get the estimate value from https://www.redfin.com{p.redfin_url}",
-            llm="browser-use-llm",
-            schema=RedfinEstimate,
+        redfin_t = await common.run_browser_use(
+            task=f"Get the estimate value from https://www.redfin.com{p.redfin_url}. Do not go to any other site.",
+            model=RedfinEstimate,
         )
-        zillow_t = client.tasks.create_task(
-            task=f"Get the zestimate and estimated rent from https://www.zillow.com{p.zillow_url}",
-            llm="browser-use-llm",
-            schema=ZillowEstimate,
+        zillow_t = await common.run_browser_use(
+            task=f"Get the zestimate and estimated rent from https://www.zillow.com{p.zillow_url}. Do not go to any other site.",
+            model=ZillowEstimate,
         )
-        if o := redfin_t.complete().parsed_output:
+        if o := redfin_t.output:
             redfin_price = o.value
-        if o := zillow_t.complete().parsed_output:
+        if o := zillow_t.output:
             zillow_price = o.zestimate
             zillow_rent = o.estimated_rent
         if all((redfin_price, zillow_price, zillow_rent)):
-            print(
+            logger.info(
                 f"Name: {p.name} Redfin: {redfin_price} Zillow: {zillow_price} Zillow Rent: {zillow_rent}"
             )
             write_prices_table(p.name, zillow_price, "Zillow")
@@ -154,7 +131,7 @@ def get_from_browser_use():
 
 
 @app.default
-def main(
+async def main(
     name: typing.Optional[str] = None,
     redfin_price: typing.Optional[CommaInt] = None,
     zillow_price: typing.Optional[CommaInt] = None,
@@ -180,7 +157,7 @@ def main(
         else:
             print(f"Property {name} is unknown")
     else:
-        get_from_browser_use()
+        await get_from_browser_use()
 
 
 if __name__ == "__main__":

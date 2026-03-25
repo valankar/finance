@@ -1,57 +1,47 @@
 #!/usr/bin/env python3
 """Get market caps of SWTSX."""
 
-import math
+from operator import itemgetter
+from typing import Optional
+
+from pydantic import BaseModel
 
 import common
 
-CAP_MAP = {
-    "US_LARGE_CAP": ["> $70,000 M", "$15,000-$70,000 M"],
-    "US_SMALL_CAP": ["<$1,000 M", "$1,000-$3,000 M", "$3,000-$15,000 M"],
-}
+
+class MarketCap(BaseModel):
+    market_cap: dict[str, float]
 
 
-class ToleranceError(Exception):
-    """Percents do not add up close to 100."""
+class MarketCapError(Exception):
+    """Bad market cap values."""
 
 
-def get_market_cap(page):
-    """Get market cap data from Schwab."""
-    table_dict = {}
-    common.schwab_browser_page(page)
-    page.get_by_role("heading", name="Portfolio", exact=True).click()
-    for _, keys in CAP_MAP.items():
-        for cap in keys:
-            table_dict[cap] = float(
-                page.locator(f'tr:has-text("{cap}")')
-                .inner_text()
-                .split("\t\n")[1]
-                .strip("%")
-            )
-    return table_dict
+async def get_from_browser_use() -> Optional[dict[str, float]]:
+    t = await common.run_browser_use(
+        task="Get the market cap table from https://www.schwabassetmanagement.com/products/swtsx under the portfolio section, storing the market cap and percent in the market_cap dictionary",
+        model=MarketCap,
+    )
+    if o := t.output:
+        return o.market_cap
 
 
-def save_market_cap():
+async def save_market_cap():
     """Writes SWTSX market cap weightings to swtsx_market_cap DB table."""
-    with common.run_with_browser_page(
-        "https://www.schwabassetmanagement.com/products/swtsx"
-    ) as page:
-        table_dict = get_market_cap(page)
-    if not math.isclose(sum(table_dict.values()), 100, rel_tol=0.01):
-        raise ToleranceError()
-    market_cap_dict = {}
-    # For determining large vs small cap, compare:
-    # https://www.schwabassetmanagement.com/products/scha
-    # https://www.schwabassetmanagement.com/products/swtsx
-    for cap, keys in CAP_MAP.items():
-        market_cap_dict[cap] = sum(table_dict[x] for x in keys)
-    common.insert_sql("swtsx_market_cap", market_cap_dict)
+    if not (market_cap := await get_from_browser_use()):
+        raise MarketCapError
+    if sum(market_cap.values()) < 90:
+        raise MarketCapError(f"Sum is < 90: {market_cap}")
+    sorted_cap = sorted(market_cap.items(), key=itemgetter(1), reverse=True)
+    # US_LARGE_CAP = first 2 elements
+    # US_SMALL_CAP = the rest
+    d = {
+        "US_LARGE_CAP": sum([x[1] for x in sorted_cap[0:2]]),
+        "US_SMALL_CAP": sum([x[1] for x in sorted_cap[2:]]),
+    }
+    common.insert_sql("swtsx_market_cap", d)
 
 
-def main():
+async def main():
     """Main."""
-    save_market_cap()
-
-
-if __name__ == "__main__":
-    main()
+    await save_market_cap()

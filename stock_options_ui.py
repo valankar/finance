@@ -16,17 +16,23 @@ class StockOptionsPage(GraphCommon):
 
     def __init__(self):
         opts = stock_options.get_options_and_spreads()
-        self.short_calls = self.make_short_calls_data(opts)
+        self.short_options = self.make_options_data(opts, "short")
+        self.long_options = self.make_options_data(opts, "long")
         self.vertical_spreads = self.make_vertical_spreads_data(opts)
         self.iron_condors = self.make_iron_condors_data(opts)
         self.synthetics = self.make_synthetics_data(opts)
+        self.strangles = self.make_strangles_data(opts)
 
-    def make_short_calls_data(
-        self, opts: stock_options.OptionsAndSpreads
+    def make_options_data(
+        self, opts: stock_options.OptionsAndSpreads, t: typing.Literal["long", "short"]
     ) -> list[RowType]:
         rows: list[RowType] = []
-        d: stock_options.ShortCallDetails
-        for d in opts.short_calls:
+        match t:
+            case "long":
+                o = opts.long_options
+            case "short":
+                o = opts.short_options
+        for d in sorted(o, key=lambda x: x.details.profit, reverse=True):
             cd: stock_options.CommonDetails = d.details
             expiration = f"{cd.expiration} ({(cd.expiration - date.today()).days}d)"
             rows.append(
@@ -34,33 +40,32 @@ class StockOptionsPage(GraphCommon):
                     "account": cd.account,
                     "name": f"{cd.ticker} {d.strike:.0f}",
                     "expiration": expiration,
-                    "type": "Short Call",
-                    "strike": d.strike,
+                    "type": d.option_type,
                     "count": cd.amount,
                     "intrinsic value": f"{cd.intrinsic_value:.0f}",
+                    "notional value": f"{cd.notional_value:.0f}",
+                    "delta": f"{d.df['delta'].sum():.2f}",
                     "contract price": f"{cd.contract_price:.0f}",
-                    "quote": f"{cd.quote:.0f}",
-                    "profit option": f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})",
-                    "profit stock": f"{d.profit_stock:.2f}",
+                    "quote": f"{(cd.quote / cd.amount / 100):.2f}",
+                    "profit": f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})",
                     "ticker price": cd.ticker_price,
                 }
             )
         return rows
 
-    def make_synthetics_data(
+    def make_strangles_data(
         self,
         opts: stock_options.OptionsAndSpreads,
     ) -> list[RowType]:
         rows: list[RowType] = []
-        for d in opts.synthetics:
+        for d in sorted(
+            opts.strangles, key=lambda x: x.details.details.profit, reverse=True
+        ):
             sd: stock_options.SpreadDetails = d.details
             cd: stock_options.CommonDetails = sd.details
-            if len(d.df.query("type == 'CALL' & count > 0")):
-                t = "Long Synthetic"
-            else:
-                t = "Short Synthetic"
+            t = "Short Strangle"
             name = f"{cd.ticker} {sd.low_strike:.0f}/{sd.high_strike:.0f}"
-            risk = f"{sd.risk:.0f}"
+            delta = f"{sd.delta:.2f}"
             profit = f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})"
             rows.append(
                 RowType(
@@ -71,9 +76,47 @@ class StockOptionsPage(GraphCommon):
                         "type": t,
                         "count": cd.amount,
                         "intrinsic value": f"{cd.intrinsic_value:.0f}",
-                        "maximum loss": risk,
+                        "notional value": f"{cd.notional_value:.0f}",
+                        "delta": delta,
                         "contract price": f"{cd.contract_price:.0f}",
-                        "quote": f"{cd.quote:.0f}",
+                        "quote": f"{(cd.quote / cd.amount / 100):.2f}",
+                        "profit": profit,
+                        "ticker price": cd.ticker_price,
+                    }
+                )
+            )
+        return rows
+
+    def make_synthetics_data(
+        self,
+        opts: stock_options.OptionsAndSpreads,
+    ) -> list[RowType]:
+        rows: list[RowType] = []
+        for d in sorted(
+            opts.synthetics, key=lambda x: x.details.details.profit, reverse=True
+        ):
+            sd: stock_options.SpreadDetails = d.details
+            cd: stock_options.CommonDetails = sd.details
+            if len(d.df.query("type == 'CALL' & count > 0")):
+                t = "Long Synthetic"
+            else:
+                t = "Short Synthetic"
+            name = f"{cd.ticker} {sd.low_strike:.0f}/{sd.high_strike:.0f}"
+            delta = f"{sd.delta:.2f}"
+            profit = f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})"
+            rows.append(
+                RowType(
+                    {
+                        "account": cd.account,
+                        "name": name,
+                        "expiration": f"{cd.expiration} ({(cd.expiration - date.today()).days}d)",
+                        "type": t,
+                        "count": cd.amount,
+                        "intrinsic value": f"{cd.intrinsic_value:.0f}",
+                        "notional value": f"{cd.notional_value:.0f}",
+                        "delta": delta,
+                        "contract price": f"{cd.contract_price:.0f}",
+                        "quote": f"{(cd.quote / cd.amount / 100):.2f}",
                         "profit": profit,
                         "ticker price": cd.ticker_price,
                     }
@@ -87,15 +130,17 @@ class StockOptionsPage(GraphCommon):
     ) -> list[RowType]:
         rows: list[RowType] = []
         for spreads, spread_type in (
-            (opts.bull_put_spreads_no_ic, "Bull Put"),
-            (opts.bear_call_spreads_no_ic, "Bear Call"),
+            (opts.bull_put_spreads, "Bull Put"),
+            (opts.bear_call_spreads, "Bear Call"),
             (opts.bull_call_spreads, "Bull Call"),
         ):
-            for d in spreads:
+            for d in sorted(
+                spreads, key=lambda x: x.details.details.profit, reverse=True
+            ):
                 sd: stock_options.SpreadDetails = d.details
                 cd: stock_options.CommonDetails = sd.details
                 name = f"{cd.ticker} {sd.low_strike:.0f}/{sd.high_strike:.0f}"
-                risk = f"{sd.risk:.0f}"
+                delta = f"{sd.delta:.2f}"
                 profit = f"{cd.profit:.0f} ({abs(cd.profit / cd.contract_price):.0%})"
                 rows.append(
                     RowType(
@@ -106,9 +151,10 @@ class StockOptionsPage(GraphCommon):
                             "type": spread_type,
                             "count": cd.amount,
                             "intrinsic value": f"{cd.intrinsic_value:.0f}",
-                            "maximum loss": risk,
+                            "notional value": f"{cd.notional_value:.0f}",
+                            "delta": delta,
                             "contract price": f"{cd.contract_price:.0f}",
-                            "quote": f"{cd.quote:.0f}",
+                            "quote": f"{(cd.quote / cd.amount / 100):.2f}",
                             "profit": profit,
                             "ticker price": cd.ticker_price,
                         }
@@ -135,9 +181,10 @@ class StockOptionsPage(GraphCommon):
                     "type": "Iron Condor",
                     "count": cd.amount,
                     "intrinsic value": f"{cd.intrinsic_value:.0f}",
+                    "notional value": f"{cd.notional_value:.0f}",
                     "maximum loss": risk,
                     "contract price": f"{cd.contract_price:.0f}",
-                    "quote": f"{cd.quote:.0f}",
+                    "quote": f"{(cd.quote / cd.amount / 100):.2f}",
                     "profit": profit,
                     "ticker price": cd.ticker_price,
                 }
@@ -182,24 +229,8 @@ class StockOptionsPage(GraphCommon):
         if not rows:
             return
         ui.label(title)
-        sorted_rows = sorted(
-            rows,
-            key=lambda x: (
-                x["account"],
-                x["expiration"],
-                x["name"],
-                x["type"],
-            ),
-        )
-        table = ui.table(rows=[row for row in sorted_rows])
+        table = ui.table(rows=rows)
         if colored:
-            # Current price is more than double the contract price.
-            body_cell_slot(
-                table,
-                "quote",
-                "red",
-                "Number(props.value) < (Number(props.row['contract price']) * 2)",
-            )
             body_cell_slot(
                 table,
                 profit_color_col,
@@ -208,14 +239,13 @@ class StockOptionsPage(GraphCommon):
                 "green",
             )
 
-    def make_all_options_section(self, broker: str, options_df: pd.DataFrame):
-        ui.label(broker)
-        df = (
-            options_df.xs(broker, level="account").reset_index().sort_values(by="name")
-        ).drop(
+    def make_all_options_section(self, options_df: pd.DataFrame):
+        if not len(options_df):
+            return
+        ui.label("Ungrouped Options")
+        df = (options_df.reset_index().sort_values(by="name")).drop(
             columns=[
                 "exercise_value",
-                "min_contract_price",
                 "profit_stock_price",
                 "type",
                 "ticker",
@@ -252,18 +282,14 @@ class StockOptionsPage(GraphCommon):
     def main_page(self):
         """Stock options."""
         opts = stock_options.get_options_and_spreads()
-        for broker in opts.all_options.index.get_level_values("account").unique():
-            df = stock_options.remove_spreads(
-                opts.all_options, [s.df for s in opts.box_spreads]
-            )
-            self.make_all_options_section(broker, df)
-        self.make_spread_section(
-            "Short Calls", self.short_calls, profit_color_col="profit option"
-        )
         self.make_spread_section("Synthetics", self.synthetics)
         self.make_spread_section("Vertical Spreads", self.vertical_spreads)
+        self.make_spread_section("Strangles", self.strangles)
         self.make_spread_section("Iron Condors", self.iron_condors)
+        self.make_spread_section("Short Options", self.short_options)
+        self.make_spread_section("Long Options", self.long_options)
         self.make_box_spread_sections("Box Spreads", opts.box_spreads)
+        self.make_all_options_section(opts.pruned_options)
 
 
 def body_cell_slot(

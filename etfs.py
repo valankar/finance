@@ -74,7 +74,7 @@ def main():
     for row in futures.Futures().futures_df.groupby("commodity").first().itertuples():
         common.insert_sql(
             TICKER_PRICES_TABLE,
-            {"ticker": row.Index, "price": row.current_price},  # type: ignore
+            {"ticker": row.Index, "price": row.current_price},
         )
 
 
